@@ -2,12 +2,16 @@
 set -eu
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-ROM_DIR="$ROOT_DIR/roms/blargg's_test_roms/cpu_instrs"
+ROM_ROOT="${ROM_ROOT:-}"
+if [ -z "$ROM_ROOT" ]; then
+  ROM_ROOT="$ROOT_DIR/roms/blargg's_test_roms"
+fi
 BIN="$ROOT_DIR/target/debug/gb-emu"
 MAX_STEPS="${MAX_STEPS:-120000000}"
+TIMEOUT_SECS="${TIMEOUT_SECS:-30}"
 
-if [ ! -d "$ROM_DIR" ]; then
-  echo "ROM directory not found: $ROM_DIR"
+if [ ! -d "$ROM_ROOT" ]; then
+  echo "ROM directory not found: $ROM_ROOT"
   exit 1
 fi
 
@@ -20,8 +24,14 @@ missing=0
 timeout=0
 unknown=0
 
-for rom in "$ROM_DIR"/*.gb; do
-  output="$(perl -e 'alarm 20; exec @ARGV' "$BIN" --blargg --max-steps "$MAX_STEPS" "$rom" 2>&1 || true)"
+found=0
+rom_list="$(mktemp)"
+trap 'rm -f "$rom_list"' EXIT
+find "$ROM_ROOT" -type f -name "*.gb" | sort > "$rom_list"
+
+while IFS= read -r rom; do
+  found=1
+  output="$(perl -e "alarm $TIMEOUT_SECS; exec @ARGV" "$BIN" --blargg --max-steps "$MAX_STEPS" "$rom" 2>&1 || true)"
 
   if printf "%s" "$output" | rg -q "Blargg result: Passed"; then
     status="PASS"
@@ -41,11 +51,17 @@ for rom in "$ROM_DIR"/*.gb; do
     unknown=$((unknown + 1))
   fi
 
-  printf "%s | %s\n" "$(basename "$rom")" "$status"
-done
+  rel="${rom#$ROM_ROOT/}"
+  printf "%s | %s\n" "$rel" "$status"
+done < "$rom_list"
 
 echo "----"
 echo "PASS=$pass FAIL=$fail MISSING=$missing TIMEOUT=$timeout UNKNOWN=$unknown"
+
+if [ "$found" -eq 0 ]; then
+  echo "No .gb ROM files found under $ROM_ROOT"
+  exit 1
+fi
 
 if [ "$fail" -ne 0 ] || [ "$missing" -ne 0 ] || [ "$timeout" -ne 0 ] || [ "$unknown" -ne 0 ]; then
   exit 1
