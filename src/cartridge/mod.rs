@@ -21,16 +21,28 @@ impl Display for CartridgeError {
         match self {
             Self::Io(err) => write!(f, "I/O error loading ROM: {err}"),
             Self::RomTooSmall { actual } => {
-                write!(f, "ROM too small ({actual} bytes), expected at least {HEADER_MIN_LEN} bytes")
+                write!(
+                    f,
+                    "ROM too small ({actual} bytes), expected at least {HEADER_MIN_LEN} bytes"
+                )
             }
             Self::UnsupportedCartridgeType(code) => {
-                write!(f, "Unsupported cartridge type 0x{code:02X}; only ROM-only (0x00) is supported")
+                write!(
+                    f,
+                    "Unsupported cartridge type 0x{code:02X}; only ROM-only (0x00) is supported"
+                )
             }
             Self::UnsupportedRomSizeCode(code) => {
-                write!(f, "Unsupported ROM size code 0x{code:02X}; only 32KB (0x00) is supported")
+                write!(
+                    f,
+                    "Unsupported ROM size code 0x{code:02X}; only 32KB (0x00) is supported"
+                )
             }
             Self::UnsupportedRomLength(len) => {
-                write!(f, "Unsupported ROM file length {len}; expected exactly {ROM_32KB_BYTES} bytes for ROM-only")
+                write!(
+                    f,
+                    "Unsupported ROM file length {len}; expected exactly {ROM_32KB_BYTES} bytes for ROM-only"
+                )
             }
         }
     }

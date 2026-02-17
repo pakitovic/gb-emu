@@ -25,7 +25,7 @@ impl Bus {
         }
     }
 
-    // ---------------- Lectura ----------------
+    // ---------------- Read ----------------
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             // ROM: 0000-7FFF
@@ -70,7 +70,7 @@ impl Bus {
         (high << 8) | low
     }
 
-    // ---------------- Escritura ----------------
+    // ---------------- Write ----------------
     pub fn write_byte(&mut self, addr: u16, value: u8) {
         match addr {
             // ROM area (MBC not implemented yet)

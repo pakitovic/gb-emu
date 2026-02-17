@@ -1,7 +1,7 @@
-mod cpu;
-mod memory;
-mod gameboy;
 mod cartridge;
+mod cpu;
+mod gameboy;
+mod memory;
 
 use cartridge::Cartridge;
 use gameboy::GameBoy;
@@ -19,11 +19,9 @@ fn main() {
 fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Usage: cargo run <rom_file>",
-        )
-        .into());
+        return Err(
+            io::Error::new(io::ErrorKind::InvalidInput, "Usage: cargo run <rom_file>").into(),
+        );
     }
 
     let rom_path = &args[1];

@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -eu
+
+echo "Running formatter check..."
+cargo fmt-check
+
+echo "Running lints..."
+cargo lint
+
+echo "Pre-commit checks passed."

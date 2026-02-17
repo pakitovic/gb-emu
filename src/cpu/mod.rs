@@ -9,16 +9,32 @@ pub struct Cpu {
 
 // ---------------- Flags helpers ----------------
 fn set_flag_z(f: &mut u8, cond: bool) {
-    if cond { *f |= 1 << 7; } else { *f &= !(1 << 7); }
+    if cond {
+        *f |= 1 << 7;
+    } else {
+        *f &= !(1 << 7);
+    }
 }
 fn set_flag_n(f: &mut u8, cond: bool) {
-    if cond { *f |= 1 << 6; } else { *f &= !(1 << 6); }
+    if cond {
+        *f |= 1 << 6;
+    } else {
+        *f &= !(1 << 6);
+    }
 }
 fn set_flag_h(f: &mut u8, cond: bool) {
-    if cond { *f |= 1 << 5; } else { *f &= !(1 << 5); }
+    if cond {
+        *f |= 1 << 5;
+    } else {
+        *f &= !(1 << 5);
+    }
 }
 fn set_flag_c(f: &mut u8, cond: bool) {
-    if cond { *f |= 1 << 4; } else { *f &= !(1 << 4); }
+    if cond {
+        *f |= 1 << 4;
+    } else {
+        *f &= !(1 << 4);
+    }
 }
 fn get_flag_z(f: u8) -> bool {
     (f & (1 << 7)) != 0
@@ -34,23 +50,23 @@ impl Cpu {
         }
     }
 
-    // ---------------- Operaciones básicas ----------------
+    // ---------------- Basic operations ----------------
 
-    // Lee un byte inmediato y avanza PC
+    // Read immediate byte and advance PC
     fn fetch_d8(&mut self, bus: &Bus) -> u8 {
         let value = bus.read_byte(self.registers.pc);
         self.registers.pc = self.registers.pc.wrapping_add(1);
         value
     }
 
-    // Lee una palabra inmediata y avanza PC
+    // Read immediate word and advance PC
     fn fetch_d16(&mut self, bus: &Bus) -> u16 {
         let value = bus.read_word(self.registers.pc);
         self.registers.pc = self.registers.pc.wrapping_add(2);
         value
     }
 
-    // Incremento de 8 bits con actualización de flags
+    // 8-bit increment with flag updates
     fn inc_r(&mut self, value: u8) -> u8 {
         let old = value;
         let result = old.wrapping_add(1);
@@ -62,7 +78,7 @@ impl Cpu {
         result
     }
 
-    // Decremento de 8 bits con actualización de flags
+    // 8-bit decrement with flag updates
     fn dec_r(&mut self, value: u8) -> u8 {
         let old = value;
         let result = old.wrapping_sub(1);
@@ -99,11 +115,11 @@ impl Cpu {
         set_flag_n(&mut self.registers.f, false);
         set_flag_h(
             &mut self.registers.f,
-            (a & 0x0F) + (value & 0x0F) + carry > 0x0F
+            (a & 0x0F) + (value & 0x0F) + carry > 0x0F,
         );
         set_flag_c(
             &mut self.registers.f,
-            (a as u16 + value as u16 + carry as u16) > 0xFF
+            (a as u16 + value as u16 + carry as u16) > 0xFF,
         );
 
         4
@@ -132,13 +148,10 @@ impl Cpu {
 
         set_flag_z(&mut self.registers.f, result == 0);
         set_flag_n(&mut self.registers.f, true);
-        set_flag_h(
-            &mut self.registers.f,
-            (a & 0x0F) < ((value & 0x0F) + carry)
-        );
+        set_flag_h(&mut self.registers.f, (a & 0x0F) < ((value & 0x0F) + carry));
         set_flag_c(
             &mut self.registers.f,
-            (a as u16) < (value as u16 + carry as u16)
+            (a as u16) < (value as u16 + carry as u16),
         );
 
         4
@@ -208,33 +221,72 @@ impl Cpu {
             0x00 => 4,
 
             // LD r, d8
-            0x3E => { self.registers.a = self.fetch_d8(bus); 8 },
-            0x06 => { self.registers.b = self.fetch_d8(bus); 8 },
-            0x0E => { self.registers.c = self.fetch_d8(bus); 8 },
-            0x16 => { self.registers.d = self.fetch_d8(bus); 8 },
-            0x1E => { self.registers.e = self.fetch_d8(bus); 8 },
-            0x26 => { self.registers.h = self.fetch_d8(bus); 8 },
-            0x2E => { self.registers.l = self.fetch_d8(bus); 8 },
+            0x3E => {
+                self.registers.a = self.fetch_d8(bus);
+                8
+            }
+            0x06 => {
+                self.registers.b = self.fetch_d8(bus);
+                8
+            }
+            0x0E => {
+                self.registers.c = self.fetch_d8(bus);
+                8
+            }
+            0x16 => {
+                self.registers.d = self.fetch_d8(bus);
+                8
+            }
+            0x1E => {
+                self.registers.e = self.fetch_d8(bus);
+                8
+            }
+            0x26 => {
+                self.registers.h = self.fetch_d8(bus);
+                8
+            }
+            0x2E => {
+                self.registers.l = self.fetch_d8(bus);
+                8
+            }
 
             // LD r1, r2 → 8-bit copy
-            0x78 => { self.registers.a = self.registers.b; 4 },
-            0x79 => { self.registers.a = self.registers.c; 4 },
-            0x7A => { self.registers.a = self.registers.d; 4 },
-            0x7B => { self.registers.a = self.registers.e; 4 },
-            0x7C => { self.registers.a = self.registers.h; 4 },
-            0x7D => { self.registers.a = self.registers.l; 4 },
+            0x78 => {
+                self.registers.a = self.registers.b;
+                4
+            }
+            0x79 => {
+                self.registers.a = self.registers.c;
+                4
+            }
+            0x7A => {
+                self.registers.a = self.registers.d;
+                4
+            }
+            0x7B => {
+                self.registers.a = self.registers.e;
+                4
+            }
+            0x7C => {
+                self.registers.a = self.registers.h;
+                4
+            }
+            0x7D => {
+                self.registers.a = self.registers.l;
+                4
+            }
             0x7E => {
                 let hl = ((self.registers.h as u16) << 8) | self.registers.l as u16;
                 self.registers.a = bus.read_byte(hl);
                 8
-            },
+            }
 
             // LD (HL), r
-            0x77 => { 
+            0x77 => {
                 let hl = ((self.registers.h as u16) << 8) | self.registers.l as u16;
                 bus.write_byte(hl, self.registers.a);
                 8
-            },
+            }
 
             // LD (HL-), A
             0x32 => {
@@ -244,7 +296,7 @@ impl Cpu {
                 self.registers.h = (hl_new >> 8) as u8;
                 self.registers.l = (hl_new & 0xFF) as u8;
                 8
-            },
+            }
 
             // LD (HL+), A
             0x22 => {
@@ -254,25 +306,67 @@ impl Cpu {
                 self.registers.h = (hl_new >> 8) as u8;
                 self.registers.l = (hl_new & 0xFF) as u8;
                 8
-            },
+            }
 
             // INC r
-            0x3C => { self.registers.a = self.inc_r(self.registers.a); 4 },
-            0x04 => { self.registers.b = self.inc_r(self.registers.b); 4 },
-            0x0C => { self.registers.c = self.inc_r(self.registers.c); 4 },
-            0x14 => { self.registers.d = self.inc_r(self.registers.d); 4 },
-            0x1C => { self.registers.e = self.inc_r(self.registers.e); 4 },
-            0x24 => { self.registers.h = self.inc_r(self.registers.h); 4 },
-            0x2C => { self.registers.l = self.inc_r(self.registers.l); 4 },
+            0x3C => {
+                self.registers.a = self.inc_r(self.registers.a);
+                4
+            }
+            0x04 => {
+                self.registers.b = self.inc_r(self.registers.b);
+                4
+            }
+            0x0C => {
+                self.registers.c = self.inc_r(self.registers.c);
+                4
+            }
+            0x14 => {
+                self.registers.d = self.inc_r(self.registers.d);
+                4
+            }
+            0x1C => {
+                self.registers.e = self.inc_r(self.registers.e);
+                4
+            }
+            0x24 => {
+                self.registers.h = self.inc_r(self.registers.h);
+                4
+            }
+            0x2C => {
+                self.registers.l = self.inc_r(self.registers.l);
+                4
+            }
 
             // DEC r
-            0x3D => { self.registers.a = self.dec_r(self.registers.a); 4 },
-            0x05 => { self.registers.b = self.dec_r(self.registers.b); 4 },
-            0x0D => { self.registers.c = self.dec_r(self.registers.c); 4 },
-            0x15 => { self.registers.d = self.dec_r(self.registers.d); 4 },
-            0x1D => { self.registers.e = self.dec_r(self.registers.e); 4 },
-            0x25 => { self.registers.h = self.dec_r(self.registers.h); 4 },
-            0x2D => { self.registers.l = self.dec_r(self.registers.l); 4 },
+            0x3D => {
+                self.registers.a = self.dec_r(self.registers.a);
+                4
+            }
+            0x05 => {
+                self.registers.b = self.dec_r(self.registers.b);
+                4
+            }
+            0x0D => {
+                self.registers.c = self.dec_r(self.registers.c);
+                4
+            }
+            0x15 => {
+                self.registers.d = self.dec_r(self.registers.d);
+                4
+            }
+            0x1D => {
+                self.registers.e = self.dec_r(self.registers.e);
+                4
+            }
+            0x25 => {
+                self.registers.h = self.dec_r(self.registers.h);
+                4
+            }
+            0x2D => {
+                self.registers.l = self.dec_r(self.registers.l);
+                4
+            }
 
             // XOR A
             0xAF => {
@@ -282,7 +376,7 @@ impl Cpu {
                 set_flag_h(&mut self.registers.f, false);
                 set_flag_c(&mut self.registers.f, false);
                 4
-            },
+            }
 
             // ADD A, r
             0x87 => self.add_a(self.registers.a),
@@ -297,12 +391,12 @@ impl Cpu {
                 let value = bus.read_byte(hl);
                 self.add_a(value);
                 8
-            },
+            }
             0xC6 => {
                 let value = self.fetch_d8(bus);
                 self.add_a(value);
                 8
-            },
+            }
             // ADC A, r
             0x8F => self.adc_a(self.registers.a),
             0x88 => self.adc_a(self.registers.b),
@@ -316,19 +410,19 @@ impl Cpu {
                 let value = bus.read_byte(hl);
                 self.adc_a(value);
                 8
-            },
+            }
             0xCE => {
                 let value = self.fetch_d8(bus);
                 self.adc_a(value);
                 8
-            },
+            }
 
             // JP a16
             0xC3 => {
                 let addr = bus.read_word(self.registers.pc);
                 self.registers.pc = addr;
                 16
-            },
+            }
             0xC2 => {
                 let addr = self.fetch_d16(bus);
                 if !get_flag_z(self.registers.f) {
@@ -337,7 +431,7 @@ impl Cpu {
                 } else {
                     12
                 }
-            },
+            }
             0xCA => {
                 let addr = self.fetch_d16(bus);
                 if get_flag_z(self.registers.f) {
@@ -346,7 +440,7 @@ impl Cpu {
                 } else {
                     12
                 }
-            },
+            }
             0xD2 => {
                 let addr = self.fetch_d16(bus);
                 if !get_flag_c(self.registers.f) {
@@ -355,7 +449,7 @@ impl Cpu {
                 } else {
                     12
                 }
-            },
+            }
             0xDA => {
                 let addr = self.fetch_d16(bus);
                 if get_flag_c(self.registers.f) {
@@ -364,14 +458,18 @@ impl Cpu {
                 } else {
                     12
                 }
-            },
+            }
 
             // JR r8
             0x18 => {
                 let offset = bus.read_byte(self.registers.pc) as i8;
-                self.registers.pc = self.registers.pc.wrapping_add(1).wrapping_add(offset as u16);
+                self.registers.pc = self
+                    .registers
+                    .pc
+                    .wrapping_add(1)
+                    .wrapping_add(offset as u16);
                 12
-            },
+            }
             0x20 => {
                 let offset = self.fetch_d8(bus) as i8;
                 if !get_flag_z(self.registers.f) {
@@ -380,7 +478,7 @@ impl Cpu {
                 } else {
                     8
                 }
-            },
+            }
             0x28 => {
                 let offset = self.fetch_d8(bus) as i8;
                 if get_flag_z(self.registers.f) {
@@ -389,7 +487,7 @@ impl Cpu {
                 } else {
                     8
                 }
-            },
+            }
             0x30 => {
                 let offset = self.fetch_d8(bus) as i8;
                 if !get_flag_c(self.registers.f) {
@@ -398,7 +496,7 @@ impl Cpu {
                 } else {
                     8
                 }
-            },
+            }
             0x38 => {
                 let offset = self.fetch_d8(bus) as i8;
                 if get_flag_c(self.registers.f) {
@@ -407,27 +505,31 @@ impl Cpu {
                 } else {
                     8
                 }
-            },
+            }
 
             // LD rr, d16
-            0x21 => { // LD HL,d16
+            0x21 => {
+                // LD HL,d16
                 let value = bus.read_word(self.registers.pc);
                 self.registers.h = (value >> 8) as u8;
                 self.registers.l = (value & 0xFF) as u8;
                 self.registers.pc = self.registers.pc.wrapping_add(2);
                 12
-            },
-            0x31 => { self.registers.sp = self.fetch_d16(bus); 12 },
+            }
+            0x31 => {
+                self.registers.sp = self.fetch_d16(bus);
+                12
+            }
             0xFA => {
                 let addr = self.fetch_d16(bus);
                 self.registers.a = bus.read_byte(addr);
                 16
-            },
+            }
             0xEA => {
                 let addr = self.fetch_d16(bus);
                 bus.write_byte(addr, self.registers.a);
                 16
-            },
+            }
 
             // CALL a16
             0xCD => {
@@ -436,7 +538,7 @@ impl Cpu {
                 self.push_u16(bus, ret_addr);
                 self.registers.pc = addr;
                 24
-            },
+            }
             0xC4 => {
                 let addr = self.fetch_d16(bus);
                 if !get_flag_z(self.registers.f) {
@@ -447,7 +549,7 @@ impl Cpu {
                 } else {
                     12
                 }
-            },
+            }
             0xCC => {
                 let addr = self.fetch_d16(bus);
                 if get_flag_z(self.registers.f) {
@@ -458,7 +560,7 @@ impl Cpu {
                 } else {
                     12
                 }
-            },
+            }
             0xD4 => {
                 let addr = self.fetch_d16(bus);
                 if !get_flag_c(self.registers.f) {
@@ -469,7 +571,7 @@ impl Cpu {
                 } else {
                     12
                 }
-            },
+            }
             0xDC => {
                 let addr = self.fetch_d16(bus);
                 if get_flag_c(self.registers.f) {
@@ -480,13 +582,13 @@ impl Cpu {
                 } else {
                     12
                 }
-            },
+            }
 
             // RET
             0xC9 => {
                 self.registers.pc = self.pop_u16(bus);
                 16
-            },
+            }
             0xC0 => {
                 if !get_flag_z(self.registers.f) {
                     self.registers.pc = self.pop_u16(bus);
@@ -494,7 +596,7 @@ impl Cpu {
                 } else {
                     8
                 }
-            },
+            }
             0xC8 => {
                 if get_flag_z(self.registers.f) {
                     self.registers.pc = self.pop_u16(bus);
@@ -502,7 +604,7 @@ impl Cpu {
                 } else {
                     8
                 }
-            },
+            }
             0xD0 => {
                 if !get_flag_c(self.registers.f) {
                     self.registers.pc = self.pop_u16(bus);
@@ -510,7 +612,7 @@ impl Cpu {
                 } else {
                     8
                 }
-            },
+            }
             0xD8 => {
                 if get_flag_c(self.registers.f) {
                     self.registers.pc = self.pop_u16(bus);
@@ -518,7 +620,7 @@ impl Cpu {
                 } else {
                     8
                 }
-            },
+            }
 
             // SUB A, r
             0x97 => self.sub_a(self.registers.a),
@@ -533,12 +635,12 @@ impl Cpu {
                 let value = bus.read_byte(hl);
                 self.sub_a(value);
                 8
-            },
+            }
             0xD6 => {
                 let value = self.fetch_d8(bus);
                 self.sub_a(value);
                 8
-            },
+            }
             // SBC A, r
             0x9F => self.sbc_a(self.registers.a),
             0x98 => self.sbc_a(self.registers.b),
@@ -552,12 +654,12 @@ impl Cpu {
                 let value = bus.read_byte(hl);
                 self.sbc_a(value);
                 8
-            },
+            }
             0xDE => {
                 let value = self.fetch_d8(bus);
                 self.sbc_a(value);
                 8
-            },
+            }
 
             // AND A, r
             0xA7 => self.and_a(self.registers.a),
@@ -572,12 +674,12 @@ impl Cpu {
                 let value = bus.read_byte(hl);
                 self.and_a(value);
                 8
-            },
+            }
             0xE6 => {
                 let value = self.fetch_d8(bus);
                 self.and_a(value);
                 8
-            },
+            }
 
             // OR A, r
             0xB7 => self.or_a(self.registers.a),
@@ -592,12 +694,12 @@ impl Cpu {
                 let value = bus.read_byte(hl);
                 self.or_a(value);
                 8
-            },
+            }
             0xF6 => {
                 let value = self.fetch_d8(bus);
                 self.or_a(value);
                 8
-            },
+            }
 
             // CP A, r
             0xBF => self.cp_a(self.registers.a),
@@ -612,34 +714,34 @@ impl Cpu {
                 let value = bus.read_byte(hl);
                 self.cp_a(value);
                 8
-            },
+            }
             0xFE => {
                 let value = self.fetch_d8(bus);
                 self.cp_a(value);
                 8
-            },
+            }
 
             // PUSH rr
             0xC5 => {
                 let value = ((self.registers.b as u16) << 8) | self.registers.c as u16;
                 self.push_u16(bus, value);
                 16
-            },
+            }
             0xD5 => {
                 let value = ((self.registers.d as u16) << 8) | self.registers.e as u16;
                 self.push_u16(bus, value);
                 16
-            },
+            }
             0xE5 => {
                 let value = ((self.registers.h as u16) << 8) | self.registers.l as u16;
                 self.push_u16(bus, value);
                 16
-            },
+            }
             0xF5 => {
                 let value = ((self.registers.a as u16) << 8) | self.registers.f as u16;
                 self.push_u16(bus, value);
                 16
-            },
+            }
 
             // POP rr
             0xC1 => {
@@ -647,27 +749,27 @@ impl Cpu {
                 self.registers.b = (value >> 8) as u8;
                 self.registers.c = (value & 0xFF) as u8;
                 12
-            },
+            }
             0xD1 => {
                 let value = self.pop_u16(bus);
                 self.registers.d = (value >> 8) as u8;
                 self.registers.e = (value & 0xFF) as u8;
                 12
-            },
+            }
             0xE1 => {
                 let value = self.pop_u16(bus);
                 self.registers.h = (value >> 8) as u8;
                 self.registers.l = (value & 0xFF) as u8;
                 12
-            },
+            }
             0xF1 => {
                 let value = self.pop_u16(bus);
                 self.registers.a = (value >> 8) as u8;
                 self.registers.f = (value & 0xF0) as u8;
                 12
-            },
+            }
 
-            // Default → opcode no implementado
+            // Default: opcode not implemented
             _ => panic!("Opcode not implemented: {:02X}", opcode),
         }
     }

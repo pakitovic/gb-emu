@@ -15,12 +15,12 @@ impl GameBoy {
         }
     }
 
-    // Ejecuta un ciclo
+    // Execute one CPU step
     pub fn step(&mut self) -> u8 {
         self.cpu.step(&mut self.bus)
     }
 
-    // Bucle de ejecución
+    // Main execution loop
     pub fn run(&mut self) {
         println!("ROM: {}", self.bus.rom_title());
         loop {
