@@ -141,3 +141,51 @@ impl Cpu {
         20
     }
 }
+
+impl Default for Cpu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cartridge::Cartridge;
+
+    fn make_test_bus() -> Bus {
+        let mut rom = vec![0; 32 * 1024];
+        rom[0x0147] = 0x00; // ROM-only
+        rom[0x0148] = 0x00; // 32KB
+        let cart = Cartridge::from_bytes(rom).expect("test ROM should be valid");
+        Bus::new(cart)
+    }
+
+    #[test]
+    fn push_and_pop_u16_roundtrip() {
+        let mut cpu = Cpu::new();
+        let mut bus = make_test_bus();
+        cpu.registers.sp = 0xD000;
+
+        cpu.push_u16(&mut bus, 0xBEEF);
+        assert_eq!(cpu.registers.sp, 0xCFFE);
+
+        let value = cpu.pop_u16(&mut bus);
+        assert_eq!(value, 0xBEEF);
+        assert_eq!(cpu.registers.sp, 0xD000);
+    }
+
+    #[test]
+    fn fetch_d16_reads_little_endian_and_advances_pc() {
+        let mut cpu = Cpu::new();
+        let mut bus = make_test_bus();
+        cpu.registers.pc = 0xC100;
+
+        bus.write_byte(0xC100, 0x34);
+        bus.write_byte(0xC101, 0x12);
+
+        let value = cpu.fetch_d16(&mut bus);
+        assert_eq!(value, 0x1234);
+        assert_eq!(cpu.registers.pc, 0xC102);
+    }
+}

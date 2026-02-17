@@ -145,3 +145,45 @@ fn parse_title(rom: &[u8]) -> String {
         .trim()
         .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_rom(size: usize, cart_type: u8, rom_size_code: u8) -> Vec<u8> {
+        let mut rom = vec![0; size];
+        rom[0x0147] = cart_type;
+        rom[0x0148] = rom_size_code;
+        rom
+    }
+
+    #[test]
+    fn accepts_rom_only_32kb() {
+        let rom = make_rom(ROM_32KB_BYTES, ROM_ONLY, ROM_SIZE_32KB_CODE);
+        let cart = Cartridge::from_bytes(rom).expect("valid ROM should load");
+        assert_eq!(cart.read_rom_byte(0x1234), 0x00);
+    }
+
+    #[test]
+    fn mbc1_switches_rom_bank() {
+        let mut rom = make_rom(ROM_64KB_BYTES, MBC1, ROM_SIZE_64KB_CODE);
+        rom[0x4000] = 0x11; // bank 1 first byte
+        rom[0x4000 + 0x4000] = 0x22; // bank 2 first byte
+
+        let mut cart = Cartridge::from_bytes(rom).expect("valid MBC1 ROM should load");
+        assert_eq!(cart.read_rom_byte(0x4000), 0x11);
+
+        cart.write_rom_control(0x2000, 0x02);
+        assert_eq!(cart.read_rom_byte(0x4000), 0x22);
+    }
+
+    #[test]
+    fn rejects_invalid_rom_length_for_header_code() {
+        let rom = make_rom(ROM_32KB_BYTES - 1, ROM_ONLY, ROM_SIZE_32KB_CODE);
+        match Cartridge::from_bytes(rom) {
+            Err(CartridgeError::UnsupportedRomLength(_)) => {}
+            Err(other) => panic!("unexpected error: {other}"),
+            Ok(_) => panic!("expected ROM loading to fail"),
+        }
+    }
+}

@@ -194,3 +194,55 @@ impl Bus {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_test_bus() -> Bus {
+        let mut rom = vec![0; 32 * 1024];
+        rom[0x0147] = 0x00; // ROM-only
+        rom[0x0148] = 0x00; // 32KB
+        let cart = Cartridge::from_bytes(rom).expect("test ROM should be valid");
+        Bus::new(cart)
+    }
+
+    #[test]
+    fn echo_ram_mirrors_work_ram() {
+        let mut bus = make_test_bus();
+        bus.write_byte(0xC123, 0xAB);
+        assert_eq!(bus.read_byte(0xE123), 0xAB);
+
+        bus.write_byte(0xE456, 0xCD);
+        assert_eq!(bus.read_byte(0xC456), 0xCD);
+    }
+
+    #[test]
+    fn div_increments_every_256_tcycles_and_resets_on_write() {
+        let mut bus = make_test_bus();
+        assert_eq!(bus.read_byte(0xFF04), 0x00);
+
+        bus.tick(255);
+        assert_eq!(bus.read_byte(0xFF04), 0x00);
+
+        bus.tick(1);
+        assert_eq!(bus.read_byte(0xFF04), 0x01);
+
+        bus.write_byte(0xFF04, 0x99);
+        assert_eq!(bus.read_byte(0xFF04), 0x00);
+    }
+
+    #[test]
+    fn timer_overflow_reloads_tma_and_requests_interrupt() {
+        let mut bus = make_test_bus();
+
+        bus.write_byte(0xFF07, 0x05); // TAC: enable + 16 t-cycles period
+        bus.write_byte(0xFF06, 0x42); // TMA
+        bus.write_byte(0xFF05, 0xFF); // TIMA
+
+        bus.tick(16);
+
+        assert_eq!(bus.read_byte(0xFF05), 0x42);
+        assert_ne!(bus.interrupt_flags() & (1 << 2), 0);
+    }
+}

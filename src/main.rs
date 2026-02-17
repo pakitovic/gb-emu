@@ -1,10 +1,5 @@
-mod cartridge;
-mod cpu;
-mod gameboy;
-mod memory;
-
-use cartridge::Cartridge;
-use gameboy::GameBoy;
+use gb_emu::cartridge::Cartridge;
+use gb_emu::gameboy::GameBoy;
 use std::env;
 use std::error::Error;
 use std::io;
