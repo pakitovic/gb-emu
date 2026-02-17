@@ -6,10 +6,12 @@ use crate::memory::Bus;
 
 impl Cpu {
     pub fn step(&mut self, bus: &mut Bus) -> u8 {
+        self.step_tcycles = 0;
         let pending = bus.pending_interrupts();
 
         if self.halted {
             if pending == 0 {
+                self.tick_t(bus, 4);
                 return 4;
             }
             self.halted = false;
@@ -21,9 +23,9 @@ impl Cpu {
 
         let opcode = if self.halt_bug {
             self.halt_bug = false;
-            bus.read_byte(self.registers.pc)
+            self.read_byte(bus, self.registers.pc)
         } else {
-            let op = bus.read_byte(self.registers.pc);
+            let op = self.read_byte(bus, self.registers.pc);
             self.registers.pc = self.registers.pc.wrapping_add(1); // fetch increment
             op
         };
@@ -153,86 +155,86 @@ impl Cpu {
                 4
             }
             0x7E => {
-                self.registers.a = bus.read_byte(self.hl());
+                self.registers.a = self.read_byte(bus, self.hl());
                 8
             }
             0x46 => {
-                self.registers.b = bus.read_byte(self.hl());
+                self.registers.b = self.read_byte(bus, self.hl());
                 8
             }
             0x4E => {
-                self.registers.c = bus.read_byte(self.hl());
+                self.registers.c = self.read_byte(bus, self.hl());
                 8
             }
             0x56 => {
-                self.registers.d = bus.read_byte(self.hl());
+                self.registers.d = self.read_byte(bus, self.hl());
                 8
             }
             0x5E => {
-                self.registers.e = bus.read_byte(self.hl());
+                self.registers.e = self.read_byte(bus, self.hl());
                 8
             }
             0x66 => {
-                self.registers.h = bus.read_byte(self.hl());
+                self.registers.h = self.read_byte(bus, self.hl());
                 8
             }
             0x6E => {
-                self.registers.l = bus.read_byte(self.hl());
+                self.registers.l = self.read_byte(bus, self.hl());
                 8
             }
             // LD (HL), r
             0x70 => {
-                bus.write_byte(self.hl(), self.registers.b);
+                self.write_byte(bus, self.hl(), self.registers.b);
                 8
             }
             0x71 => {
-                bus.write_byte(self.hl(), self.registers.c);
+                self.write_byte(bus, self.hl(), self.registers.c);
                 8
             }
             0x72 => {
-                bus.write_byte(self.hl(), self.registers.d);
+                self.write_byte(bus, self.hl(), self.registers.d);
                 8
             }
             0x73 => {
-                bus.write_byte(self.hl(), self.registers.e);
+                self.write_byte(bus, self.hl(), self.registers.e);
                 8
             }
             0x74 => {
-                bus.write_byte(self.hl(), self.registers.h);
+                self.write_byte(bus, self.hl(), self.registers.h);
                 8
             }
             0x75 => {
-                bus.write_byte(self.hl(), self.registers.l);
+                self.write_byte(bus, self.hl(), self.registers.l);
                 8
             }
             0x77 => {
-                bus.write_byte(self.hl(), self.registers.a);
+                self.write_byte(bus, self.hl(), self.registers.a);
                 8
             }
             0x36 => {
                 let value = self.fetch_d8(bus);
-                bus.write_byte(self.hl(), value);
+                self.write_byte(bus, self.hl(), value);
                 12
             }
             0x12 => {
-                bus.write_byte(self.de(), self.registers.a);
+                self.write_byte(bus, self.de(), self.registers.a);
                 8
             }
             0x02 => {
-                bus.write_byte(self.bc(), self.registers.a);
+                self.write_byte(bus, self.bc(), self.registers.a);
                 8
             }
 
             // LD (HL-), A
             0x32 => {
                 let hl = self.hl();
-                bus.write_byte(hl, self.registers.a);
+                self.write_byte(bus, hl, self.registers.a);
                 self.set_hl(hl.wrapping_sub(1));
                 8
             }
             0x3A => {
                 let hl = self.hl();
-                self.registers.a = bus.read_byte(hl);
+                self.registers.a = self.read_byte(bus, hl);
                 self.set_hl(hl.wrapping_sub(1));
                 8
             }
@@ -240,22 +242,22 @@ impl Cpu {
             // LD (HL+), A
             0x22 => {
                 let hl = self.hl();
-                bus.write_byte(hl, self.registers.a);
+                self.write_byte(bus, hl, self.registers.a);
                 self.set_hl(hl.wrapping_add(1));
                 8
             }
             0x2A => {
                 let hl = self.hl();
-                self.registers.a = bus.read_byte(hl);
+                self.registers.a = self.read_byte(bus, hl);
                 self.set_hl(hl.wrapping_add(1));
                 8
             }
             0x1A => {
-                self.registers.a = bus.read_byte(self.de());
+                self.registers.a = self.read_byte(bus, self.de());
                 8
             }
             0x0A => {
-                self.registers.a = bus.read_byte(self.bc());
+                self.registers.a = self.read_byte(bus, self.bc());
                 8
             }
 
@@ -290,9 +292,9 @@ impl Cpu {
             }
             0x34 => {
                 let addr = self.hl();
-                let old = bus.read_byte(addr);
+                let old = self.read_byte(bus, addr);
                 let result = old.wrapping_add(1);
-                bus.write_byte(addr, result);
+                self.write_byte(bus, addr, result);
 
                 set_flag_z(&mut self.registers.f, result == 0);
                 set_flag_n(&mut self.registers.f, false);
@@ -331,9 +333,9 @@ impl Cpu {
             }
             0x35 => {
                 let addr = self.hl();
-                let old = bus.read_byte(addr);
+                let old = self.read_byte(bus, addr);
                 let result = old.wrapping_sub(1);
-                bus.write_byte(addr, result);
+                self.write_byte(bus, addr, result);
 
                 set_flag_z(&mut self.registers.f, result == 0);
                 set_flag_n(&mut self.registers.f, true);
@@ -399,7 +401,7 @@ impl Cpu {
                 4
             }
             0xAE => {
-                self.registers.a ^= bus.read_byte(self.hl());
+                self.registers.a ^= self.read_byte(bus, self.hl());
                 set_flag_z(&mut self.registers.f, self.registers.a == 0);
                 set_flag_n(&mut self.registers.f, false);
                 set_flag_h(&mut self.registers.f, false);
@@ -482,7 +484,7 @@ impl Cpu {
             0x85 => self.add_a(self.registers.l),
             0x86 => {
                 let hl = ((self.registers.h as u16) << 8) | self.registers.l as u16;
-                let value = bus.read_byte(hl);
+                let value = self.read_byte(bus, hl);
                 self.add_a(value);
                 8
             }
@@ -501,7 +503,7 @@ impl Cpu {
             0x8D => self.adc_a(self.registers.l),
             0x8E => {
                 let hl = ((self.registers.h as u16) << 8) | self.registers.l as u16;
-                let value = bus.read_byte(hl);
+                let value = self.read_byte(bus, hl);
                 self.adc_a(value);
                 8
             }
@@ -513,7 +515,7 @@ impl Cpu {
 
             // JP a16
             0xC3 => {
-                let addr = bus.read_word(self.registers.pc);
+                let addr = self.read_word(bus, self.registers.pc);
                 self.registers.pc = addr;
                 16
             }
@@ -560,7 +562,7 @@ impl Cpu {
 
             // JR r8
             0x18 => {
-                let offset = bus.read_byte(self.registers.pc) as i8;
+                let offset = self.read_byte(bus, self.registers.pc) as i8;
                 self.registers.pc = self
                     .registers
                     .pc
@@ -613,7 +615,7 @@ impl Cpu {
             }
             0x21 => {
                 // LD HL,d16
-                let value = bus.read_word(self.registers.pc);
+                let value = self.read_word(bus, self.registers.pc);
                 self.registers.h = (value >> 8) as u8;
                 self.registers.l = (value & 0xFF) as u8;
                 self.registers.pc = self.registers.pc.wrapping_add(2);
@@ -669,39 +671,39 @@ impl Cpu {
             }
             0xFA => {
                 let addr = self.fetch_d16(bus);
-                self.registers.a = bus.read_byte(addr);
+                self.registers.a = self.read_byte(bus, addr);
                 16
             }
             0xF0 => {
                 let addr = 0xFF00u16.wrapping_add(self.fetch_d8(bus) as u16);
-                self.registers.a = bus.read_byte(addr);
+                self.registers.a = self.read_byte(bus, addr);
                 12
             }
             0xF2 => {
                 let addr = 0xFF00u16.wrapping_add(self.registers.c as u16);
-                self.registers.a = bus.read_byte(addr);
+                self.registers.a = self.read_byte(bus, addr);
                 8
             }
             0xEA => {
                 let addr = self.fetch_d16(bus);
-                bus.write_byte(addr, self.registers.a);
+                self.write_byte(bus, addr, self.registers.a);
                 16
             }
             0xE0 => {
                 let addr = 0xFF00u16.wrapping_add(self.fetch_d8(bus) as u16);
-                bus.write_byte(addr, self.registers.a);
+                self.write_byte(bus, addr, self.registers.a);
                 12
             }
             0xE2 => {
                 let addr = 0xFF00u16.wrapping_add(self.registers.c as u16);
-                bus.write_byte(addr, self.registers.a);
+                self.write_byte(bus, addr, self.registers.a);
                 8
             }
             0x08 => {
                 let addr = self.fetch_d16(bus);
                 let sp = self.registers.sp;
-                bus.write_byte(addr, (sp & 0x00FF) as u8);
-                bus.write_byte(addr.wrapping_add(1), (sp >> 8) as u8);
+                self.write_byte(bus, addr, (sp & 0x00FF) as u8);
+                self.write_byte(bus, addr.wrapping_add(1), (sp >> 8) as u8);
                 20
             }
             0xF9 => {
@@ -850,7 +852,7 @@ impl Cpu {
             0x95 => self.sub_a(self.registers.l),
             0x96 => {
                 let hl = ((self.registers.h as u16) << 8) | self.registers.l as u16;
-                let value = bus.read_byte(hl);
+                let value = self.read_byte(bus, hl);
                 self.sub_a(value);
                 8
             }
@@ -869,7 +871,7 @@ impl Cpu {
             0x9D => self.sbc_a(self.registers.l),
             0x9E => {
                 let hl = ((self.registers.h as u16) << 8) | self.registers.l as u16;
-                let value = bus.read_byte(hl);
+                let value = self.read_byte(bus, hl);
                 self.sbc_a(value);
                 8
             }
@@ -889,7 +891,7 @@ impl Cpu {
             0xA5 => self.and_a(self.registers.l),
             0xA6 => {
                 let hl = ((self.registers.h as u16) << 8) | self.registers.l as u16;
-                let value = bus.read_byte(hl);
+                let value = self.read_byte(bus, hl);
                 self.and_a(value);
                 8
             }
@@ -909,7 +911,7 @@ impl Cpu {
             0xB5 => self.or_a(self.registers.l),
             0xB6 => {
                 let hl = ((self.registers.h as u16) << 8) | self.registers.l as u16;
-                let value = bus.read_byte(hl);
+                let value = self.read_byte(bus, hl);
                 self.or_a(value);
                 8
             }
@@ -929,7 +931,7 @@ impl Cpu {
             0xBD => self.cp_a(self.registers.l),
             0xBE => {
                 let hl = ((self.registers.h as u16) << 8) | self.registers.l as u16;
-                let value = bus.read_byte(hl);
+                let value = self.read_byte(bus, hl);
                 self.cp_a(value);
                 8
             }
@@ -1069,6 +1071,10 @@ impl Cpu {
             // Default: opcode not implemented
             _ => panic!("Opcode not implemented: {:02X}", opcode),
         };
+
+        if self.step_tcycles < cycles {
+            self.tick_t(bus, cycles - self.step_tcycles);
+        }
 
         if self.ime_enable_pending && opcode != 0xFB {
             self.ime = true;

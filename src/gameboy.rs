@@ -17,9 +17,7 @@ impl GameBoy {
 
     // Execute one CPU step
     pub fn step(&mut self) -> u8 {
-        let cycles = self.cpu.step(&mut self.bus);
-        self.bus.tick(cycles);
-        cycles
+        self.cpu.step(&mut self.bus)
     }
 
     // Main execution loop

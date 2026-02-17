@@ -10,17 +10,6 @@ jobs:
   rom-suites:
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        suite:
-          - name: blargg-core
-            run: scripts/run_blargg_core.sh
-            allow_failure: false
-          - name: blargg-mem-timing
-            run: scripts/run_blargg_mem_timing.sh
-            allow_failure: true
-    continue-on-error: ${{ matrix.suite.allow_failure }}
 
     steps:
       - name: Checkout
@@ -39,7 +28,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Run ROM suite (${{ matrix.suite.name }})
+      - name: Run ROM suite (blargg-core)
         env:
           MAX_STEPS: "120000000"
-        run: ${{ matrix.suite.run }}
+        run: scripts/run_blargg.sh

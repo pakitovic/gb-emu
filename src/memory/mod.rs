@@ -140,12 +140,6 @@ impl Bus {
         }
     }
 
-    pub fn read_word(&self, addr: u16) -> u16 {
-        let low = self.read_byte(addr) as u16;
-        let high = self.read_byte(addr.wrapping_add(1)) as u16;
-        (high << 8) | low
-    }
-
     // ---------------- Write ----------------
     pub fn write_byte(&mut self, addr: u16, value: u8) {
         match addr {

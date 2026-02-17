@@ -10,6 +10,7 @@ pub struct Cpu {
     ime_enable_pending: bool,
     halted: bool,
     halt_bug: bool,
+    step_tcycles: u8,
 }
 
 // ---------------- Flags helpers ----------------
@@ -76,23 +77,46 @@ impl Cpu {
             ime_enable_pending: false,
             halted: false,
             halt_bug: false,
+            step_tcycles: 0,
         }
     }
 
     // ---------------- Basic operations ----------------
 
+    fn tick_t(&mut self, bus: &mut Bus, tcycles: u8) {
+        self.step_tcycles = self.step_tcycles.wrapping_add(tcycles);
+        bus.tick(tcycles);
+    }
+
+    fn read_byte(&mut self, bus: &mut Bus, addr: u16) -> u8 {
+        let value = bus.read_byte(addr);
+        self.tick_t(bus, 4);
+        value
+    }
+
+    fn write_byte(&mut self, bus: &mut Bus, addr: u16, value: u8) {
+        bus.write_byte(addr, value);
+        self.tick_t(bus, 4);
+    }
+
+    fn read_word(&mut self, bus: &mut Bus, addr: u16) -> u16 {
+        let low = self.read_byte(bus, addr) as u16;
+        let high = self.read_byte(bus, addr.wrapping_add(1)) as u16;
+        (high << 8) | low
+    }
+
     // Read immediate byte and advance PC
-    fn fetch_d8(&mut self, bus: &Bus) -> u8 {
-        let value = bus.read_byte(self.registers.pc);
+    fn fetch_d8(&mut self, bus: &mut Bus) -> u8 {
+        let value = self.read_byte(bus, self.registers.pc);
         self.registers.pc = self.registers.pc.wrapping_add(1);
         value
     }
 
     // Read immediate word and advance PC
-    fn fetch_d16(&mut self, bus: &Bus) -> u16 {
-        let value = bus.read_word(self.registers.pc);
-        self.registers.pc = self.registers.pc.wrapping_add(2);
-        value
+    fn fetch_d16(&mut self, bus: &mut Bus) -> u16 {
+        let low = self.fetch_d8(bus) as u16;
+        let high = self.fetch_d8(bus) as u16;
+        (high << 8) | low
     }
 
     // 8-bit increment with flag updates
@@ -227,15 +251,15 @@ impl Cpu {
 
     fn push_u16(&mut self, bus: &mut Bus, value: u16) {
         self.registers.sp = self.registers.sp.wrapping_sub(1);
-        bus.write_byte(self.registers.sp, (value >> 8) as u8);
+        self.write_byte(bus, self.registers.sp, (value >> 8) as u8);
         self.registers.sp = self.registers.sp.wrapping_sub(1);
-        bus.write_byte(self.registers.sp, (value & 0xFF) as u8);
+        self.write_byte(bus, self.registers.sp, (value & 0xFF) as u8);
     }
 
-    fn pop_u16(&mut self, bus: &Bus) -> u16 {
-        let low = bus.read_byte(self.registers.sp) as u16;
+    fn pop_u16(&mut self, bus: &mut Bus) -> u16 {
+        let low = self.read_byte(bus, self.registers.sp) as u16;
         self.registers.sp = self.registers.sp.wrapping_add(1);
-        let high = bus.read_byte(self.registers.sp) as u16;
+        let high = self.read_byte(bus, self.registers.sp) as u16;
         self.registers.sp = self.registers.sp.wrapping_add(1);
         (high << 8) | low
     }
@@ -303,10 +327,11 @@ impl Cpu {
         self.halted = false;
         self.push_u16(bus, self.registers.pc);
         self.registers.pc = vector;
+        self.tick_t(bus, 12);
         20
     }
 
-    fn read_r8_by_index(&self, idx: u8, bus: &Bus) -> u8 {
+    fn read_r8_by_index(&mut self, idx: u8, bus: &mut Bus) -> u8 {
         match idx {
             0 => self.registers.b,
             1 => self.registers.c,
@@ -314,7 +339,7 @@ impl Cpu {
             3 => self.registers.e,
             4 => self.registers.h,
             5 => self.registers.l,
-            6 => bus.read_byte(self.hl()),
+            6 => self.read_byte(bus, self.hl()),
             7 => self.registers.a,
             _ => unreachable!(),
         }
@@ -328,7 +353,7 @@ impl Cpu {
             3 => self.registers.e = value,
             4 => self.registers.h = value,
             5 => self.registers.l = value,
-            6 => bus.write_byte(self.hl(), value),
+            6 => self.write_byte(bus, self.hl(), value),
             7 => self.registers.a = value,
             _ => unreachable!(),
         }
