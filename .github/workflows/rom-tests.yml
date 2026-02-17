@@ -28,6 +28,9 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
+      - name: Fetch Blargg ROMs
+        run: scripts/fetch_blargg_roms.sh
+
       - name: Run ROM suite (blargg-core)
         env:
           MAX_STEPS: "120000000"
