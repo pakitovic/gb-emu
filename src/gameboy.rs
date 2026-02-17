@@ -91,23 +91,24 @@ impl GameBoy {
             }
 
             // Mooneye acceptance convention:
-            // - Success: B,C,D,E,H,L = 3,5,8,13,21,34 and execute LD B,B (0x40)
-            // - Failure: B,C,D,E,H,L = 0x42 and execute LD B,B (0x40)
-            if self.bus.read_byte(self.cpu.registers.pc) == 0x40 {
-                let regs = (
-                    self.cpu.registers.b,
-                    self.cpu.registers.c,
-                    self.cpu.registers.d,
-                    self.cpu.registers.e,
-                    self.cpu.registers.h,
-                    self.cpu.registers.l,
-                );
-                if regs == (3, 5, 8, 13, 21, 34) {
-                    return Some("Passed".to_string());
-                }
-                if regs == (0x42, 0x42, 0x42, 0x42, 0x42, 0x42) {
-                    return Some("Failed".to_string());
-                }
+            // - Success signature in B,C,D,E,H,L: 3,5,8,13,21,34
+            // - Failure signature in B,C,D,E,H,L: 0x42,0x42,0x42,0x42,0x42,0x42
+            //
+            // Some tests park in tight loops after setting the final signature,
+            // so checking registers directly is robust and cheap.
+            let regs = (
+                self.cpu.registers.b,
+                self.cpu.registers.c,
+                self.cpu.registers.d,
+                self.cpu.registers.e,
+                self.cpu.registers.h,
+                self.cpu.registers.l,
+            );
+            if regs == (3, 5, 8, 13, 21, 34) {
+                return Some("Passed".to_string());
+            }
+            if regs == (0x42, 0x42, 0x42, 0x42, 0x42, 0x42) {
+                return Some("Failed".to_string());
             }
         }
         None

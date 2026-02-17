@@ -12,7 +12,7 @@ pub struct Bus {
     ie: u8,
     serial_output: String,
     div_counter: u16,
-    timer_counter: u16,
+    ly_counter: u16,
 }
 
 impl Bus {
@@ -28,7 +28,7 @@ impl Bus {
             ie: 0,
             serial_output: String::new(),
             div_counter: 0,
-            timer_counter: 0,
+            ly_counter: 0,
         };
         bus.io[0x0F] = 0xE1; // IF post-boot default
         bus
@@ -61,7 +61,10 @@ impl Bus {
             // IO: FF00-FF7F
             0xFF00..=0xFF7F => {
                 let index = (addr - 0xFF00) as usize;
-                if addr == 0xFF0F {
+                if addr == 0xFF04 {
+                    // DIV returns upper 8 bits of internal divider counter.
+                    (self.div_counter >> 8) as u8
+                } else if addr == 0xFF0F {
                     self.io[index] | 0xE0
                 } else {
                     self.io[index]
@@ -101,41 +104,24 @@ impl Bus {
     }
 
     pub fn tick(&mut self, cycles: u8) {
-        let c = cycles as u16;
+        for _ in 0..cycles {
+            self.ly_counter = self.ly_counter.wrapping_add(1);
+            if self.ly_counter >= 456 {
+                self.ly_counter -= 456;
+                self.io[0x44] = if self.io[0x44] >= 153 {
+                    0
+                } else {
+                    self.io[0x44].wrapping_add(1)
+                };
+            }
 
-        // DIV increments at 16384 Hz => every 256 t-cycles.
-        self.div_counter = self.div_counter.wrapping_add(c);
-        while self.div_counter >= 256 {
-            self.div_counter -= 256;
-            self.io[0x04] = self.io[0x04].wrapping_add(1);
-        }
+            let old_input = self.timer_input_high();
+            self.div_counter = self.div_counter.wrapping_add(1);
+            let new_input = self.timer_input_high();
 
-        // Timer control (TAC)
-        let tac = self.io[0x07];
-        let timer_enabled = (tac & 0x04) != 0;
-        if !timer_enabled {
-            return;
-        }
-
-        let period = match tac & 0x03 {
-            0x00 => 1024, // 4096 Hz
-            0x01 => 16,   // 262144 Hz
-            0x02 => 64,   // 65536 Hz
-            0x03 => 256,  // 16384 Hz
-            _ => unreachable!(),
-        };
-
-        self.timer_counter = self.timer_counter.wrapping_add(c);
-        while self.timer_counter >= period {
-            self.timer_counter -= period;
-
-            let (next_tima, overflow) = self.io[0x05].overflowing_add(1);
-            if overflow {
-                self.io[0x05] = self.io[0x06]; // TIMA = TMA
-                let iflags = self.interrupt_flags() | (1 << 2);
-                self.set_interrupt_flags(iflags);
-            } else {
-                self.io[0x05] = next_tima;
+            // TIMA increments on falling edge of selected DIV bit while timer is enabled.
+            if old_input && !new_input {
+                self.increment_tima();
             }
         }
     }
@@ -170,9 +156,25 @@ impl Bus {
                 if addr == 0xFF0F {
                     self.io[index] = (value & 0x1F) | 0xE0;
                 } else if addr == 0xFF04 {
-                    // Writing to DIV resets it.
-                    self.io[index] = 0;
+                    // Writing to DIV resets divider and can trigger timer falling edge increment.
+                    let old_input = self.timer_input_high();
                     self.div_counter = 0;
+                    let new_input = self.timer_input_high();
+                    if old_input && !new_input {
+                        self.increment_tima();
+                    }
+                } else if addr == 0xFF07 {
+                    // Writing TAC can also trigger a falling edge depending on selected source.
+                    let old_input = self.timer_input_high();
+                    self.io[index] = value;
+                    let new_input = self.timer_input_high();
+                    if old_input && !new_input {
+                        self.increment_tima();
+                    }
+                } else if addr == 0xFF44 {
+                    // LY is read-only; writing resets it to zero.
+                    self.io[index] = 0;
+                    self.ly_counter = 0;
                 } else {
                     self.io[index] = value;
                 }
@@ -191,6 +193,34 @@ impl Bus {
 
             // IE register: FFFF
             0xFFFF => self.ie = value,
+        }
+    }
+
+    fn timer_input_high(&self) -> bool {
+        let tac = self.io[0x07];
+        if (tac & 0x04) == 0 {
+            return false;
+        }
+
+        let bit = match tac & 0x03 {
+            0x00 => 9, // 4096 Hz
+            0x01 => 3, // 262144 Hz
+            0x02 => 5, // 65536 Hz
+            0x03 => 7, // 16384 Hz
+            _ => unreachable!(),
+        };
+
+        ((self.div_counter >> bit) & 1) != 0
+    }
+
+    fn increment_tima(&mut self) {
+        let (next_tima, overflow) = self.io[0x05].overflowing_add(1);
+        if overflow {
+            self.io[0x05] = self.io[0x06];
+            let iflags = self.interrupt_flags() | (1 << 2);
+            self.set_interrupt_flags(iflags);
+        } else {
+            self.io[0x05] = next_tima;
         }
     }
 }
@@ -244,5 +274,17 @@ mod tests {
 
         assert_eq!(bus.read_byte(0xFF05), 0x42);
         assert_ne!(bus.interrupt_flags() & (1 << 2), 0);
+    }
+
+    #[test]
+    fn div_write_can_increment_tima_on_falling_edge() {
+        let mut bus = make_test_bus();
+        bus.write_byte(0xFF07, 0x05); // TAC: enable + bit3 source
+        bus.write_byte(0xFF05, 0x00); // TIMA
+
+        bus.tick(8); // div bit3 becomes high
+        bus.write_byte(0xFF04, 0x00); // reset DIV => falling edge => TIMA++
+
+        assert_eq!(bus.read_byte(0xFF05), 0x01);
     }
 }
