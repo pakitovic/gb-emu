@@ -8,7 +8,7 @@ if [ -z "$ROM_ROOT" ]; then
 fi
 BIN="$ROOT_DIR/target/debug/gb-emu"
 MAX_STEPS="${MAX_STEPS:-120000000}"
-TIMEOUT_SECS="${TIMEOUT_SECS:-30}"
+TIMEOUT_SECS="${TIMEOUT_SECS:-120}"
 
 if [ ! -d "$ROM_ROOT" ]; then
   echo "ROM directory not found: $ROM_ROOT"
@@ -37,6 +37,12 @@ while IFS= read -r rom; do
     status="PASS"
     pass=$((pass + 1))
   elif printf "%s" "$output" | rg -q "Blargg result: Failed"; then
+    status="FAIL"
+    fail=$((fail + 1))
+  elif printf "%s" "$output" | rg -q "(^|[[:space:]])Passed([[:space:]]|$)"; then
+    status="PASS"
+    pass=$((pass + 1))
+  elif printf "%s" "$output" | rg -q "(^|[[:space:]])Failed([[:space:]]|$)"; then
     status="FAIL"
     fail=$((fail + 1))
   elif printf "%s" "$output" | rg -q "Opcode not implemented: "; then

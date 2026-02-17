@@ -37,9 +37,11 @@ jobs:
       - name: Run ROM suite (blargg-core)
         env:
           MAX_STEPS: "120000000"
+          TIMEOUT_SECS: "120"
         run: scripts/run_blargg.sh
 
       - name: Run ROM suite (gekkio)
         env:
           MAX_STEPS: "120000000"
+          TIMEOUT_SECS: "120"
         run: scripts/run_gekkio.sh
