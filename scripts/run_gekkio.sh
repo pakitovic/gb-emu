@@ -11,8 +11,8 @@ MAX_STEPS="${MAX_STEPS:-120000000}"
 TIMEOUT_SECS="${TIMEOUT_SECS:-30}"
 
 if [ ! -d "$ROM_ROOT" ]; then
-  echo "Gekkio ROM directory not found, skipping smoke suite: $ROM_ROOT"
-  exit 0
+  echo "Gekkio ROM directory not found: $ROM_ROOT"
+  exit 1
 fi
 
 cd "$ROOT_DIR"
@@ -27,10 +27,17 @@ unknown=0
 roms="
 acceptance/timer/div_write.gb
 acceptance/timer/tim00.gb
+acceptance/timer/tim00_div_trigger.gb
 acceptance/timer/tim01.gb
+acceptance/timer/tim01_div_trigger.gb
 acceptance/timer/tim10.gb
+acceptance/timer/tim10_div_trigger.gb
 acceptance/timer/tim11.gb
+acceptance/timer/tim11_div_trigger.gb
 acceptance/timer/tima_reload.gb
+acceptance/timer/rapid_toggle.gb
+acceptance/timer/tima_write_reloading.gb
+acceptance/timer/tma_write_reloading.gb
 "
 
 for rel in $roms; do

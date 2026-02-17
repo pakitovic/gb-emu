@@ -13,6 +13,8 @@ pub struct Bus {
     serial_output: String,
     div_counter: u16,
     ly_counter: u16,
+    tima_reload_delay: u8,
+    tima_reload_block: u8,
 }
 
 impl Bus {
@@ -29,6 +31,8 @@ impl Bus {
             serial_output: String::new(),
             div_counter: 0,
             ly_counter: 0,
+            tima_reload_delay: 0,
+            tima_reload_block: 0,
         };
         bus.io[0x0F] = 0xE1; // IF post-boot default
         bus
@@ -105,6 +109,8 @@ impl Bus {
 
     pub fn tick(&mut self, cycles: u8) {
         for _ in 0..cycles {
+            self.step_tima_reload();
+
             self.ly_counter = self.ly_counter.wrapping_add(1);
             if self.ly_counter >= 456 {
                 self.ly_counter -= 456;
@@ -122,6 +128,10 @@ impl Bus {
             // TIMA increments on falling edge of selected DIV bit while timer is enabled.
             if old_input && !new_input {
                 self.increment_tima();
+            }
+
+            if self.tima_reload_block > 0 {
+                self.tima_reload_block -= 1;
             }
         }
     }
@@ -175,6 +185,27 @@ impl Bus {
                     // LY is read-only; writing resets it to zero.
                     self.io[index] = 0;
                     self.ly_counter = 0;
+                } else if addr == 0xFF05 {
+                    // TIMA write behavior:
+                    // - during reload block: ignored
+                    // - during pending reload delay: write wins and cancels reload
+                    // - otherwise: normal write
+                    if self.tima_reload_block > 0 {
+                        // ignored
+                    } else if self.tima_reload_delay > 0 {
+                        self.io[index] = value;
+                        self.tima_reload_delay = 0;
+                    } else {
+                        self.io[index] = value;
+                    }
+                } else if addr == 0xFF06 {
+                    // TMA write behavior:
+                    // - always update TMA
+                    // - during reload block, TIMA mirrors new TMA
+                    self.io[index] = value;
+                    if self.tima_reload_block > 0 {
+                        self.io[0x05] = value;
+                    }
                 } else {
                     self.io[index] = value;
                 }
@@ -214,13 +245,31 @@ impl Bus {
     }
 
     fn increment_tima(&mut self) {
+        if self.tima_reload_delay != 0 {
+            return;
+        }
+
         let (next_tima, overflow) = self.io[0x05].overflowing_add(1);
         if overflow {
+            // On DMG, TIMA reload/interrupt is delayed by 4 t-cycles after overflow.
+            self.io[0x05] = 0x00;
+            self.tima_reload_delay = 4;
+        } else {
+            self.io[0x05] = next_tima;
+        }
+    }
+
+    fn step_tima_reload(&mut self) {
+        if self.tima_reload_delay == 0 {
+            return;
+        }
+
+        self.tima_reload_delay -= 1;
+        if self.tima_reload_delay == 0 {
             self.io[0x05] = self.io[0x06];
             let iflags = self.interrupt_flags() | (1 << 2);
             self.set_interrupt_flags(iflags);
-        } else {
-            self.io[0x05] = next_tima;
+            self.tima_reload_block = 4;
         }
     }
 }
@@ -271,6 +320,10 @@ mod tests {
         bus.write_byte(0xFF05, 0xFF); // TIMA
 
         bus.tick(16);
+        assert_eq!(bus.read_byte(0xFF05), 0x00);
+        assert_eq!(bus.interrupt_flags() & (1 << 2), 0);
+
+        bus.tick(4);
 
         assert_eq!(bus.read_byte(0xFF05), 0x42);
         assert_ne!(bus.interrupt_flags() & (1 << 2), 0);
@@ -286,5 +339,53 @@ mod tests {
         bus.write_byte(0xFF04, 0x00); // reset DIV => falling edge => TIMA++
 
         assert_eq!(bus.read_byte(0xFF05), 0x01);
+    }
+
+    #[test]
+    fn tima_write_during_reload_cancels_pending_reload() {
+        let mut bus = make_test_bus();
+        bus.write_byte(0xFF07, 0x05); // TAC: enable + bit3 source
+        bus.write_byte(0xFF06, 0x42); // TMA
+        bus.write_byte(0xFF05, 0xFF); // TIMA
+
+        bus.tick(16); // overflow -> pending reload (4 cycles)
+        assert_eq!(bus.read_byte(0xFF05), 0x00);
+
+        bus.write_byte(0xFF05, 0x99); // cancel reload
+        bus.tick(4);
+
+        assert_eq!(bus.read_byte(0xFF05), 0x99);
+        assert_eq!(bus.interrupt_flags() & (1 << 2), 0);
+    }
+
+    #[test]
+    fn tima_write_on_reload_cycle_is_ignored() {
+        let mut bus = make_test_bus();
+        bus.write_byte(0xFF07, 0x05); // TAC: enable + bit3 source
+        bus.write_byte(0xFF06, 0x42); // TMA
+        bus.write_byte(0xFF05, 0xFF); // TIMA
+
+        bus.tick(20); // overflow + reload happened; reload block active
+        assert_eq!(bus.read_byte(0xFF05), 0x42);
+
+        bus.write_byte(0xFF05, 0x99); // ignored during reload block
+
+        assert_eq!(bus.read_byte(0xFF05), 0x42);
+        assert_ne!(bus.interrupt_flags() & (1 << 2), 0);
+    }
+
+    #[test]
+    fn tma_write_on_reload_cycle_updates_reloaded_tima() {
+        let mut bus = make_test_bus();
+        bus.write_byte(0xFF07, 0x05); // TAC: enable + bit3 source
+        bus.write_byte(0xFF06, 0x42); // TMA
+        bus.write_byte(0xFF05, 0xFF); // TIMA
+
+        bus.tick(19); // overflow happened, 1 t-cycle left for reload
+        bus.write_byte(0xFF06, 0x99); // updates TMA and imminent reload value
+        bus.tick(1);
+
+        assert_eq!(bus.read_byte(0xFF05), 0x99);
+        assert_ne!(bus.interrupt_flags() & (1 << 2), 0);
     }
 }

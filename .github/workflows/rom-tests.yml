@@ -18,7 +18,7 @@ jobs:
       - name: Install ripgrep
         run: |
           sudo apt-get update
-          sudo apt-get install -y ripgrep
+          sudo apt-get install -y ripgrep unzip
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -31,13 +31,15 @@ jobs:
       - name: Fetch Blargg ROMs
         run: scripts/fetch_blargg_roms.sh
 
+      - name: Fetch Gekkio ROMs
+        run: scripts/fetch_gekkio_roms.sh
+
       - name: Run ROM suite (blargg-core)
         env:
           MAX_STEPS: "120000000"
         run: scripts/run_blargg.sh
 
-      - name: Run ROM suite (gekkio-smoke)
-        continue-on-error: true
+      - name: Run ROM suite (gekkio)
         env:
           MAX_STEPS: "120000000"
-        run: scripts/run_gekkio_smoke.sh
+        run: scripts/run_gekkio.sh
