@@ -22,6 +22,7 @@ tests/
   integration_smoke.rs
 scripts/
   run_blargg.sh
+  run_gekkio_smoke.sh
   fetch_blargg_roms.sh
 ```
 
@@ -53,13 +54,14 @@ Blargg suite:
 ```bash
 scripts/fetch_blargg_roms.sh
 scripts/run_blargg.sh
+scripts/run_gekkio_smoke.sh
 ```
 
 ## CI
 
 Workflows:
 - `.github/workflows/quality.yml`: format, lint, build, unit/integration tests.
-- `.github/workflows/rom-tests.yml`: fetches Blargg ROMs and runs ROM suite.
+- `.github/workflows/rom-tests.yml`: fetches Blargg ROMs, runs Blargg suite, and runs a non-blocking Gekkio smoke suite.
 
 ## Test ROMs and Licensing Notes
 
@@ -70,6 +72,8 @@ CI and local setup use `scripts/fetch_blargg_roms.sh`, which pulls public test R
 Why:
 - Keeps the repository lightweight.
 - Avoids redistributing binaries with mixed or unclear licensing terms.
+
+`run_gekkio_smoke.sh` uses a small "smoke" subset to catch regressions quickly. It is intentionally smaller than a full acceptance run.
 
 When adding new ROM suites, document:
 - Source repository URL.

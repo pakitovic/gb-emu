@@ -15,6 +15,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut rom_path: Option<String> = None;
     let mut trace = false;
     let mut blargg = false;
+    let mut mooneye = false;
     let mut max_steps: usize = 20_000_000;
 
     let mut args = env::args().skip(1);
@@ -22,6 +23,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         match arg.as_str() {
             "--trace" => trace = true,
             "--blargg" => blargg = true,
+            "--mooneye" => mooneye = true,
             "--max-steps" => {
                 let Some(value) = args.next() else {
                     return Err(io::Error::new(
@@ -50,6 +52,14 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let mut gb = GameBoy::new(cartridge);
 
+    if blargg && mooneye {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Use either --blargg or --mooneye",
+        )
+        .into());
+    }
+
     if blargg {
         match gb.run_blargg(max_steps, trace).as_deref() {
             Some("Passed") => {
@@ -63,6 +73,23 @@ fn run() -> Result<(), Box<dyn Error>> {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     "Blargg test did not finish within max steps",
+                )
+                .into());
+            }
+        }
+    } else if mooneye {
+        match gb.run_mooneye(max_steps, trace).as_deref() {
+            Some("Passed") => {
+                println!("\nMooneye result: Passed");
+            }
+            Some("Failed") => {
+                println!("\nMooneye result: Failed");
+                return Err(io::Error::other("Mooneye test reported Failed").into());
+            }
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "Mooneye test did not finish within max steps",
                 )
                 .into());
             }

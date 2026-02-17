@@ -35,3 +35,9 @@ jobs:
         env:
           MAX_STEPS: "120000000"
         run: scripts/run_blargg.sh
+
+      - name: Run ROM suite (gekkio-smoke)
+        continue-on-error: true
+        env:
+          MAX_STEPS: "120000000"
+        run: scripts/run_gekkio_smoke.sh

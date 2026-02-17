@@ -70,4 +70,46 @@ impl GameBoy {
         }
         None
     }
+
+    pub fn run_mooneye(&mut self, max_steps: usize, trace: bool) -> Option<String> {
+        println!("ROM: {}", self.bus.rom_title());
+        for _ in 0..max_steps {
+            let cycles = self.step();
+            if trace {
+                println!(
+                    "PC: {:04X}, A: {:02X}, B: {:02X}, C: {:02X}, D: {:02X}, E: {:02X}, H: {:02X}, L: {:02X}, cycles: {}",
+                    self.cpu.registers.pc,
+                    self.cpu.registers.a,
+                    self.cpu.registers.b,
+                    self.cpu.registers.c,
+                    self.cpu.registers.d,
+                    self.cpu.registers.e,
+                    self.cpu.registers.h,
+                    self.cpu.registers.l,
+                    cycles
+                );
+            }
+
+            // Mooneye acceptance convention:
+            // - Success: B,C,D,E,H,L = 3,5,8,13,21,34 and execute LD B,B (0x40)
+            // - Failure: B,C,D,E,H,L = 0x42 and execute LD B,B (0x40)
+            if self.bus.read_byte(self.cpu.registers.pc) == 0x40 {
+                let regs = (
+                    self.cpu.registers.b,
+                    self.cpu.registers.c,
+                    self.cpu.registers.d,
+                    self.cpu.registers.e,
+                    self.cpu.registers.h,
+                    self.cpu.registers.l,
+                );
+                if regs == (3, 5, 8, 13, 21, 34) {
+                    return Some("Passed".to_string());
+                }
+                if regs == (0x42, 0x42, 0x42, 0x42, 0x42, 0x42) {
+                    return Some("Failed".to_string());
+                }
+            }
+        }
+        None
+    }
 }
