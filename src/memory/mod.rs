@@ -1,5 +1,7 @@
+use crate::cartridge::Cartridge;
+
 pub struct Bus {
-    rom: Vec<u8>,
+    cartridge: Cartridge,
     vram: [u8; 0x2000],
     eram: [u8; 0x2000],
     wram: [u8; 0x2000],
@@ -10,9 +12,9 @@ pub struct Bus {
 }
 
 impl Bus {
-    pub fn new(rom: Vec<u8>) -> Self {
+    pub fn new(cartridge: Cartridge) -> Self {
         Self {
-            rom,
+            cartridge,
             vram: [0; 0x2000],
             eram: [0; 0x2000],
             wram: [0; 0x2000],
@@ -27,7 +29,7 @@ impl Bus {
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             // ROM: 0000-7FFF
-            0x0000..=0x7FFF => self.rom.get(addr as usize).copied().unwrap_or(0xFF),
+            0x0000..=0x7FFF => self.cartridge.read_rom_byte(addr),
 
             // VRAM: 8000-9FFF
             0x8000..=0x9FFF => self.vram[(addr - 0x8000) as usize],
@@ -56,6 +58,10 @@ impl Bus {
             // IE register: FFFF
             0xFFFF => self.ie,
         }
+    }
+
+    pub fn rom_title(&self) -> &str {
+        self.cartridge.title()
     }
 
     pub fn read_word(&self, addr: u16) -> u16 {

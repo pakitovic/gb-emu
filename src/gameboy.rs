@@ -1,6 +1,6 @@
+use crate::cartridge::Cartridge;
 use crate::cpu::Cpu;
 use crate::memory::Bus;
-use std::fs;
 
 pub struct GameBoy {
     pub cpu: Cpu,
@@ -8,10 +8,10 @@ pub struct GameBoy {
 }
 
 impl GameBoy {
-    pub fn new(rom_data: Vec<u8>) -> Self {
+    pub fn new(cartridge: Cartridge) -> Self {
         Self {
             cpu: Cpu::new(),
-            bus: Bus::new(rom_data),
+            bus: Bus::new(cartridge),
         }
     }
 
@@ -22,6 +22,7 @@ impl GameBoy {
 
     // Bucle de ejecución
     pub fn run(&mut self) {
+        println!("ROM: {}", self.bus.rom_title());
         loop {
             let cycles = self.step();
             println!(
@@ -30,8 +31,4 @@ impl GameBoy {
             );
         }
     }
-}
-
-pub fn load_rom(path: &str) -> Vec<u8> {
-    fs::read(path).expect("Failed to read ROM")
 }
