@@ -1,6 +1,3 @@
-mod cpu;
-mod memory;
-
 use crate::cpu::Cpu;
 use crate::memory::Bus;
 use std::fs;
