@@ -1,8 +1,12 @@
-use super::{Cpu, get_flag_c, set_flag_c, set_flag_h, set_flag_n, set_flag_z};
+use crate::cpu::{Cpu, get_flag_c, set_flag_c, set_flag_h, set_flag_n, set_flag_z};
 use crate::memory::Bus;
 
 impl Cpu {
-    pub(super) fn execute_instr_control(&mut self, opcode: u8, bus: &mut Bus) -> Option<u8> {
+    pub(in crate::cpu) fn execute_instr_control(
+        &mut self,
+        opcode: u8,
+        bus: &mut Bus,
+    ) -> Option<u8> {
         let cycles = match opcode {
             // NOP
             0x00 => 4,

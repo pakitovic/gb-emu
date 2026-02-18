@@ -1,7 +1,7 @@
-use super::{Cpu, get_flag_c, set_flag_c, set_flag_h, set_flag_n, set_flag_z};
+use crate::cpu::{Cpu, get_flag_c, set_flag_c, set_flag_h, set_flag_n, set_flag_z};
 
 impl Cpu {
-    pub(super) fn inc_r(&mut self, value: u8) -> u8 {
+    pub(in crate::cpu) fn inc_r(&mut self, value: u8) -> u8 {
         let old = value;
         let result = old.wrapping_add(1);
 
@@ -12,7 +12,7 @@ impl Cpu {
         result
     }
 
-    pub(super) fn dec_r(&mut self, value: u8) -> u8 {
+    pub(in crate::cpu) fn dec_r(&mut self, value: u8) -> u8 {
         let old = value;
         let result = old.wrapping_sub(1);
 
@@ -23,7 +23,7 @@ impl Cpu {
         result
     }
 
-    pub(super) fn add_a(&mut self, value: u8) -> u8 {
+    pub(in crate::cpu) fn add_a(&mut self, value: u8) -> u8 {
         let a = self.registers.a;
         let result = a.wrapping_add(value);
         self.registers.a = result;
@@ -36,7 +36,7 @@ impl Cpu {
         4
     }
 
-    pub(super) fn adc_a(&mut self, value: u8) -> u8 {
+    pub(in crate::cpu) fn adc_a(&mut self, value: u8) -> u8 {
         let a = self.registers.a;
         let carry = if get_flag_c(self.registers.f) { 1 } else { 0 };
         let result = a.wrapping_add(value).wrapping_add(carry);
@@ -56,7 +56,7 @@ impl Cpu {
         4
     }
 
-    pub(super) fn sub_a(&mut self, value: u8) -> u8 {
+    pub(in crate::cpu) fn sub_a(&mut self, value: u8) -> u8 {
         let a = self.registers.a;
         let result = a.wrapping_sub(value);
         self.registers.a = result;
@@ -69,7 +69,7 @@ impl Cpu {
         4
     }
 
-    pub(super) fn sbc_a(&mut self, value: u8) -> u8 {
+    pub(in crate::cpu) fn sbc_a(&mut self, value: u8) -> u8 {
         let a = self.registers.a;
         let carry = if get_flag_c(self.registers.f) { 1 } else { 0 };
         let result = a.wrapping_sub(value).wrapping_sub(carry);
@@ -86,7 +86,7 @@ impl Cpu {
         4
     }
 
-    pub(super) fn and_a(&mut self, value: u8) -> u8 {
+    pub(in crate::cpu) fn and_a(&mut self, value: u8) -> u8 {
         let result = self.registers.a & value;
         self.registers.a = result;
 
@@ -98,7 +98,7 @@ impl Cpu {
         4
     }
 
-    pub(super) fn or_a(&mut self, value: u8) -> u8 {
+    pub(in crate::cpu) fn or_a(&mut self, value: u8) -> u8 {
         let result = self.registers.a | value;
         self.registers.a = result;
 
@@ -110,7 +110,7 @@ impl Cpu {
         4
     }
 
-    pub(super) fn cp_a(&mut self, value: u8) -> u8 {
+    pub(in crate::cpu) fn cp_a(&mut self, value: u8) -> u8 {
         let a = self.registers.a;
         let result = a.wrapping_sub(value);
 
@@ -122,7 +122,7 @@ impl Cpu {
         4
     }
 
-    pub(super) fn add_hl(&mut self, value: u16) -> u8 {
+    pub(in crate::cpu) fn add_hl(&mut self, value: u16) -> u8 {
         let hl = self.hl();
         let result = hl.wrapping_add(value);
         self.set_hl(result);

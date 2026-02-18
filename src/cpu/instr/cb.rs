@@ -1,8 +1,8 @@
-use super::{Cpu, get_flag_c, set_flag_c, set_flag_h, set_flag_n, set_flag_z};
+use crate::cpu::{Cpu, get_flag_c, set_flag_c, set_flag_h, set_flag_n, set_flag_z};
 use crate::memory::Bus;
 
 impl Cpu {
-    pub(super) fn read_r8_by_index(&mut self, idx: u8, bus: &mut Bus) -> u8 {
+    pub(in crate::cpu) fn read_r8_by_index(&mut self, idx: u8, bus: &mut Bus) -> u8 {
         match idx {
             0 => self.registers.b,
             1 => self.registers.c,
@@ -16,7 +16,7 @@ impl Cpu {
         }
     }
 
-    pub(super) fn write_r8_by_index(&mut self, idx: u8, value: u8, bus: &mut Bus) {
+    pub(in crate::cpu) fn write_r8_by_index(&mut self, idx: u8, value: u8, bus: &mut Bus) {
         match idx {
             0 => self.registers.b = value,
             1 => self.registers.c = value,
@@ -30,7 +30,7 @@ impl Cpu {
         }
     }
 
-    pub(super) fn execute_cb(&mut self, bus: &mut Bus) -> u8 {
+    pub(in crate::cpu) fn execute_cb(&mut self, bus: &mut Bus) -> u8 {
         let cb_opcode = self.fetch_d8(bus);
         let group = cb_opcode >> 6;
         let y = (cb_opcode >> 3) & 0x07;

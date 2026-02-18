@@ -1,8 +1,8 @@
-use super::{Cpu, get_flag_c, get_flag_z};
+use crate::cpu::{Cpu, get_flag_c, get_flag_z};
 use crate::memory::Bus;
 
 impl Cpu {
-    pub(super) fn execute_instr_jump(&mut self, opcode: u8, bus: &mut Bus) -> Option<u8> {
+    pub(in crate::cpu) fn execute_instr_jump(&mut self, opcode: u8, bus: &mut Bus) -> Option<u8> {
         let cycles = match opcode {
             // JP a16 / JP HL / JP cc,a16
             0xC3 => {
