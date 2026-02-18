@@ -43,6 +43,16 @@ fn measure_hblank_until_ly_increment(bus: &mut Bus, ly: u8) -> u16 {
     panic!("LY did not increment within expected HBlank window");
 }
 
+fn wait_for_ly(bus: &mut Bus, target_ly: u8) {
+    for _ in 0..(154 * 456 * 2) {
+        if bus.read_byte(0xFF44) == target_ly {
+            return;
+        }
+        bus.tick(1);
+    }
+    panic!("LY={target_ly} not observed");
+}
+
 #[test]
 fn echo_ram_mirrors_work_ram() {
     let mut bus = make_test_bus();
@@ -212,6 +222,78 @@ fn lcdc_enable_starts_with_special_line0_timing() {
     assert_eq!(bus.read_byte(0xFF41) & 0x03, 0x00); // back to mode 0
     assert_eq!(bus.read_byte(0x8000), 0x12);
     assert_eq!(bus.read_byte(0xFE00), 0x34);
+}
+
+#[test]
+fn startup_mode0_slice_masks_lyc_on_stat_read() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF40, 0x00); // LCD off
+    bus.write_byte(0xFF45, 0x01); // LYC=1
+    bus.write_byte(0xFF40, 0x80); // LCD on
+
+    wait_for_ly(&mut bus, 0x01);
+    assert_eq!(bus.read_byte(0xFF41) & 0x03, 0x00); // startup mode 0 slice
+    assert_eq!(bus.read_byte(0xFF41) & 0x04, 0x00); // LYC masked in read value
+
+    bus.tick(4);
+    assert_eq!(bus.read_byte(0xFF41) & 0x03, 0x02); // mode 2
+    assert_ne!(bus.read_byte(0xFF41) & 0x04, 0x00); // LYC visible again
+}
+
+#[test]
+fn startup_mode0_slice_blocks_oam_reads_before_normal_hblank() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF40, 0x00); // LCD off
+    bus.write_byte(0xFE00, 0x12);
+    bus.write_byte(0xFF40, 0x80); // LCD on
+
+    wait_for_ly(&mut bus, 0x01);
+    assert_eq!(bus.read_byte(0xFF41) & 0x03, 0x00);
+    assert_eq!(bus.read_byte(0xFE00), 0xFF); // blocked in startup mode0 slice
+
+    let mut saw_open = false;
+    for _ in 0..456 {
+        if bus.read_byte(0xFF44) != 0x01 {
+            break;
+        }
+        if (bus.read_byte(0xFF41) & 0x03) == 0x00 && bus.read_byte(0xFE00) == 0x12 {
+            saw_open = true;
+            break;
+        }
+        bus.tick(1);
+    }
+    assert!(saw_open, "OAM should become readable in normal mode0");
+}
+
+#[test]
+fn startup_mode2_tail_blocks_vram_reads() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF40, 0x00); // LCD off
+    bus.write_byte(0x8000, 0x34);
+    bus.write_byte(0xFF40, 0x80); // LCD on
+
+    wait_for_ly(&mut bus, 0x01);
+    let mut saw_allowed = false;
+    let mut saw_blocked = false;
+    for _ in 0..456 {
+        if bus.read_byte(0xFF44) != 0x01 {
+            break;
+        }
+        if (bus.read_byte(0xFF41) & 0x03) == 0x02 {
+            if bus.read_byte(0x8000) == 0xFF {
+                saw_blocked = true;
+            } else {
+                saw_allowed = true;
+            }
+        }
+        bus.tick(1);
+    }
+
+    assert!(saw_allowed, "VRAM should be readable in early mode2");
+    assert!(
+        saw_blocked,
+        "VRAM should be blocked in late mode2 startup tail"
+    );
 }
 
 #[test]
