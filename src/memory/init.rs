@@ -32,7 +32,10 @@ impl Bus {
             serial_bits_remaining: 0,
             serial_tx_byte: 0,
             ppu_startup_line: false,
+            ppu_post_enable_phase: 0,
+            ppu_enable_delay: 0,
             stat_irq_line: false,
+            stat_mode0_enabled_this_line: false,
         };
         bus.apply_boot_defaults(model);
         bus.stat_irq_line = bus.stat_irq_source_active();

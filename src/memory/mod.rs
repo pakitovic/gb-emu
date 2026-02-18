@@ -33,7 +33,10 @@ pub struct Bus {
     serial_bits_remaining: u8,
     serial_tx_byte: u8,
     ppu_startup_line: bool,
+    ppu_post_enable_phase: u8,
+    ppu_enable_delay: u8,
     stat_irq_line: bool,
+    stat_mode0_enabled_this_line: bool,
 }
 
 #[cfg(test)]

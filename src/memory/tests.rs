@@ -17,6 +17,32 @@ fn make_test_bus_with_model(model: HardwareModel) -> Bus {
     bus
 }
 
+fn wait_for_transition(bus: &mut Bus, ly: u8, from_mode: u8, to_mode: u8) {
+    let mut prev_mode = bus.read_byte(0xFF41) & 0x03;
+    for _ in 0..(154 * 456 * 2) {
+        bus.tick(1);
+        let cur_mode = bus.read_byte(0xFF41) & 0x03;
+        let cur_ly = bus.read_byte(0xFF44);
+        if cur_ly == ly && prev_mode == from_mode && cur_mode == to_mode {
+            return;
+        }
+        prev_mode = cur_mode;
+    }
+    panic!("Transition LY={ly} {from_mode}->{to_mode} not observed");
+}
+
+fn measure_hblank_until_ly_increment(bus: &mut Bus, ly: u8) -> u16 {
+    let mut ticks = 0u16;
+    for _ in 0..512 {
+        if bus.read_byte(0xFF44) != ly {
+            return ticks;
+        }
+        bus.tick(1);
+        ticks = ticks.wrapping_add(1);
+    }
+    panic!("LY did not increment within expected HBlank window");
+}
+
 #[test]
 fn echo_ram_mirrors_work_ram() {
     let mut bus = make_test_bus();
@@ -172,7 +198,12 @@ fn lcdc_enable_starts_with_special_line0_timing() {
     assert_eq!(bus.read_byte(0x8000), 0x12);
     assert_eq!(bus.read_byte(0xFE00), 0x34);
 
-    bus.tick(80);
+    bus.tick(79);
+    assert_eq!(bus.read_byte(0xFF41) & 0x03, 0x00); // startup mode 0 lasts 80 t-cycles
+    assert_eq!(bus.read_byte(0x8000), 0x12);
+    assert_eq!(bus.read_byte(0xFE00), 0x34);
+
+    bus.tick(1);
     assert_eq!(bus.read_byte(0xFF41) & 0x03, 0x03); // mode 3
     assert_eq!(bus.read_byte(0x8000), 0xFF);
     assert_eq!(bus.read_byte(0xFE00), 0xFF);
@@ -232,6 +263,92 @@ fn entering_vblank_requests_vblank_interrupt() {
 
     assert_eq!(bus.read_byte(0xFF44), 144);
     assert_ne!(bus.interrupt_flags() & (1 << 0), 0);
+}
+
+#[test]
+fn scx_penalty_shortens_hblank_on_visible_lines() {
+    let mut bus = make_test_bus();
+    // Make sure we are in normal rendering, not the startup line.
+    for _ in 0..(456 * 2) {
+        bus.tick(1);
+    }
+
+    bus.write_byte(0xFF43, 0x00);
+    wait_for_transition(&mut bus, 0x42, 0x03, 0x00);
+    let delay_scx0 = measure_hblank_until_ly_increment(&mut bus, 0x42);
+
+    bus.write_byte(0xFF43, 0x05);
+    wait_for_transition(&mut bus, 0x43, 0x03, 0x00);
+    let delay_scx5 = measure_hblank_until_ly_increment(&mut bus, 0x43);
+
+    assert_eq!(delay_scx0, 204);
+    assert_eq!(delay_scx5, 199);
+}
+
+#[test]
+fn mode2_interrupt_source_is_active_on_ly144_entry() {
+    let mut bus = make_test_bus();
+    bus.set_interrupt_flags(0x00);
+    bus.write_byte(0xFF41, 0x20); // mode 2 STAT source
+
+    for _ in 0..(144 * 456) {
+        bus.tick(1);
+    }
+
+    assert_eq!(bus.read_byte(0xFF44), 144);
+    assert_ne!(bus.interrupt_flags() & (1 << 1), 0);
+}
+
+#[test]
+fn stat_mode0_irq_to_ly_increment_matches_scx_groups() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF41, 0x08); // mode 0 source only
+
+    let mut delays = [0u16; 8];
+    for (scx, delay_out) in delays.iter_mut().enumerate() {
+        bus.write_byte(0xFF43, scx as u8);
+
+        while bus.read_byte(0xFF44) != 0x41 {
+            bus.tick(1);
+        }
+        while bus.read_byte(0xFF44) == 0x41 {
+            bus.tick(1);
+        }
+
+        bus.set_interrupt_flags(0x00);
+
+        for _ in 0..456 {
+            bus.tick(1);
+            if (bus.interrupt_flags() & (1 << 1)) != 0 {
+                break;
+            }
+        }
+        assert_ne!(
+            bus.interrupt_flags() & (1 << 1),
+            0,
+            "mode0 STAT IRQ did not trigger for SCX={scx}"
+        );
+
+        let start_ly = bus.read_byte(0xFF44);
+        let mut delay = 0u16;
+        for _ in 0..456 {
+            if bus.read_byte(0xFF44) != start_ly {
+                break;
+            }
+            bus.tick(1);
+            delay = delay.wrapping_add(1);
+        }
+        *delay_out = delay;
+    }
+
+    assert_eq!(delays[0], 200);
+    assert_eq!(delays[1], 199);
+    assert_eq!(delays[2], 198);
+    assert_eq!(delays[3], 197);
+    assert_eq!(delays[4], 196);
+    assert_eq!(delays[5], 195);
+    assert_eq!(delays[6], 194);
+    assert_eq!(delays[7], 193);
 }
 
 #[test]
