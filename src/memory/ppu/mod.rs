@@ -12,20 +12,62 @@ impl Bus {
         (self.io[0x40] & 0x80) != 0
     }
 
+    fn ppu_mode(&self) -> u8 {
+        self.io[0x41] & 0x03
+    }
+
+    pub(super) fn ppu_startup_mode0_slice_active(&self) -> bool {
+        self.ppu_post_enable_phase > 0
+            && self.io[0x44] > 0
+            && self.io[0x44] < 144
+            && self.ppu_mode() == STAT_MODE_HBLANK
+            && self.ly_counter < 4
+    }
+
+    pub(super) fn ppu_startup_mode2_tail_active(&self) -> bool {
+        self.ppu_post_enable_phase > 0
+            && self.io[0x44] > 0
+            && self.io[0x44] < 144
+            && self.ppu_mode() == STAT_MODE_OAM
+            && (80..84).contains(&self.ly_counter)
+    }
+
+    pub(super) fn ppu_blocks_oam_read(&self) -> bool {
+        self.dma_active
+            || self.ppu_startup_mode0_slice_active()
+            || (self.lcd_enabled() && matches!(self.ppu_mode(), STAT_MODE_OAM | STAT_MODE_TRANSFER))
+    }
+
+    pub(super) fn ppu_blocks_oam_write(&self) -> bool {
+        self.dma_active || !self.ppu_allows_oam_access()
+    }
+
+    pub(super) fn ppu_blocks_vram_read(&self) -> bool {
+        self.ppu_startup_mode2_tail_active() || !self.ppu_allows_vram_access()
+    }
+
+    pub(super) fn ppu_blocks_vram_write(&self) -> bool {
+        !self.ppu_allows_vram_access()
+    }
+
+    pub(super) fn stat_read_value(&self) -> u8 {
+        let mut value = self.io[0x41];
+        if self.ppu_startup_mode0_slice_active() {
+            value &= !0x04;
+        }
+        value
+    }
+
     pub(super) fn ppu_allows_oam_access(&self) -> bool {
         if !self.lcd_enabled() {
             return true;
         }
         // DMG LCD-on startup quirk: OAM remains briefly accessible in mode 2
         // around dot 80 on the first lines after enabling LCD.
-        if self.io[0x44] < 144
-            && self.ppu_post_enable_phase > 0
-            && (self.io[0x41] & 0x03) == STAT_MODE_OAM
-            && (80..84).contains(&self.ly_counter)
-        {
+        if self.ppu_startup_mode2_tail_active() {
             return true;
         }
-        !matches!(self.io[0x41] & 0x03, STAT_MODE_OAM | STAT_MODE_TRANSFER)
+        !matches!(self.ppu_mode(), STAT_MODE_OAM | STAT_MODE_TRANSFER)
     }
 
     pub(super) fn ppu_allows_vram_access(&self) -> bool {

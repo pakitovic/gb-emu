@@ -560,6 +560,7 @@ fn dmg0_boot_profile_uses_expected_div_phase_and_ly_start() {
 
     assert_eq!(bus.div_counter, 0x1830);
     assert_eq!(bus.io[0x44], 0x91);
+    assert_eq!(bus.ly_counter, 96);
 }
 
 #[test]

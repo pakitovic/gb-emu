@@ -2,24 +2,11 @@ use super::Bus;
 
 impl Bus {
     pub fn read_byte(&self, addr: u16) -> u8 {
-        if matches!(addr, 0xFE00..=0xFE9F) {
-            let startup_read_block = self.ppu_post_enable_phase > 0
-                && self.io[0x44] > 0
-                && (self.io[0x41] & 0x03) == 0x00
-                && self.ly_counter < 4;
-            let ppu_read_block = self.lcd_enabled() && matches!(self.io[0x41] & 0x03, 0x02 | 0x03);
-            if self.dma_active || startup_read_block || ppu_read_block {
-                return 0xFF;
-            }
+        if matches!(addr, 0xFE00..=0xFE9F) && self.ppu_blocks_oam_read() {
+            return 0xFF;
         }
-        if matches!(addr, 0x8000..=0x9FFF) {
-            let startup_mode2_tail_block = self.ppu_post_enable_phase > 0
-                && self.io[0x44] > 0
-                && (self.io[0x41] & 0x03) == 0x02
-                && (80..84).contains(&self.ly_counter);
-            if startup_mode2_tail_block || !self.ppu_allows_vram_access() {
-                return 0xFF;
-            }
+        if matches!(addr, 0x8000..=0x9FFF) && self.ppu_blocks_vram_read() {
+            return 0xFF;
         }
 
         self.read_byte_raw(addr)
@@ -39,19 +26,13 @@ impl Bus {
                     return 0xFF;
                 }
                 let index = (addr - 0xFF00) as usize;
-                let mut value = if addr == 0xFF04 {
+                let value = if addr == 0xFF04 {
                     (self.div_counter >> 8) as u8
+                } else if addr == 0xFF41 {
+                    self.stat_read_value()
                 } else {
                     self.io[index]
                 };
-                if addr == 0xFF41
-                    && self.ppu_post_enable_phase > 0
-                    && self.io[0x44] < 144
-                    && (self.io[0x41] & 0x03) == 0x00
-                    && self.ly_counter < 4
-                {
-                    value &= !0x04;
-                }
                 value | io_unused_bits_mask(addr)
             }
             0xFF80..=0xFFFE => self.hram[(addr - 0xFF80) as usize],
@@ -60,10 +41,10 @@ impl Bus {
     }
 
     pub fn write_byte(&mut self, addr: u16, value: u8) {
-        if matches!(addr, 0xFE00..=0xFE9F) && (self.dma_active || !self.ppu_allows_oam_access()) {
+        if matches!(addr, 0xFE00..=0xFE9F) && self.ppu_blocks_oam_write() {
             return;
         }
-        if matches!(addr, 0x8000..=0x9FFF) && !self.ppu_allows_vram_access() {
+        if matches!(addr, 0x8000..=0x9FFF) && self.ppu_blocks_vram_write() {
             return;
         }
 

@@ -49,6 +49,8 @@ impl Bus {
                 self.apply_dmg_family_io_defaults();
                 self.io[0x41] = 0x03;
                 self.io[0x44] = 0x91;
+                // DMG0 starts part-way through the current scanline at test entry.
+                self.ly_counter = 96;
             }
             HardwareModel::Dmg => {
                 self.div_counter = 0xABCC;
