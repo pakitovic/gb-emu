@@ -2,9 +2,9 @@ mod flags;
 mod helpers;
 mod init;
 mod instr;
-mod instructions;
 mod interrupts;
 pub mod registers;
+mod step;
 
 use registers::Registers;
 
