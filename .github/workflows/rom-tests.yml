@@ -42,6 +42,7 @@ jobs:
 
       - name: Run ROM suite (gekkio)
         env:
+          GEKKIO_SUITE: "incremental"
           MAX_STEPS: "120000000"
           TIMEOUT_SECS: "120"
         run: scripts/run_gekkio.sh

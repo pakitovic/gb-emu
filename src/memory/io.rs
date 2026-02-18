@@ -3,6 +3,14 @@ use std::io::{self, Write};
 
 impl Bus {
     pub fn read_byte(&self, addr: u16) -> u8 {
+        if self.dma_active && matches!(addr, 0xFE00..=0xFE9F) {
+            return 0xFF;
+        }
+
+        self.read_byte_raw(addr)
+    }
+
+    pub(super) fn read_byte_raw(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF => self.cartridge.read_rom_byte(addr),
             0x8000..=0x9FFF => self.vram[(addr - 0x8000) as usize],
@@ -27,6 +35,10 @@ impl Bus {
     }
 
     pub fn write_byte(&mut self, addr: u16, value: u8) {
+        if self.dma_active && matches!(addr, 0xFE00..=0xFE9F) {
+            return;
+        }
+
         match addr {
             0x0000..=0x7FFF => self.cartridge.write_rom_control(addr, value),
             0x8000..=0x9FFF => self.vram[(addr - 0x8000) as usize] = value,
@@ -61,6 +73,9 @@ impl Bus {
             if old_input && !new_input {
                 self.increment_tima();
             }
+        } else if addr == 0xFF46 {
+            self.io[index] = value;
+            self.start_oam_dma(value);
         } else if addr == 0xFF07 {
             let old_input = self.timer_input_high();
             self.io[index] = value;

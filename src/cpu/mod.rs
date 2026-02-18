@@ -14,7 +14,7 @@ use registers::Registers;
 pub struct Cpu {
     pub registers: Registers,
     ime: bool,
-    ime_enable_pending: bool,
+    ime_enable_delay: u8,
     halted: bool,
     halt_bug: bool,
     step_tcycles: u8,
@@ -69,6 +69,22 @@ fn get_flag_c(f: u8) -> bool {
 }
 
 impl Cpu {
+    fn select_interrupt(pending: u8) -> Option<(u8, u16)> {
+        if (pending & 0x01) != 0 {
+            Some((0, 0x0040))
+        } else if (pending & 0x02) != 0 {
+            Some((1, 0x0048))
+        } else if (pending & 0x04) != 0 {
+            Some((2, 0x0050))
+        } else if (pending & 0x08) != 0 {
+            Some((3, 0x0058))
+        } else if (pending & 0x10) != 0 {
+            Some((4, 0x0060))
+        } else {
+            None
+        }
+    }
+
     pub fn new() -> Self {
         let registers = Registers {
             a: 0x01,
@@ -86,7 +102,7 @@ impl Cpu {
         Self {
             registers,
             ime: false,
-            ime_enable_pending: false,
+            ime_enable_delay: 0,
             halted: false,
             halt_bug: false,
             step_tcycles: 0,
@@ -120,28 +136,39 @@ impl Cpu {
         self.registers.c = (value & 0xFF) as u8;
     }
 
-    fn service_interrupt(&mut self, bus: &mut Bus, pending: u8) -> u8 {
-        let (bit, vector) = if (pending & 0x01) != 0 {
-            (0, 0x0040)
-        } else if (pending & 0x02) != 0 {
-            (1, 0x0048)
-        } else if (pending & 0x04) != 0 {
-            (2, 0x0050)
-        } else if (pending & 0x08) != 0 {
-            (3, 0x0058)
-        } else {
-            (4, 0x0060)
-        };
-
-        let mut iflags = bus.interrupt_flags();
-        iflags &= !(1 << bit);
-        bus.set_interrupt_flags(iflags);
-
+    fn service_interrupt(&mut self, bus: &mut Bus, _pending: u8) -> u8 {
         self.ime = false;
         self.halted = false;
-        self.push_u16(bus, self.registers.pc);
-        self.registers.pc = vector;
-        self.tick_t(bus, 12);
+
+        // Interrupt dispatch takes 5 M-cycles on DMG:
+        // 2 idle cycles, then PC high/low push, then vector/jump cycle.
+        let pc = self.registers.pc;
+        let pc_high = (pc >> 8) as u8;
+        let pc_low = (pc & 0x00FF) as u8;
+
+        self.tick_t(bus, 8);
+
+        self.registers.sp = self.registers.sp.wrapping_sub(1);
+        self.write_byte(bus, self.registers.sp, pc_high);
+
+        // IE may have been changed by the upper-byte push (SP hitting $FFFF).
+        // Re-evaluate pending interrupts at this point.
+        let selected = Self::select_interrupt(bus.pending_interrupts());
+
+        self.registers.sp = self.registers.sp.wrapping_sub(1);
+        self.write_byte(bus, self.registers.sp, pc_low);
+
+        if let Some((bit, vector)) = selected {
+            let mut iflags = bus.interrupt_flags();
+            iflags &= !(1 << bit);
+            bus.set_interrupt_flags(iflags);
+            self.registers.pc = vector;
+        } else {
+            // If IE push cancels the dispatch, execution continues from $0000.
+            self.registers.pc = 0x0000;
+        }
+
+        self.tick_t(bus, 4);
         20
     }
 }
@@ -210,5 +237,66 @@ mod tests {
         assert_eq!(cpu.hl(), 0x1234);
         assert_eq!(cpu.registers.sp, 0xD002);
         assert_eq!(cpu.registers.pc, 0xC001);
+    }
+
+    #[test]
+    fn interrupt_ie_push_upper_byte_can_cancel_dispatch() {
+        let mut cpu = Cpu::new();
+        let mut bus = make_test_bus();
+
+        cpu.ime = true;
+        cpu.registers.pc = 0x0235;
+        cpu.registers.sp = 0x0000;
+
+        bus.write_byte(0xFFFF, 0x04);
+        bus.set_interrupt_flags(0x04);
+
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cycles, 20);
+        assert!(!cpu.ime);
+        assert_eq!(cpu.registers.pc, 0x0000);
+        assert_eq!(bus.interrupt_enable(), 0x02);
+        assert_eq!(bus.interrupt_flags() & 0x1F, 0x04);
+    }
+
+    #[test]
+    fn interrupt_ie_push_upper_byte_can_change_selected_vector() {
+        let mut cpu = Cpu::new();
+        let mut bus = make_test_bus();
+
+        cpu.ime = true;
+        cpu.registers.pc = 0x0235;
+        cpu.registers.sp = 0x0000;
+
+        bus.write_byte(0xFFFF, 0x03);
+        bus.set_interrupt_flags(0x03);
+
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cycles, 20);
+        assert_eq!(cpu.registers.pc, 0x0048);
+        assert_eq!(bus.interrupt_enable(), 0x02);
+        assert_eq!(bus.interrupt_flags() & 0x1F, 0x01);
+    }
+
+    #[test]
+    fn interrupt_ie_push_lower_byte_is_too_late_to_cancel_dispatch() {
+        let mut cpu = Cpu::new();
+        let mut bus = make_test_bus();
+
+        cpu.ime = true;
+        cpu.registers.pc = 0x0235;
+        cpu.registers.sp = 0x0001;
+
+        bus.write_byte(0xFFFF, 0x08);
+        bus.set_interrupt_flags(0x08);
+
+        let cycles = cpu.step(&mut bus);
+
+        assert_eq!(cycles, 20);
+        assert_eq!(cpu.registers.pc, 0x0058);
+        assert_eq!(bus.interrupt_enable(), 0x35);
+        assert_eq!(bus.interrupt_flags() & 0x1F, 0x00);
     }
 }

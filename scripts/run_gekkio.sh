@@ -9,11 +9,31 @@ fi
 BIN="$ROOT_DIR/target/debug/gb-emu"
 MAX_STEPS="${MAX_STEPS:-120000000}"
 TIMEOUT_SECS="${TIMEOUT_SECS:-30}"
+GEKKIO_SUITE="${GEKKIO_SUITE:-core}"
+CORE_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_core.txt"
+INCREMENTAL_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_incremental.txt"
+
+list_roms() {
+  sed -e 's/\r$//' -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$@"
+}
 
 if [ ! -d "$ROM_ROOT" ]; then
   echo "Gekkio ROM directory not found: $ROM_ROOT"
   exit 1
 fi
+
+case "$GEKKIO_SUITE" in
+  core)
+    roms="$(list_roms "$CORE_LIST_FILE")"
+    ;;
+  incremental)
+    roms="$(list_roms "$CORE_LIST_FILE" "$INCREMENTAL_LIST_FILE")"
+    ;;
+  *)
+    echo "Unknown GEKKIO_SUITE: $GEKKIO_SUITE (expected: core|incremental)"
+    exit 1
+    ;;
+esac
 
 cd "$ROOT_DIR"
 cargo build >/dev/null
@@ -23,24 +43,12 @@ fail=0
 timeout=0
 missing=0
 unknown=0
+total=0
 
-roms="
-acceptance/timer/div_write.gb
-acceptance/timer/tim00.gb
-acceptance/timer/tim00_div_trigger.gb
-acceptance/timer/tim01.gb
-acceptance/timer/tim01_div_trigger.gb
-acceptance/timer/tim10.gb
-acceptance/timer/tim10_div_trigger.gb
-acceptance/timer/tim11.gb
-acceptance/timer/tim11_div_trigger.gb
-acceptance/timer/tima_reload.gb
-acceptance/timer/rapid_toggle.gb
-acceptance/timer/tima_write_reloading.gb
-acceptance/timer/tma_write_reloading.gb
-"
+echo "Running Gekkio suite: $GEKKIO_SUITE"
 
 for rel in $roms; do
+  total=$((total + 1))
   rom="$ROM_ROOT/$rel"
   if [ ! -f "$rom" ]; then
     echo "$rel | MISSING_FILE"
@@ -68,7 +76,7 @@ for rel in $roms; do
 done
 
 echo "----"
-echo "PASS=$pass FAIL=$fail TIMEOUT=$timeout MISSING=$missing UNKNOWN=$unknown"
+echo "SUITE=$GEKKIO_SUITE TOTAL=$total PASS=$pass FAIL=$fail TIMEOUT=$timeout MISSING=$missing UNKNOWN=$unknown"
 
 if [ "$fail" -ne 0 ] || [ "$timeout" -ne 0 ] || [ "$missing" -ne 0 ] || [ "$unknown" -ne 0 ]; then
   exit 1

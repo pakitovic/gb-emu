@@ -1,0 +1,13 @@
+# Incremental coverage under active development.
+acceptance/interrupts/ie_push.gb
+acceptance/ei_sequence.gb
+acceptance/ei_timing.gb
+acceptance/di_timing-GS.gb
+acceptance/if_ie_registers.gb
+acceptance/intr_timing.gb
+acceptance/rapid_di_ei.gb
+acceptance/reti_intr_timing.gb
+acceptance/reti_timing.gb
+acceptance/oam_dma/basic.gb
+acceptance/oam_dma/reg_read.gb
+acceptance/oam_dma/sources-GS.gb

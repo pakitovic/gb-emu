@@ -3,7 +3,7 @@
 Personal/hobby Game Boy emulator project written in Rust, focused on learning and incremental milestones.
 
 Current scope:
-- ROM-only and basic MBC1 support.
+- ROM-only plus basic MBC1/MBC5 support.
 - CPU core with growing opcode coverage.
 - Memory bus + timer/interrupt basics.
 - Blargg ROM test integration in local scripts and CI.
@@ -57,6 +57,8 @@ scripts/fetch_blargg_roms.sh
 scripts/run_blargg.sh
 scripts/fetch_gekkio_roms.sh
 scripts/run_gekkio.sh
+# Optional local expansion (includes incremental ROMs):
+GEKKIO_SUITE=incremental scripts/run_gekkio.sh
 ```
 
 ## CI
@@ -75,7 +77,11 @@ Why:
 - Keeps the repository lightweight.
 - Avoids redistributing binaries with mixed or unclear licensing terms.
 
-`run_gekkio.sh` currently targets the timer acceptance subset that is part of active development milestones.
+`run_gekkio.sh` supports two profiles:
+- `GEKKIO_SUITE=core` (default): stable timer set + `acceptance/instr/daa.gb`.
+- `GEKKIO_SUITE=incremental`: `core` plus growing interrupt coverage (`acceptance/interrupts/ie_push.gb`, `acceptance/ei_sequence.gb`, `acceptance/ei_timing.gb`, `acceptance/di_timing-GS.gb`, `acceptance/if_ie_registers.gb`, `acceptance/intr_timing.gb`, `acceptance/rapid_di_ei.gb`, `acceptance/reti_intr_timing.gb`, `acceptance/reti_timing.gb`) and initial OAM DMA coverage (`acceptance/oam_dma/basic.gb`, `acceptance/oam_dma/reg_read.gb`, `acceptance/oam_dma/sources-GS.gb`).
+
+CI currently runs `GEKKIO_SUITE=incremental` as a required ROM check.
 
 When adding new ROM suites, document:
 - Source repository URL.

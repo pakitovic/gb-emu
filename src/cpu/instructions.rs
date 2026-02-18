@@ -38,9 +38,11 @@ impl Cpu {
             self.tick_t(bus, cycles - self.step_tcycles);
         }
 
-        if self.ime_enable_pending && opcode != 0xFB {
-            self.ime = true;
-            self.ime_enable_pending = false;
+        if self.ime_enable_delay > 0 {
+            self.ime_enable_delay -= 1;
+            if self.ime_enable_delay == 0 {
+                self.ime = true;
+            }
         }
 
         cycles

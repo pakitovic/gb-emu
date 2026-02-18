@@ -5,6 +5,7 @@ impl Bus {
         for _ in 0..cycles {
             self.step_tima_reload();
             self.step_ly();
+            self.step_oam_dma();
 
             let old_input = self.timer_input_high();
             self.div_counter = self.div_counter.wrapping_add(1);
@@ -24,11 +25,18 @@ impl Bus {
         self.ly_counter = self.ly_counter.wrapping_add(1);
         if self.ly_counter >= 456 {
             self.ly_counter -= 456;
-            self.io[0x44] = if self.io[0x44] >= 153 {
+            let old_ly = self.io[0x44];
+            self.io[0x44] = if old_ly >= 153 {
                 0
             } else {
-                self.io[0x44].wrapping_add(1)
+                old_ly.wrapping_add(1)
             };
+
+            // Request VBlank interrupt when entering LY=144.
+            if self.io[0x44] == 144 {
+                let iflags = self.interrupt_flags() | (1 << 0);
+                self.set_interrupt_flags(iflags);
+            }
         }
     }
 

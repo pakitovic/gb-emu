@@ -6,6 +6,9 @@ const HEADER_MIN_LEN: usize = 0x150;
 const ROM_ONLY: u8 = 0x00;
 const MBC1: u8 = 0x01;
 const MBC1_RAM: u8 = 0x02;
+const MBC5: u8 = 0x19;
+const MBC5_RAM: u8 = 0x1A;
+const MBC5_RAM_BATTERY: u8 = 0x1B;
 const ROM_SIZE_32KB_CODE: u8 = 0x00;
 const ROM_SIZE_64KB_CODE: u8 = 0x01;
 const ROM_32KB_BYTES: usize = 32 * 1024;
@@ -33,7 +36,7 @@ impl Display for CartridgeError {
             Self::UnsupportedCartridgeType(code) => {
                 write!(
                     f,
-                    "Unsupported cartridge type 0x{code:02X}; supported: ROM-only (0x00), MBC1 (0x01), MBC1+RAM (0x02)"
+                    "Unsupported cartridge type 0x{code:02X}; supported: ROM-only (0x00), MBC1 (0x01), MBC1+RAM (0x02), MBC5 (0x19), MBC5+RAM (0x1A), MBC5+RAM+BATTERY (0x1B)"
                 )
             }
             Self::UnsupportedRomSizeCode(code) => {
@@ -58,7 +61,7 @@ pub struct Cartridge {
     rom: Vec<u8>,
     title: String,
     cart_type: u8,
-    rom_bank: u8,
+    rom_bank: u16,
 }
 
 impl Cartridge {
@@ -73,7 +76,7 @@ impl Cartridge {
         }
 
         let cart_type = rom[0x0147];
-        if cart_type != ROM_ONLY && cart_type != MBC1 && cart_type != MBC1_RAM {
+        if !is_supported_cart_type(cart_type) {
             return Err(CartridgeError::UnsupportedCartridgeType(cart_type));
         }
 
@@ -119,17 +122,45 @@ impl Cartridge {
     }
 
     pub fn write_rom_control(&mut self, addr: u16, value: u8) {
-        if (self.cart_type == MBC1 || self.cart_type == MBC1_RAM)
-            && (0x2000..=0x3FFF).contains(&addr)
-        {
+        if is_mbc1(self.cart_type) && (0x2000..=0x3FFF).contains(&addr) {
             let bank = value & 0x1F;
-            self.rom_bank = if bank == 0 { 1 } else { bank };
+            self.rom_bank = if bank == 0 { 1 } else { bank as u16 };
+            return;
+        }
+
+        if is_mbc5(self.cart_type) {
+            match addr {
+                0x2000..=0x2FFF => {
+                    // MBC5 low 8-bit ROM bank register.
+                    self.rom_bank = (self.rom_bank & 0x100) | value as u16;
+                }
+                0x3000..=0x3FFF => {
+                    // MBC5 high 1-bit ROM bank register.
+                    self.rom_bank = (self.rom_bank & 0x00FF) | (((value & 0x01) as u16) << 8);
+                }
+                _ => {}
+            }
         }
     }
 
     pub fn title(&self) -> &str {
         &self.title
     }
+}
+
+fn is_supported_cart_type(cart_type: u8) -> bool {
+    matches!(
+        cart_type,
+        ROM_ONLY | MBC1 | MBC1_RAM | MBC5 | MBC5_RAM | MBC5_RAM_BATTERY
+    )
+}
+
+fn is_mbc1(cart_type: u8) -> bool {
+    matches!(cart_type, MBC1 | MBC1_RAM)
+}
+
+fn is_mbc5(cart_type: u8) -> bool {
+    matches!(cart_type, MBC5 | MBC5_RAM | MBC5_RAM_BATTERY)
 }
 
 fn parse_title(rom: &[u8]) -> String {
@@ -175,6 +206,23 @@ mod tests {
 
         cart.write_rom_control(0x2000, 0x02);
         assert_eq!(cart.read_rom_byte(0x4000), 0x22);
+    }
+
+    #[test]
+    fn mbc5_switches_rom_bank_and_allows_bank_zero() {
+        let mut rom = make_rom(ROM_64KB_BYTES, MBC5_RAM_BATTERY, ROM_SIZE_64KB_CODE);
+        rom[0x0000] = 0x10; // bank 0 first byte
+        rom[0x4000] = 0x11; // bank 1 first byte
+        rom[0x8000] = 0x22; // bank 2 first byte
+
+        let mut cart = Cartridge::from_bytes(rom).expect("valid MBC5 ROM should load");
+        assert_eq!(cart.read_rom_byte(0x4000), 0x11);
+
+        cart.write_rom_control(0x2000, 0x02);
+        assert_eq!(cart.read_rom_byte(0x4000), 0x22);
+
+        cart.write_rom_control(0x2000, 0x00);
+        assert_eq!(cart.read_rom_byte(0x4000), 0x10);
     }
 
     #[test]

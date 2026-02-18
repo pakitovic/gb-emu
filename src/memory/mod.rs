@@ -1,3 +1,4 @@
+mod dma;
 mod io;
 mod timer;
 
@@ -17,6 +18,12 @@ pub struct Bus {
     ly_counter: u16,
     tima_reload_delay: u8,
     tima_reload_block: u8,
+    dma_active: bool,
+    dma_source: u16,
+    dma_cycles_remaining: u16,
+    dma_start_delay: u8,
+    dma_cycle_accum: u8,
+    dma_index: u8,
 }
 
 impl Bus {
@@ -35,6 +42,12 @@ impl Bus {
             ly_counter: 0,
             tima_reload_delay: 0,
             tima_reload_block: 0,
+            dma_active: false,
+            dma_source: 0,
+            dma_cycles_remaining: 0,
+            dma_start_delay: 0,
+            dma_cycle_accum: 0,
+            dma_index: 0,
         };
         bus.io[0x0F] = 0xE1; // IF post-boot default
         bus

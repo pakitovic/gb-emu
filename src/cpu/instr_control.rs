@@ -118,13 +118,15 @@ impl Cpu {
             // DI
             0xF3 => {
                 self.ime = false;
-                self.ime_enable_pending = false;
+                self.ime_enable_delay = 0;
                 4
             }
 
             // EI
             0xFB => {
-                self.ime_enable_pending = true;
+                if self.ime_enable_delay == 0 {
+                    self.ime_enable_delay = 2;
+                }
                 4
             }
 
@@ -132,7 +134,7 @@ impl Cpu {
             0xD9 => {
                 self.registers.pc = self.pop_u16(bus);
                 self.ime = true;
-                self.ime_enable_pending = false;
+                self.ime_enable_delay = 0;
                 16
             }
 

@@ -5,22 +5,14 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DEST_DIR="$ROOT_DIR/roms/gekkio's_test_roms"
 VERSION="${GEKKIO_VERSION:-mts-20240926-1737-443f6e1}"
 ZIP_URL="https://gekkio.fi/files/mooneye-test-suite/$VERSION/$VERSION.zip"
+CORE_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_core.txt"
+INCREMENTAL_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_incremental.txt"
 
-required_files="
-acceptance/timer/div_write.gb
-acceptance/timer/tim00.gb
-acceptance/timer/tim00_div_trigger.gb
-acceptance/timer/tim01.gb
-acceptance/timer/tim01_div_trigger.gb
-acceptance/timer/tim10.gb
-acceptance/timer/tim10_div_trigger.gb
-acceptance/timer/tim11.gb
-acceptance/timer/tim11_div_trigger.gb
-acceptance/timer/tima_reload.gb
-acceptance/timer/rapid_toggle.gb
-acceptance/timer/tima_write_reloading.gb
-acceptance/timer/tma_write_reloading.gb
-"
+list_roms() {
+  sed -e 's/\r$//' -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$@"
+}
+
+required_files="$(list_roms "$CORE_LIST_FILE" "$INCREMENTAL_LIST_FILE")"
 
 all_present=1
 for rel in $required_files; do
@@ -43,6 +35,16 @@ curl -fsSL -o mooneye.zip "$ZIP_URL"
 unzip -q mooneye.zip
 
 mkdir -p "$DEST_DIR"
-cp -R "$tmp_dir/$VERSION/acceptance" "$DEST_DIR/"
+for rel in $required_files; do
+  src="$tmp_dir/$VERSION/$rel"
+  dst="$DEST_DIR/$rel"
+  if [ ! -f "$src" ]; then
+    echo "Missing ROM in downloaded suite: $rel"
+    exit 1
+  fi
+
+  mkdir -p "$(dirname "$dst")"
+  cp "$src" "$dst"
+done
 
 echo "Fetched Gekkio ROMs into $DEST_DIR"
