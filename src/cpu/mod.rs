@@ -8,6 +8,7 @@ mod instructions;
 pub mod registers;
 mod timing_helpers;
 
+use crate::hardware::HardwareModel;
 use crate::memory::Bus;
 use registers::Registers;
 
@@ -86,17 +87,71 @@ impl Cpu {
     }
 
     pub fn new() -> Self {
-        let registers = Registers {
-            a: 0x01,
-            f: 0xB0,
-            b: 0x00,
-            c: 0x13,
-            d: 0x00,
-            e: 0xD8,
-            h: 0x01,
-            l: 0x4D,
-            sp: 0xFFFE,
-            pc: 0x0100,
+        Self::new_with_model(HardwareModel::default())
+    }
+
+    pub fn new_with_model(model: HardwareModel) -> Self {
+        let registers = match model {
+            HardwareModel::Dmg0 => Registers {
+                a: 0x01,
+                f: 0x00,
+                b: 0xFF,
+                c: 0x13,
+                d: 0x00,
+                e: 0xC1,
+                h: 0x84,
+                l: 0x03,
+                sp: 0xFFFE,
+                pc: 0x0100,
+            },
+            HardwareModel::Dmg => Registers {
+                a: 0x01,
+                f: 0xB0,
+                b: 0x00,
+                c: 0x13,
+                d: 0x00,
+                e: 0xD8,
+                h: 0x01,
+                l: 0x4D,
+                sp: 0xFFFE,
+                pc: 0x0100,
+            },
+            HardwareModel::Mgb => Registers {
+                a: 0xFF,
+                f: 0xB0,
+                b: 0x00,
+                c: 0x13,
+                d: 0x00,
+                e: 0xD8,
+                h: 0x01,
+                l: 0x4D,
+                sp: 0xFFFE,
+                pc: 0x0100,
+            },
+            HardwareModel::Sgb => Registers {
+                a: 0x01,
+                f: 0x00,
+                b: 0x00,
+                c: 0x14,
+                d: 0x00,
+                e: 0x00,
+                h: 0xC0,
+                l: 0x60,
+                sp: 0xFFFE,
+                pc: 0x0100,
+            },
+            HardwareModel::Sgb2 => Registers {
+                a: 0xFF,
+                f: 0x00,
+                b: 0x00,
+                c: 0x14,
+                d: 0x00,
+                e: 0x00,
+                h: 0xC0,
+                l: 0x60,
+                sp: 0xFFFE,
+                pc: 0x0100,
+            },
         };
 
         Self {
@@ -190,6 +245,49 @@ mod tests {
         rom[0x0148] = 0x00; // 32KB
         let cart = Cartridge::from_bytes(rom).expect("test ROM should be valid");
         Bus::new(cart)
+    }
+
+    #[test]
+    fn new_with_model_sets_expected_boot_registers() {
+        let assert_model = |model: HardwareModel, expected: (u8, u8, u8, u8, u8, u8, u8, u8)| {
+            let cpu = Cpu::new_with_model(model);
+            assert_eq!(
+                (
+                    cpu.registers.a,
+                    cpu.registers.f,
+                    cpu.registers.b,
+                    cpu.registers.c,
+                    cpu.registers.d,
+                    cpu.registers.e,
+                    cpu.registers.h,
+                    cpu.registers.l
+                ),
+                expected
+            );
+            assert_eq!(cpu.registers.sp, 0xFFFE);
+            assert_eq!(cpu.registers.pc, 0x0100);
+        };
+
+        assert_model(
+            HardwareModel::Dmg0,
+            (0x01, 0x00, 0xFF, 0x13, 0x00, 0xC1, 0x84, 0x03),
+        );
+        assert_model(
+            HardwareModel::Dmg,
+            (0x01, 0xB0, 0x00, 0x13, 0x00, 0xD8, 0x01, 0x4D),
+        );
+        assert_model(
+            HardwareModel::Mgb,
+            (0xFF, 0xB0, 0x00, 0x13, 0x00, 0xD8, 0x01, 0x4D),
+        );
+        assert_model(
+            HardwareModel::Sgb,
+            (0x01, 0x00, 0x00, 0x14, 0x00, 0x00, 0xC0, 0x60),
+        );
+        assert_model(
+            HardwareModel::Sgb2,
+            (0xFF, 0x00, 0x00, 0x14, 0x00, 0x00, 0xC0, 0x60),
+        );
     }
 
     #[test]

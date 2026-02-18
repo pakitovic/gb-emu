@@ -1,0 +1,23 @@
+# Boot-state matrix per hardware model.
+# Format: <model> <relative_rom_path>
+dmg0 acceptance/boot_regs-dmg0.gb
+dmg0 acceptance/boot_div-dmg0.gb
+dmg0 acceptance/boot_hwio-dmg0.gb
+
+dmg acceptance/boot_regs-dmgABC.gb
+dmg acceptance/boot_div-dmgABCmgb.gb
+dmg acceptance/boot_hwio-dmgABCmgb.gb
+
+mgb acceptance/boot_regs-mgb.gb
+mgb acceptance/boot_div-dmgABCmgb.gb
+mgb acceptance/boot_hwio-dmgABCmgb.gb
+
+sgb acceptance/boot_regs-sgb.gb
+sgb acceptance/boot_div-S.gb
+sgb acceptance/boot_div2-S.gb
+sgb acceptance/boot_hwio-S.gb
+
+sgb2 acceptance/boot_regs-sgb2.gb
+sgb2 acceptance/boot_div-S.gb
+sgb2 acceptance/boot_div2-S.gb
+sgb2 acceptance/boot_hwio-S.gb

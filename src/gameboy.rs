@@ -1,5 +1,6 @@
 use crate::cartridge::Cartridge;
 use crate::cpu::Cpu;
+use crate::hardware::HardwareModel;
 use crate::memory::Bus;
 
 pub struct GameBoy {
@@ -9,9 +10,13 @@ pub struct GameBoy {
 
 impl GameBoy {
     pub fn new(cartridge: Cartridge) -> Self {
+        Self::new_with_model(cartridge, HardwareModel::default())
+    }
+
+    pub fn new_with_model(cartridge: Cartridge, model: HardwareModel) -> Self {
         Self {
-            cpu: Cpu::new(),
-            bus: Bus::new(cartridge),
+            cpu: Cpu::new_with_model(model),
+            bus: Bus::new_with_model(cartridge, model),
         }
     }
 

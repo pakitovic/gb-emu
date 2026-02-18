@@ -1,5 +1,6 @@
 use gb_emu::cartridge::Cartridge;
 use gb_emu::gameboy::GameBoy;
+use gb_emu::hardware::HardwareModel;
 use std::env;
 use std::error::Error;
 use std::io;
@@ -16,6 +17,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut trace = false;
     let mut blargg = false;
     let mut mooneye = false;
+    let mut model = HardwareModel::default();
     let mut max_steps: usize = 20_000_000;
 
     let mut args = env::args().skip(1);
@@ -24,6 +26,18 @@ fn run() -> Result<(), Box<dyn Error>> {
             "--trace" => trace = true,
             "--blargg" => blargg = true,
             "--mooneye" => mooneye = true,
+            "--model" => {
+                let Some(value) = args.next() else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "--model requires a value: dmg0|dmg|mgb|sgb|sgb2",
+                    )
+                    .into());
+                };
+                model = value
+                    .parse::<HardwareModel>()
+                    .map_err(|message| io::Error::new(io::ErrorKind::InvalidInput, message))?;
+            }
             "--max-steps" => {
                 let Some(value) = args.next() else {
                     return Err(io::Error::new(
@@ -43,14 +57,14 @@ fn run() -> Result<(), Box<dyn Error>> {
     let Some(rom_path) = rom_path else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "Usage: cargo run -- [--trace] [--blargg] [--max-steps N] <rom_file>",
+            "Usage: cargo run -- [--trace] [--blargg|--mooneye] [--model dmg0|dmg|mgb|sgb|sgb2] [--max-steps N] <rom_file>",
         )
         .into());
     };
 
     let cartridge = Cartridge::from_file(&rom_path)?;
 
-    let mut gb = GameBoy::new(cartridge);
+    let mut gb = GameBoy::new_with_model(cartridge, model);
 
     if blargg && mooneye {
         return Err(io::Error::new(

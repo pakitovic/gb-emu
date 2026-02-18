@@ -9,6 +9,7 @@ fi
 BIN="$ROOT_DIR/target/debug/gb-emu"
 MAX_STEPS="${MAX_STEPS:-120000000}"
 TIMEOUT_SECS="${TIMEOUT_SECS:-120}"
+GB_MODEL="${GB_MODEL:-dmg}"
 
 if [ ! -d "$ROM_ROOT" ]; then
   echo "ROM directory not found: $ROM_ROOT"
@@ -31,7 +32,7 @@ find "$ROM_ROOT" -type f -name "*.gb" | sort > "$rom_list"
 
 while IFS= read -r rom; do
   found=1
-  output="$(perl -e "alarm $TIMEOUT_SECS; exec @ARGV" "$BIN" --blargg --max-steps "$MAX_STEPS" "$rom" 2>&1 || true)"
+  output="$(perl -e "alarm $TIMEOUT_SECS; exec @ARGV" "$BIN" --blargg --model "$GB_MODEL" --max-steps "$MAX_STEPS" "$rom" 2>&1 || true)"
 
   if printf "%s" "$output" | rg -q "Blargg result: Passed"; then
     status="PASS"

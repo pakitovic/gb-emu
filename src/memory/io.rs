@@ -20,14 +20,16 @@ impl Bus {
             0xFE00..=0xFE9F => self.oam[(addr - 0xFE00) as usize],
             0xFEA0..=0xFEFF => 0xFF,
             0xFF00..=0xFF7F => {
+                if is_unmapped_io(addr) {
+                    return 0xFF;
+                }
                 let index = (addr - 0xFF00) as usize;
-                if addr == 0xFF04 {
+                let value = if addr == 0xFF04 {
                     (self.div_counter >> 8) as u8
-                } else if addr == 0xFF0F {
-                    self.io[index] | 0xE0
                 } else {
                     self.io[index]
-                }
+                };
+                value | io_unused_bits_mask(addr)
             }
             0xFF80..=0xFFFE => self.hram[(addr - 0xFF80) as usize],
             0xFFFF => self.ie,
@@ -63,6 +65,10 @@ impl Bus {
     }
 
     fn write_io_register(&mut self, addr: u16, value: u8) {
+        if is_unmapped_io(addr) {
+            return;
+        }
+
         let index = (addr - 0xFF00) as usize;
         if addr == 0xFF0F {
             self.io[index] = (value & 0x1F) | 0xE0;
@@ -104,4 +110,33 @@ impl Bus {
             self.io[index] = value;
         }
     }
+}
+
+fn io_unused_bits_mask(addr: u16) -> u8 {
+    match addr {
+        0xFF00 => 0xC0, // P1
+        0xFF02 => 0x7E, // SC
+        0xFF07 => 0xF8, // TAC
+        0xFF0F => 0xE0, // IF
+        0xFF10 => 0x80, // NR10
+        0xFF1A => 0x7F, // NR30
+        0xFF1C => 0x9F, // NR32
+        0xFF20 => 0xC0, // NR41
+        0xFF23 => 0x3F, // NR44
+        0xFF26 => 0x70, // NR52
+        0xFF41 => 0x80, // STAT
+        _ => 0x00,
+    }
+}
+
+fn is_unmapped_io(addr: u16) -> bool {
+    matches!(
+        addr,
+        0xFF03
+            | 0xFF08..=0xFF0E
+            | 0xFF15
+            | 0xFF1F
+            | 0xFF27..=0xFF2F
+            | 0xFF4C..=0xFF7F
+    )
 }

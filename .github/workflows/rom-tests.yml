@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  rom-suites:
+  rom-blargg:
     runs-on: ubuntu-latest
     timeout-minutes: 40
 
@@ -31,18 +31,46 @@ jobs:
       - name: Fetch Blargg ROMs
         run: scripts/fetch_blargg_roms.sh
 
-      - name: Fetch Gekkio ROMs
-        run: scripts/fetch_gekkio_roms.sh
-
       - name: Run ROM suite (blargg-core)
         env:
           MAX_STEPS: "120000000"
           TIMEOUT_SECS: "120"
         run: scripts/run_blargg.sh
 
-      - name: Run ROM suite (gekkio)
+  rom-gekkio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep unzip
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Fetch Gekkio ROMs
+        run: scripts/fetch_gekkio_roms.sh
+
+      - name: Run ROM suite (gekkio-incremental)
         env:
           GEKKIO_SUITE: "incremental"
+          MAX_STEPS: "120000000"
+          TIMEOUT_SECS: "120"
+        run: scripts/run_gekkio.sh
+
+      - name: Run ROM suite (gekkio-boot-models)
+        env:
+          GEKKIO_SUITE: "boot_models"
           MAX_STEPS: "120000000"
           TIMEOUT_SECS: "120"
         run: scripts/run_gekkio.sh

@@ -1,11 +1,19 @@
 use super::*;
 
 fn make_test_bus() -> Bus {
+    make_test_bus_with_model(HardwareModel::default())
+}
+
+fn make_test_bus_with_model(model: HardwareModel) -> Bus {
     let mut rom = vec![0; 32 * 1024];
     rom[0x0147] = 0x00; // ROM-only
     rom[0x0148] = 0x00; // 32KB
     let cart = Cartridge::from_bytes(rom).expect("test ROM should be valid");
-    Bus::new(cart)
+    let mut bus = Bus::new_with_model(cart, model);
+    // Unit tests use a neutral baseline instead of post-boot runtime defaults.
+    bus.write_byte(0xFF04, 0x00); // DIV
+    bus.write_byte(0xFF44, 0x00); // LY
+    bus
 }
 
 #[test]
@@ -178,4 +186,74 @@ fn oam_dma_remaps_fe_ff_sources_to_de_df_on_dmg() {
         bus.tick(1);
     }
     assert_eq!(bus.read_byte(0xFE00), 0x77);
+}
+
+#[test]
+fn unmapped_io_reads_as_ff_and_ignores_writes() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF03, 0x00);
+    assert_eq!(bus.read_byte(0xFF03), 0xFF);
+
+    bus.write_byte(0xFF4C, 0x00);
+    assert_eq!(bus.read_byte(0xFF4C), 0xFF);
+
+    bus.write_byte(0xFF4C, 0xAA);
+    assert_eq!(bus.read_byte(0xFF4C), 0xFF);
+}
+
+#[test]
+fn io_register_unused_bits_read_back_as_one() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF00, 0x00);
+    assert_eq!(bus.read_byte(0xFF00) & 0xC0, 0xC0);
+
+    bus.write_byte(0xFF02, 0x00);
+    assert_eq!(bus.read_byte(0xFF02) & 0x7E, 0x7E);
+
+    bus.write_byte(0xFF07, 0x00);
+    assert_eq!(bus.read_byte(0xFF07) & 0xF8, 0xF8);
+
+    bus.write_byte(0xFF41, 0x00);
+    assert_eq!(bus.read_byte(0xFF41) & 0x80, 0x80);
+
+    bus.write_byte(0xFF1A, 0x00);
+    assert_eq!(bus.read_byte(0xFF1A) & 0x7F, 0x7F);
+
+    bus.write_byte(0xFF26, 0x00);
+    assert_eq!(bus.read_byte(0xFF26) & 0x70, 0x70);
+}
+
+#[test]
+fn dmg0_boot_profile_uses_expected_div_phase_and_ly_start() {
+    let mut rom = vec![0; 32 * 1024];
+    rom[0x0147] = 0x00;
+    rom[0x0148] = 0x00;
+    let cart = Cartridge::from_bytes(rom).expect("test ROM should be valid");
+    let bus = Bus::new_with_model(cart, HardwareModel::Dmg0);
+
+    assert_eq!(bus.div_counter, 0x1830);
+    assert_eq!(bus.io[0x44], 0x91);
+}
+
+#[test]
+fn sgb_boot_div_phase_depends_on_header_checksum() {
+    let make_bus = |checksum_hi: u8, checksum_lo: u8| {
+        let mut rom = vec![0; 32 * 1024];
+        rom[0x0147] = 0x00;
+        rom[0x0148] = 0x00;
+        rom[0x014E] = checksum_hi;
+        rom[0x014F] = checksum_lo;
+        let cart = Cartridge::from_bytes(rom).expect("test ROM should be valid");
+        Bus::new_with_model(cart, HardwareModel::Sgb)
+    };
+
+    // boot_div-S.gb checksum bytes at 0x014E/0x014F.
+    let bus_a = make_bus(0x34, 0x12);
+    assert_eq!(bus_a.div_counter, 0xD860);
+
+    // boot_div2-S.gb checksum bytes at 0x014E/0x014F.
+    let bus_b = make_bus(0x96, 0xA7);
+    assert_eq!(bus_b.div_counter, 0xD850);
 }

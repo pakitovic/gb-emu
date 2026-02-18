@@ -7,12 +7,33 @@ VERSION="${GEKKIO_VERSION:-mts-20240926-1737-443f6e1}"
 ZIP_URL="https://gekkio.fi/files/mooneye-test-suite/$VERSION/$VERSION.zip"
 CORE_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_core.txt"
 INCREMENTAL_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_incremental.txt"
+BOOT_MODELS_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_boot_models.txt"
 
 list_roms() {
   sed -e 's/\r$//' -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$@"
 }
 
-required_files="$(list_roms "$CORE_LIST_FILE" "$INCREMENTAL_LIST_FILE")"
+list_boot_model_roms() {
+  awk '
+    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+    NF != 2 {
+      printf "Invalid boot model entry (expected: <model> <rom>): %s\n", $0 > "/dev/stderr"
+      exit 1
+    }
+    $1 !~ /^(dmg0|dmg|mgb|sgb|sgb2)$/ {
+      printf "Invalid boot model name: %s\n", $1 > "/dev/stderr"
+      exit 1
+    }
+    { print $2 }
+  ' "$1"
+}
+
+required_files="$(
+  {
+    list_roms "$CORE_LIST_FILE" "$INCREMENTAL_LIST_FILE"
+    list_boot_model_roms "$BOOT_MODELS_LIST_FILE"
+  } | sort -u
+)"
 
 all_present=1
 for rel in $required_files; do
