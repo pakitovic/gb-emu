@@ -1,9 +1,11 @@
 use super::Bus;
-use std::io::{self, Write};
 
 impl Bus {
     pub fn read_byte(&self, addr: u16) -> u8 {
-        if self.dma_active && matches!(addr, 0xFE00..=0xFE9F) {
+        if matches!(addr, 0xFE00..=0xFE9F) && (self.dma_active || !self.ppu_allows_oam_access()) {
+            return 0xFF;
+        }
+        if matches!(addr, 0x8000..=0x9FFF) && !self.ppu_allows_vram_access() {
             return 0xFF;
         }
 
@@ -37,7 +39,10 @@ impl Bus {
     }
 
     pub fn write_byte(&mut self, addr: u16, value: u8) {
-        if self.dma_active && matches!(addr, 0xFE00..=0xFE9F) {
+        if matches!(addr, 0xFE00..=0xFE9F) && (self.dma_active || !self.ppu_allows_oam_access()) {
+            return;
+        }
+        if matches!(addr, 0x8000..=0x9FFF) && !self.ppu_allows_vram_access() {
             return;
         }
 
@@ -51,13 +56,6 @@ impl Bus {
             0xFEA0..=0xFEFF => {}
             0xFF00..=0xFF7F => {
                 self.write_io_register(addr, value);
-
-                if addr == 0xFF02 && value == 0x81 {
-                    let ch = self.io[0x01] as char;
-                    self.serial_output.push(ch);
-                    print!("{ch}");
-                    let _ = io::stdout().flush();
-                }
             }
             0xFF80..=0xFFFE => self.hram[(addr - 0xFF80) as usize] = value,
             0xFFFF => self.ie = value,
@@ -72,6 +70,10 @@ impl Bus {
         let index = (addr - 0xFF00) as usize;
         if addr == 0xFF0F {
             self.io[index] = (value & 0x1F) | 0xE0;
+        } else if addr == 0xFF40 {
+            self.write_lcdc(value);
+        } else if addr == 0xFF41 {
+            self.write_stat(value);
         } else if addr == 0xFF04 {
             let old_input = self.timer_input_high();
             self.div_counter = 0;
@@ -82,6 +84,8 @@ impl Bus {
         } else if addr == 0xFF46 {
             self.io[index] = value;
             self.start_oam_dma(value);
+        } else if addr == 0xFF02 {
+            self.write_sc(value);
         } else if addr == 0xFF07 {
             let old_input = self.timer_input_high();
             self.io[index] = value;
@@ -90,8 +94,9 @@ impl Bus {
                 self.increment_tima();
             }
         } else if addr == 0xFF44 {
-            self.io[index] = 0;
-            self.ly_counter = 0;
+            self.write_ly(value);
+        } else if addr == 0xFF45 {
+            self.write_lyc(value);
         } else if addr == 0xFF05 {
             if self.tima_reload_block > 0 {
                 // ignored

@@ -3,6 +3,29 @@ use crate::cpu::Cpu;
 use crate::hardware::HardwareModel;
 use crate::memory::Bus;
 
+const MOONEYE_LOOP_WINDOW: usize = 8;
+
+fn looks_like_tight_loop(pc_window: &[u16; MOONEYE_LOOP_WINDOW]) -> bool {
+    let mut unique = [0u16; 4];
+    let mut unique_len = 0usize;
+
+    'outer: for &pc in pc_window {
+        for &seen in unique.iter().take(unique_len) {
+            if seen == pc {
+                continue 'outer;
+            }
+        }
+
+        if unique_len == unique.len() {
+            return false;
+        }
+        unique[unique_len] = pc;
+        unique_len += 1;
+    }
+
+    true
+}
+
 pub struct GameBoy {
     pub cpu: Cpu,
     pub bus: Bus,
@@ -78,6 +101,10 @@ impl GameBoy {
 
     pub fn run_mooneye(&mut self, max_steps: usize, trace: bool) -> Option<String> {
         println!("ROM: {}", self.bus.rom_title());
+        let mut pc_window = [0u16; MOONEYE_LOOP_WINDOW];
+        let mut pc_window_len = 0usize;
+        let mut pc_window_pos = 0usize;
+
         for _ in 0..max_steps {
             let cycles = self.step();
             if trace {
@@ -95,12 +122,20 @@ impl GameBoy {
                 );
             }
 
+            let pc = self.cpu.registers.pc;
+            pc_window[pc_window_pos] = pc;
+            pc_window_pos = (pc_window_pos + 1) % MOONEYE_LOOP_WINDOW;
+            if pc_window_len < MOONEYE_LOOP_WINDOW {
+                pc_window_len += 1;
+            }
+
             // Mooneye acceptance convention:
             // - Success signature in B,C,D,E,H,L: 3,5,8,13,21,34
             // - Failure signature in B,C,D,E,H,L: 0x42,0x42,0x42,0x42,0x42,0x42
             //
-            // Some tests park in tight loops after setting the final signature,
-            // so checking registers directly is robust and cheap.
+            // Final signatures are expected to be observed in a tight loop.
+            // This avoids false negatives in tests where intermediate values
+            // can temporarily match the failure signature.
             let regs = (
                 self.cpu.registers.b,
                 self.cpu.registers.c,
@@ -109,13 +144,38 @@ impl GameBoy {
                 self.cpu.registers.h,
                 self.cpu.registers.l,
             );
-            if regs == (3, 5, 8, 13, 21, 34) {
+            let in_tight_loop =
+                pc_window_len == MOONEYE_LOOP_WINDOW && looks_like_tight_loop(&pc_window);
+            if regs == (3, 5, 8, 13, 21, 34) && in_tight_loop {
                 return Some("Passed".to_string());
             }
-            if regs == (0x42, 0x42, 0x42, 0x42, 0x42, 0x42) {
+            if regs == (0x42, 0x42, 0x42, 0x42, 0x42, 0x42) && in_tight_loop {
                 return Some("Failed".to_string());
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tight_loop_detector_accepts_small_repeating_pc_sets() {
+        let one_pc = [0x1234; MOONEYE_LOOP_WINDOW];
+        let two_pc = [
+            0x2000, 0x2001, 0x2000, 0x2001, 0x2000, 0x2001, 0x2000, 0x2001,
+        ];
+        assert!(looks_like_tight_loop(&one_pc));
+        assert!(looks_like_tight_loop(&two_pc));
+    }
+
+    #[test]
+    fn tight_loop_detector_rejects_wide_pc_ranges() {
+        let wide = [
+            0x1000, 0x1001, 0x1002, 0x1003, 0x1004, 0x1005, 0x1006, 0x1007,
+        ];
+        assert!(!looks_like_tight_loop(&wide));
     }
 }

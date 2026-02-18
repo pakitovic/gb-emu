@@ -1,4 +1,5 @@
 use super::*;
+use crate::hardware::HardwareModel;
 
 fn make_test_bus() -> Bus {
     make_test_bus_with_model(HardwareModel::default())
@@ -120,6 +121,106 @@ fn tma_write_on_reload_cycle_updates_reloaded_tima() {
 }
 
 #[test]
+fn serial_transfer_completes_after_eight_div_aligned_falling_edges() {
+    let mut bus = make_test_bus();
+    bus.set_interrupt_flags(0x00);
+    bus.write_byte(0xFF01, b'A');
+    bus.write_byte(0xFF02, 0x81);
+
+    for _ in 0..4095 {
+        bus.tick(1);
+    }
+
+    assert_eq!(bus.interrupt_flags() & (1 << 3), 0);
+    assert_eq!(bus.read_byte(0xFF02) & 0x80, 0x80);
+
+    bus.tick(1);
+
+    assert_ne!(bus.interrupt_flags() & (1 << 3), 0);
+    assert_eq!(bus.read_byte(0xFF02) & 0x80, 0x00);
+    assert!(bus.serial_output().contains('A'));
+}
+
+#[test]
+fn serial_transfer_is_phase_aligned_to_div_and_not_to_start_write() {
+    let mut bus = make_test_bus();
+    bus.set_interrupt_flags(0x00);
+
+    // Shift DIV phase so completion is not exactly 4096 cycles after SC write.
+    bus.tick(7);
+    bus.write_byte(0xFF01, b'B');
+    bus.write_byte(0xFF02, 0x81);
+
+    for _ in 0..4088 {
+        bus.tick(1);
+    }
+    assert_eq!(bus.interrupt_flags() & (1 << 3), 0);
+
+    bus.tick(1);
+    assert_ne!(bus.interrupt_flags() & (1 << 3), 0);
+}
+
+#[test]
+fn lcdc_enable_starts_with_special_line0_timing() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF40, 0x00); // LCD off
+    bus.write_byte(0x8000, 0x12);
+    bus.write_byte(0xFE00, 0x34);
+
+    bus.write_byte(0xFF40, 0x80); // LCD on
+    assert_eq!(bus.read_byte(0xFF41) & 0x03, 0x00); // mode 0
+    assert_eq!(bus.read_byte(0x8000), 0x12);
+    assert_eq!(bus.read_byte(0xFE00), 0x34);
+
+    bus.tick(80);
+    assert_eq!(bus.read_byte(0xFF41) & 0x03, 0x03); // mode 3
+    assert_eq!(bus.read_byte(0x8000), 0xFF);
+    assert_eq!(bus.read_byte(0xFE00), 0xFF);
+
+    bus.tick(172);
+    assert_eq!(bus.read_byte(0xFF41) & 0x03, 0x00); // back to mode 0
+    assert_eq!(bus.read_byte(0x8000), 0x12);
+    assert_eq!(bus.read_byte(0xFE00), 0x34);
+}
+
+#[test]
+fn lyc_flag_is_retained_while_lcd_is_disabled() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF41, 0x40); // enable LY=LYC source
+    bus.write_byte(0xFF45, 0x00); // LYC=0, LY=0
+    assert_ne!(bus.read_byte(0xFF41) & 0x04, 0);
+
+    bus.write_byte(0xFF40, 0x00); // LCD off
+    assert_ne!(bus.read_byte(0xFF41) & 0x04, 0);
+
+    bus.write_byte(0xFF45, 0x01); // no effect while LCD is off
+    assert_ne!(bus.read_byte(0xFF41) & 0x04, 0);
+
+    bus.set_interrupt_flags(0x00);
+    bus.write_byte(0xFF40, 0x80); // LCD on, LY=0 vs LYC=1 => bit clears
+    assert_eq!(bus.read_byte(0xFF41) & 0x04, 0);
+    assert_eq!(bus.interrupt_flags() & (1 << 1), 0);
+}
+
+#[test]
+fn stat_irq_is_edge_triggered_when_enabling_mode1_source() {
+    let mut bus = make_test_bus();
+    bus.set_interrupt_flags(0x00);
+
+    for _ in 0..(144 * 456) {
+        bus.tick(1);
+    }
+    assert_eq!(bus.read_byte(0xFF41) & 0x03, 0x01); // mode 1 (vblank)
+
+    bus.write_byte(0xFF41, 0x10); // enable mode1 source while already in mode1
+    assert_ne!(bus.interrupt_flags() & (1 << 1), 0);
+
+    bus.set_interrupt_flags(0x00);
+    bus.write_byte(0xFF41, 0x10); // line already high => no new edge
+    assert_eq!(bus.interrupt_flags() & (1 << 1), 0);
+}
+
+#[test]
 fn entering_vblank_requests_vblank_interrupt() {
     let mut bus = make_test_bus();
     bus.set_interrupt_flags(0x00);
@@ -136,20 +237,24 @@ fn entering_vblank_requests_vblank_interrupt() {
 #[test]
 fn oam_dma_transfers_160_bytes_and_finishes_after_start_delay() {
     let mut bus = make_test_bus();
+    bus.write_byte(0xFE00, 0xAA);
     bus.write_byte(0x8000, 0x12);
     bus.write_byte(0x809F, 0x34);
 
     bus.write_byte(0xFF46, 0x80);
+    // Fresh DMA keeps OAM accessible for one M-cycle.
+    assert_eq!(bus.read_byte(0xFE00), 0xAA);
 
-    // During DMA, OAM reads are blocked.
+    bus.tick(8);
+    // DMA starts at M=2; OAM reads are now blocked.
     assert_eq!(bus.read_byte(0xFE00), 0xFF);
 
-    for _ in 0..648 {
+    for _ in 0..640 {
         bus.tick(1);
     }
 
-    assert_eq!(bus.read_byte(0xFE00), 0x12);
-    assert_eq!(bus.read_byte(0xFE9F), 0x34);
+    assert_eq!(bus.read_byte_raw(0xFE00), 0x12);
+    assert_eq!(bus.read_byte_raw(0xFE9F), 0x34);
 }
 
 #[test]
@@ -157,15 +262,36 @@ fn oam_dma_blocks_cpu_writes_to_oam_during_transfer() {
     let mut bus = make_test_bus();
     bus.write_byte(0x8000, 0x55);
     bus.write_byte(0xFF46, 0x80);
+    bus.tick(8);
 
     bus.write_byte(0xFE00, 0xAA); // ignored while DMA active
     assert_eq!(bus.read_byte(0xFE00), 0xFF);
 
-    for _ in 0..648 {
+    for _ in 0..640 {
         bus.tick(1);
     }
 
-    assert_eq!(bus.read_byte(0xFE00), 0x55);
+    assert_eq!(bus.read_byte_raw(0xFE00), 0x55);
+}
+
+#[test]
+fn oam_dma_restart_switches_source_after_two_mcycles() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0x8000, 0x11);
+    bus.write_byte(0x8100, 0x22);
+
+    bus.write_byte(0xFF46, 0x80);
+    bus.tick(8); // DMA starts
+    assert_eq!(bus.read_byte(0xFE00), 0xFF);
+
+    bus.write_byte(0xFF46, 0x81); // request restart
+    bus.tick(4); // M=1 after restart request
+    assert_eq!(bus.read_byte(0xFE00), 0xFF);
+
+    for _ in 0..644 {
+        bus.tick(1);
+    }
+    assert_eq!(bus.read_byte_raw(0xFE00), 0x22);
 }
 
 #[test]
@@ -179,13 +305,13 @@ fn oam_dma_remaps_fe_ff_sources_to_de_df_on_dmg() {
     for _ in 0..648 {
         bus.tick(1);
     }
-    assert_eq!(bus.read_byte(0xFE00), 0x66);
+    assert_eq!(bus.read_byte_raw(0xFE00), 0x66);
 
     bus.write_byte(0xFF46, 0xFF);
     for _ in 0..648 {
         bus.tick(1);
     }
-    assert_eq!(bus.read_byte(0xFE00), 0x77);
+    assert_eq!(bus.read_byte_raw(0xFE00), 0x77);
 }
 
 #[test]

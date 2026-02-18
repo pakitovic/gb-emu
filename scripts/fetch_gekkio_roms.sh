@@ -6,11 +6,19 @@ DEST_DIR="$ROOT_DIR/roms/gekkio's_test_roms"
 VERSION="${GEKKIO_VERSION:-mts-20240926-1737-443f6e1}"
 ZIP_URL="https://gekkio.fi/files/mooneye-test-suite/$VERSION/$VERSION.zip"
 CORE_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_core.txt"
-INCREMENTAL_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_incremental.txt"
 BOOT_MODELS_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_boot_models.txt"
+ACCEPTANCE_PPU_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_acceptance_ppu.txt"
 
 list_roms() {
   sed -e 's/\r$//' -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$@"
+}
+
+list_roms_if_exists() {
+  for file in "$@"; do
+    if [ -f "$file" ]; then
+      list_roms "$file"
+    fi
+  done
 }
 
 list_boot_model_roms() {
@@ -30,7 +38,8 @@ list_boot_model_roms() {
 
 required_files="$(
   {
-    list_roms "$CORE_LIST_FILE" "$INCREMENTAL_LIST_FILE"
+    list_roms "$CORE_LIST_FILE"
+    list_roms_if_exists "$ACCEPTANCE_PPU_LIST_FILE"
     list_boot_model_roms "$BOOT_MODELS_LIST_FILE"
   } | sort -u
 )"

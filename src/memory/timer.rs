@@ -4,12 +4,14 @@ impl Bus {
     pub fn tick(&mut self, cycles: u8) {
         for _ in 0..cycles {
             self.step_tima_reload();
-            self.step_ly();
+            self.step_ppu();
             self.step_oam_dma();
 
+            let old_div = self.div_counter;
             let old_input = self.timer_input_high();
             self.div_counter = self.div_counter.wrapping_add(1);
             let new_input = self.timer_input_high();
+            self.step_serial(old_div, self.div_counter);
 
             if old_input && !new_input {
                 self.increment_tima();
@@ -17,25 +19,6 @@ impl Bus {
 
             if self.tima_reload_block > 0 {
                 self.tima_reload_block -= 1;
-            }
-        }
-    }
-
-    fn step_ly(&mut self) {
-        self.ly_counter = self.ly_counter.wrapping_add(1);
-        if self.ly_counter >= 456 {
-            self.ly_counter -= 456;
-            let old_ly = self.io[0x44];
-            self.io[0x44] = if old_ly >= 153 {
-                0
-            } else {
-                old_ly.wrapping_add(1)
-            };
-
-            // Request VBlank interrupt when entering LY=144.
-            if self.io[0x44] == 144 {
-                let iflags = self.interrupt_flags() | (1 << 0);
-                self.set_interrupt_flags(iflags);
             }
         }
     }

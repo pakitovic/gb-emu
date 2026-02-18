@@ -1,11 +1,18 @@
+#[path = "helpers/alu_helpers.rs"]
 mod alu_helpers;
+#[path = "instr/cb.rs"]
 mod cb;
+#[path = "instr/instr_alu.rs"]
 mod instr_alu;
+#[path = "instr/instr_control.rs"]
 mod instr_control;
+#[path = "instr/instr_jump.rs"]
 mod instr_jump;
+#[path = "instr/instr_load.rs"]
 mod instr_load;
 mod instructions;
 pub mod registers;
+#[path = "helpers/timing_helpers.rs"]
 mod timing_helpers;
 
 use crate::hardware::HardwareModel;

@@ -66,12 +66,14 @@ scripts/fetch_blargg_roms.sh
 scripts/run_blargg.sh
 scripts/fetch_gekkio_roms.sh
 scripts/run_gekkio.sh
-# Optional local expansion (includes incremental ROMs):
-GEKKIO_SUITE=incremental scripts/run_gekkio.sh
+# Default stable Gekkio core suite:
+GEKKIO_SUITE=core scripts/run_gekkio.sh
+# Optional local WIP block (acceptance/ppu/*):
+GEKKIO_SUITE=acceptance_ppu scripts/run_gekkio.sh
 # Boot matrix by hardware model (dmg0/dmg/mgb/sgb/sgb2):
 GEKKIO_SUITE=boot_models scripts/run_gekkio.sh
 # Run a suite against a specific hardware model:
-GB_MODEL=sgb GEKKIO_SUITE=incremental scripts/run_gekkio.sh
+GB_MODEL=sgb GEKKIO_SUITE=core scripts/run_gekkio.sh
 GB_MODEL=mgb scripts/run_blargg.sh
 ```
 
@@ -81,7 +83,7 @@ Workflows:
 - `.github/workflows/quality.yml`: format, lint, build, unit/integration tests.
 - `.github/workflows/rom-tests.yml`: two independent jobs/checks for branch protection:
   - `rom-blargg`
-  - `rom-gekkio` (runs `incremental` + `boot_models`)
+  - `rom-gekkio` (runs `core` + `boot_models`; also runs `acceptance_ppu` as non-blocking)
 
 ## Test ROMs and Licensing Notes
 
@@ -94,11 +96,11 @@ Why:
 - Avoids redistributing binaries with mixed or unclear licensing terms.
 
 `run_gekkio.sh` supports three profiles:
-- `GEKKIO_SUITE=core` (default): stable timer set + `acceptance/instr/daa.gb`.
-- `GEKKIO_SUITE=incremental`: `core` plus growing interrupt coverage (`acceptance/interrupts/ie_push.gb`, `acceptance/ei_sequence.gb`, `acceptance/ei_timing.gb`, `acceptance/di_timing-GS.gb`, `acceptance/if_ie_registers.gb`, `acceptance/intr_timing.gb`, `acceptance/rapid_di_ei.gb`, `acceptance/reti_intr_timing.gb`, `acceptance/reti_timing.gb`), OAM DMA coverage (`acceptance/oam_dma/basic.gb`, `acceptance/oam_dma/reg_read.gb`, `acceptance/oam_dma/sources-GS.gb`), bit-behavior coverage (`acceptance/bits/mem_oam.gb`, `acceptance/bits/reg_f.gb`, `acceptance/bits/unused_hwio-GS.gb`), boot-state coverage for current DMGABC profile (`acceptance/boot_regs-dmgABC.gb`, `acceptance/boot_div-dmgABCmgb.gb`, `acceptance/boot_hwio-dmgABCmgb.gb`), and instruction timing coverage (`acceptance/add_sp_e_timing.gb`, `acceptance/ld_hl_sp_e_timing.gb`, `acceptance/push_timing.gb`, `acceptance/pop_timing.gb`, `acceptance/call_timing.gb`, `acceptance/call_cc_timing.gb`, `acceptance/call_timing2.gb`, `acceptance/call_cc_timing2.gb`, `acceptance/jp_timing.gb`, `acceptance/jp_cc_timing.gb`, `acceptance/ret_timing.gb`, `acceptance/ret_cc_timing.gb`, `acceptance/rst_timing.gb`).
+- `GEKKIO_SUITE=core` (default): stable acceptance set defined in `scripts/gekkio_roms_core.txt`.
+- `GEKKIO_SUITE=acceptance_ppu`: WIP block for `acceptance/ppu/*` tests (kept separate from core).
 - `GEKKIO_SUITE=boot_models`: dedicated boot-state matrix per model defined in `scripts/gekkio_roms_boot_models.txt`.
 
-CI currently runs `GEKKIO_SUITE=incremental` and `GEKKIO_SUITE=boot_models` as required ROM checks.
+CI currently runs `GEKKIO_SUITE=core` and `GEKKIO_SUITE=boot_models` as required ROM checks, and runs `GEKKIO_SUITE=acceptance_ppu` as non-blocking.
 
 When adding new ROM suites, document:
 - Source repository URL.

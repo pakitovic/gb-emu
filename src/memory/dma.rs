@@ -7,21 +7,26 @@ impl Bus {
             0xFE | 0xFF => source_high.wrapping_sub(0x20),
             _ => source_high,
         };
-        self.dma_active = true;
-        self.dma_source = (source_high as u16) << 8;
-        self.dma_cycles_remaining = 640; // 160 bytes * 4 t-cycles
-        self.dma_start_delay = 8; // includes one extra M-cycle setup delay
-        self.dma_cycle_accum = 0;
-        self.dma_index = 0;
+        self.dma_pending_source = (source_high as u16) << 8;
+        self.dma_start_delay = 8; // M=0 write, M=1 idle, M=2 DMA starts
     }
 
     pub(super) fn step_oam_dma(&mut self) {
-        if !self.dma_active {
-            return;
-        }
-
         if self.dma_start_delay > 0 {
             self.dma_start_delay -= 1;
+            if self.dma_start_delay == 0 {
+                // Start (or restart) DMA. For restarts, previous DMA keeps running
+                // until this moment, then the new transfer takes over.
+                self.dma_active = true;
+                self.dma_source = self.dma_pending_source;
+                self.dma_cycles_remaining = 640; // 160 bytes * 4 t-cycles
+                self.dma_cycle_accum = 0;
+                self.dma_index = 0;
+                return;
+            }
+        }
+
+        if !self.dma_active {
             return;
         }
 

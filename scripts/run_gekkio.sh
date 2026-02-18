@@ -12,8 +12,8 @@ TIMEOUT_SECS="${TIMEOUT_SECS:-30}"
 GEKKIO_SUITE="${GEKKIO_SUITE:-core}"
 GB_MODEL="${GB_MODEL:-dmg}"
 CORE_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_core.txt"
-INCREMENTAL_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_incremental.txt"
 BOOT_MODELS_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_boot_models.txt"
+ACCEPTANCE_PPU_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_acceptance_ppu.txt"
 
 list_roms() {
   sed -e 's/\r$//' -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$@"
@@ -49,10 +49,10 @@ case "$GEKKIO_SUITE" in
     summary_model="$GB_MODEL"
     suite_items="$(list_roms "$CORE_LIST_FILE")"
     ;;
-  incremental)
+  acceptance_ppu)
     run_mode="single_model"
     summary_model="$GB_MODEL"
-    suite_items="$(list_roms "$CORE_LIST_FILE" "$INCREMENTAL_LIST_FILE")"
+    suite_items="$(list_roms "$ACCEPTANCE_PPU_LIST_FILE")"
     ;;
   boot_models)
     run_mode="matrix"
@@ -60,7 +60,7 @@ case "$GEKKIO_SUITE" in
     suite_items="$(list_boot_model_rows "$BOOT_MODELS_LIST_FILE")"
     ;;
   *)
-    echo "Unknown GEKKIO_SUITE: $GEKKIO_SUITE (expected: core|incremental|boot_models)"
+    echo "Unknown GEKKIO_SUITE: $GEKKIO_SUITE (expected: core|acceptance_ppu|boot_models)"
     exit 1
     ;;
 esac
