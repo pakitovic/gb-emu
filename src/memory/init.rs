@@ -21,6 +21,7 @@ impl Bus {
             ppu: Default::default(),
             dma: Default::default(),
             serial: Default::default(),
+            framebuffer: [0xFF; super::LCD_FRAME_PIXELS],
         };
         bus.apply_boot_defaults(model);
         bus.ppu.stat_irq_line = bus.stat_irq_source_active();

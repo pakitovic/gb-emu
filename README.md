@@ -7,16 +7,20 @@ Current scope:
 - CPU core with growing opcode coverage.
 - Memory bus + timer/interrupt basics.
 - Blargg + Gekkio ROM test integration in local scripts and CI.
+- Core API bootstrap for portable frontends (frame stepping + framebuffer access).
 
 ## Project Structure
 
 ```text
 src/
+  bin/
+    frontend_sdl2.rs
   cartridge/
   cpu/
   gameboy.rs
   hardware.rs
   memory/
+  web.rs
   lib.rs
   main.rs
 tests/
@@ -61,11 +65,14 @@ Supported models for `--model`:
 - Supported ROM size codes: 32KB (0x00) and 64KB (0x01).
 - ROM-only cartridges must be 32KB.
 - Unsupported cartridge/ROM size combinations fail fast when loading the ROM.
+- Frontend framebuffer is currently a bootstrap placeholder pattern (full pixel-accurate PPU renderer exposure is pending).
 
 ## Local Requirements
 
 - Rust stable toolchain (see `rust-toolchain.toml`).
 - `git`, `curl`, `unzip`, `perl`, and `rg` (ripgrep) for ROM fetch/run scripts.
+- Optional for SDL2 frontend: SDL2 runtime/dev libraries available in the OS.
+- Optional for web frontend: `wasm-pack` (or equivalent wasm build tooling).
 
 ## Quality and Tests
 
@@ -104,6 +111,24 @@ Useful environment overrides for scripts:
 - `ROM_ROOT` to point to a custom ROM directory.
 - `MAX_STEPS` and `TIMEOUT_SECS` to tune execution limits.
 - `GEKKIO_VERSION` to fetch a specific Mooneye bundle version.
+
+## Frontend Bootstrap (SDL2 + Web)
+
+SDL2 desktop frontend (macOS / Windows / Linux):
+
+```bash
+cargo run --features frontend-sdl2 --bin frontend-sdl2 -- <path_to_rom.gb> [dmg0|dmg|mgb|sgb|sgb2]
+```
+
+Web frontend bindings (wasm):
+
+```bash
+wasm-pack build --target web --features frontend-web
+```
+
+Notes:
+- The core remains frontend-agnostic and can be embedded by multiple frontends.
+- Current web entrypoint is `WebEmulator` in `src/web.rs`.
 
 ## CI
 

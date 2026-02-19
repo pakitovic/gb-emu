@@ -1,5 +1,4 @@
 use super::Bus;
-use std::io::{self, Write};
 
 #[derive(Default)]
 pub(super) struct SerialState {
@@ -53,11 +52,9 @@ impl SerialState {
         let iflags = bus.interrupt_flags() | (1 << 3);
         bus.set_interrupt_flags(iflags);
 
-        // Keep Blargg serial output compatible.
+        // Keep Blargg/Mooneye serial output compatible.
         let ch = bus.serial.tx_byte as char;
         bus.serial.output.push(ch);
-        print!("{ch}");
-        let _ = io::stdout().flush();
     }
 }
 

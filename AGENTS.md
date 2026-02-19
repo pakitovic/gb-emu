@@ -17,6 +17,7 @@ Maintain and evolve this Game Boy emulator with senior-level engineering standar
   - Timing-sensitive logic (cycles, phases, edge-triggered behavior).
 - Prioritize deterministic and explainable behavior over clever shortcuts.
 - Prefer explicit models of hardware state transitions (well-defined enums/struct state) over implicit flag coupling.
+- Keep the emulator core frontend-agnostic and portable; treat SDL2/web/mobile/libretro as adapter layers on top of the same core API.
 
 ## Sources and Research Before Changes
 When behavior is unclear or hardware-accurate behavior is required:
@@ -41,6 +42,7 @@ Recommended references:
 - Keep `match` handling exhaustive and readable.
 - Avoid `unsafe` unless strictly necessary; if used, justify with a focused safety comment.
 - Respect lint rules (`clippy -D warnings`) and formatting (`rustfmt`).
+- Avoid host-side I/O side effects inside the core (windowing, audio backend, stdout rendering); expose data through APIs for frontend adapters.
 
 ## Testing Policy (Mandatory)
 For every behavior change:

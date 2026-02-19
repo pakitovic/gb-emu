@@ -32,3 +32,18 @@ fn cartridge_rejects_unsupported_type() {
         Err(CartridgeError::UnsupportedCartridgeType(0xFF))
     ));
 }
+
+#[test]
+fn gameboy_run_frame_with_limit_produces_frame() {
+    let rom = make_rom_32kb();
+    let cartridge = Cartridge::from_bytes(rom).expect("valid ROM should load");
+    let mut gb = GameBoy::new(cartridge);
+    let start = gb.frame_counter();
+
+    let cycles = gb
+        .run_frame_with_limit(false, 50_000)
+        .expect("frame should be produced within step budget");
+
+    assert!(cycles > 0);
+    assert!(gb.frame_counter() > start);
+}

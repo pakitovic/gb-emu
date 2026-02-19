@@ -4,6 +4,8 @@ use crate::hardware::HardwareModel;
 use crate::memory::Bus;
 
 const MOONEYE_LOOP_WINDOW: usize = 8;
+pub const SCREEN_WIDTH: usize = crate::memory::LCD_WIDTH;
+pub const SCREEN_HEIGHT: usize = crate::memory::LCD_HEIGHT;
 
 fn looks_like_tight_loop(pc_window: &[u16; MOONEYE_LOOP_WINDOW]) -> bool {
     let mut unique = [0u16; 4];
@@ -46,6 +48,41 @@ impl GameBoy {
     // Execute one CPU step
     pub fn step(&mut self) -> u8 {
         self.cpu.step(&mut self.bus)
+    }
+
+    pub fn rom_title(&self) -> &str {
+        self.bus.rom_title()
+    }
+
+    pub fn serial_output(&self) -> &str {
+        self.bus.serial_output()
+    }
+
+    pub fn frame_counter(&self) -> u64 {
+        self.bus.frame_counter()
+    }
+
+    pub fn framebuffer(&self) -> &[u8; SCREEN_WIDTH * SCREEN_HEIGHT] {
+        self.bus.framebuffer()
+    }
+
+    pub fn run_frame_with_limit(&mut self, trace: bool, max_steps: usize) -> Option<u64> {
+        let start_frame = self.frame_counter();
+        let mut total_cycles = 0u64;
+        for _ in 0..max_steps {
+            let cycles = self.step();
+            total_cycles = total_cycles.wrapping_add(cycles as u64);
+            if trace {
+                println!(
+                    "PC: {:04X}, A: {:02X}, cycles: {}",
+                    self.cpu.registers.pc, self.cpu.registers.a, cycles
+                );
+            }
+            if self.frame_counter() != start_frame {
+                return Some(total_cycles);
+            }
+        }
+        None
     }
 
     // Main execution loop
@@ -160,6 +197,14 @@ impl GameBoy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cartridge::Cartridge;
+
+    fn make_rom_32kb() -> Vec<u8> {
+        let mut rom = vec![0; 32 * 1024];
+        rom[0x0147] = 0x00; // ROM-only
+        rom[0x0148] = 0x00; // 32KB
+        rom
+    }
 
     #[test]
     fn tight_loop_detector_accepts_small_repeating_pc_sets() {
@@ -177,5 +222,31 @@ mod tests {
             0x1000, 0x1001, 0x1002, 0x1003, 0x1004, 0x1005, 0x1006, 0x1007,
         ];
         assert!(!looks_like_tight_loop(&wide));
+    }
+
+    #[test]
+    fn run_frame_with_limit_returns_none_if_budget_is_too_small() {
+        let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("test ROM should load");
+        let mut gb = GameBoy::new(cartridge);
+        let start = gb.frame_counter();
+
+        let result = gb.run_frame_with_limit(false, 1);
+
+        assert!(result.is_none());
+        assert_eq!(gb.frame_counter(), start);
+    }
+
+    #[test]
+    fn run_frame_with_limit_advances_frame_counter() {
+        let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("test ROM should load");
+        let mut gb = GameBoy::new(cartridge);
+        let start = gb.frame_counter();
+
+        let cycles = gb
+            .run_frame_with_limit(false, 50_000)
+            .expect("frame should be produced within step budget");
+
+        assert!(cycles > 0);
+        assert!(gb.frame_counter() > start);
     }
 }

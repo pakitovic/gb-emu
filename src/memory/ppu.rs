@@ -15,6 +15,7 @@ pub(super) struct PpuState {
     pub(super) enable_delay: u8,
     pub(super) stat_irq_line: bool,
     pub(super) stat_mode0_enabled_this_line: bool,
+    pub(super) frame_counter: u64,
 }
 
 impl PpuState {
@@ -116,6 +117,8 @@ impl PpuState {
             if next_ly == 144 {
                 let iflags = bus.interrupt_flags() | (1 << 0);
                 bus.set_interrupt_flags(iflags);
+                bus.ppu.frame_counter = bus.ppu.frame_counter.wrapping_add(1);
+                Self::render_placeholder_frame(bus);
             }
         }
 
@@ -352,6 +355,24 @@ impl PpuState {
         }
 
         penalty
+    }
+
+    fn render_placeholder_frame(bus: &mut Bus) {
+        // Frontend bootstrap placeholder until full pixel pipeline is exposed.
+        let phase = (bus.ppu.frame_counter & 0x1F) as usize;
+        for y in 0..super::LCD_HEIGHT {
+            for x in 0..super::LCD_WIDTH {
+                let stripe = ((x + phase) / 8) & 1;
+                let checker = ((x / 16) ^ (y / 16)) & 1;
+                let shade = match (stripe, checker) {
+                    (0, 0) => 0xE0,
+                    (0, 1) => 0xB0,
+                    (1, 0) => 0x70,
+                    _ => 0x30,
+                };
+                bus.framebuffer[y * super::LCD_WIDTH + x] = shade;
+            }
+        }
     }
 
     fn set_stat_mode(bus: &mut Bus, mode: u8) {

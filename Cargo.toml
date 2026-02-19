@@ -3,4 +3,19 @@ name = "gb-emu"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+frontend-sdl2 = ["dep:sdl2"]
+frontend-web = ["dep:wasm-bindgen"]
+
 [dependencies]
+sdl2 = { version = "0.38.0", optional = true }
+wasm-bindgen = { version = "0.2.100", optional = true }
+
+[[bin]]
+name = "frontend-sdl2"
+path = "src/bin/frontend_sdl2.rs"
+required-features = ["frontend-sdl2"]
