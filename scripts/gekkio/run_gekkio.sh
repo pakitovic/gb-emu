@@ -9,11 +9,10 @@ fi
 BIN="$ROOT_DIR/target/debug/gb-emu"
 MAX_STEPS="${MAX_STEPS:-120000000}"
 TIMEOUT_SECS="${TIMEOUT_SECS:-30}"
-GEKKIO_SUITE="${GEKKIO_SUITE:-core}"
+GEKKIO_SUITE="${GEKKIO_SUITE:-all}"
 GB_MODEL="${GB_MODEL:-dmg}"
-CORE_LIST_FILE="$ROOT_DIR/scripts/gekkio/roms_core.txt"
+ROM_LIST_FILE="$ROOT_DIR/scripts/gekkio/rom.txt"
 BOOT_MODELS_LIST_FILE="$ROOT_DIR/scripts/gekkio/roms_boot_models.txt"
-ACCEPTANCE_PPU_LIST_FILE="$ROOT_DIR/scripts/gekkio/roms_acceptance_ppu.txt"
 
 list_roms() {
   sed -e 's/\r$//' -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$@"
@@ -44,15 +43,10 @@ summary_model=""
 suite_items=""
 
 case "$GEKKIO_SUITE" in
-  core)
+  all | core)
     run_mode="single_model"
     summary_model="$GB_MODEL"
-    suite_items="$(list_roms "$CORE_LIST_FILE")"
-    ;;
-  acceptance_ppu)
-    run_mode="single_model"
-    summary_model="$GB_MODEL"
-    suite_items="$(list_roms "$ACCEPTANCE_PPU_LIST_FILE")"
+    suite_items="$(list_roms "$ROM_LIST_FILE")"
     ;;
   boot_models)
     run_mode="matrix"
@@ -60,7 +54,7 @@ case "$GEKKIO_SUITE" in
     suite_items="$(list_boot_model_rows "$BOOT_MODELS_LIST_FILE")"
     ;;
   *)
-    echo "Unknown GEKKIO_SUITE: $GEKKIO_SUITE (expected: core|acceptance_ppu|boot_models)"
+    echo "Unknown GEKKIO_SUITE: $GEKKIO_SUITE (expected: all|core|boot_models)"
     exit 1
     ;;
 esac

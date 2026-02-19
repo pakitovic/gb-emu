@@ -29,9 +29,8 @@ scripts/
   gekkio/
     fetch_gekkio_roms.sh
     run_gekkio.sh
-    roms_core.txt
+    rom.txt
     roms_boot_models.txt
-    roms_acceptance_ppu.txt
   setup-hooks.sh
 ```
 
@@ -74,14 +73,12 @@ scripts/blargg/fetch_blargg_roms.sh
 scripts/blargg/run_blargg.sh
 scripts/gekkio/fetch_gekkio_roms.sh
 scripts/gekkio/run_gekkio.sh
-# Default stable Gekkio core suite:
-GEKKIO_SUITE=core scripts/gekkio/run_gekkio.sh
-# Optional local WIP block (acceptance/ppu/*):
-GEKKIO_SUITE=acceptance_ppu scripts/gekkio/run_gekkio.sh
+# Default stable Gekkio suite (core + acceptance/ppu):
+GEKKIO_SUITE=all scripts/gekkio/run_gekkio.sh
 # Boot matrix by hardware model (dmg0/dmg/mgb/sgb/sgb2):
 GEKKIO_SUITE=boot_models scripts/gekkio/run_gekkio.sh
 # Run a suite against a specific hardware model:
-GB_MODEL=sgb GEKKIO_SUITE=core scripts/gekkio/run_gekkio.sh
+GB_MODEL=sgb GEKKIO_SUITE=all scripts/gekkio/run_gekkio.sh
 GB_MODEL=mgb scripts/blargg/run_blargg.sh
 ```
 
@@ -91,7 +88,7 @@ Workflows:
 - `.github/workflows/quality.yml`: format, lint, build, unit/integration tests.
 - `.github/workflows/rom-tests.yml`: two independent jobs/checks for branch protection:
   - `rom-blargg`
-  - `rom-gekkio` (runs `core` + `boot_models`; also runs `acceptance_ppu` as non-blocking)
+  - `rom-gekkio` (runs `all` + `boot_models`)
 
 ## Test ROMs and Licensing Notes
 
@@ -103,9 +100,8 @@ Why:
 - Keeps the repository lightweight.
 - Avoids redistributing binaries with mixed or unclear licensing terms.
 
-`scripts/gekkio/run_gekkio.sh` supports three profiles:
-- `GEKKIO_SUITE=core` (default): stable acceptance set defined in `scripts/gekkio/roms_core.txt`.
-- `GEKKIO_SUITE=acceptance_ppu`: WIP block for `acceptance/ppu/*` tests (kept separate from core).
+`scripts/gekkio/run_gekkio.sh` supports two profiles:
+- `GEKKIO_SUITE=all` (default): stable acceptance set defined in `scripts/gekkio/rom.txt`.
 - `GEKKIO_SUITE=boot_models`: dedicated boot-state matrix per model defined in `scripts/gekkio/roms_boot_models.txt`.
 
 `scripts/blargg/run_blargg.sh` runs the full DMG Blargg set defined in:
@@ -118,7 +114,7 @@ Current Blargg DMG selection intentionally excludes:
 - `cgb_sound/*`
 - `interrupt_time/*`
 
-CI currently runs `GEKKIO_SUITE=core` and `GEKKIO_SUITE=boot_models` as required ROM checks, and runs `GEKKIO_SUITE=acceptance_ppu` as non-blocking.
+CI currently runs `GEKKIO_SUITE=all` and `GEKKIO_SUITE=boot_models` as required ROM checks.
 
 When adding new ROM suites, document:
 - Source repository URL.
