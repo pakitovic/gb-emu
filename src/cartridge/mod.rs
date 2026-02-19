@@ -21,6 +21,7 @@ pub enum CartridgeError {
     RomTooSmall { actual: usize },
     UnsupportedCartridgeType(u8),
     UnsupportedRomSizeCode(u8),
+    UnsupportedRomSizeForCartridge { cart_type: u8, rom_size_code: u8 },
     UnsupportedRomLength(usize),
 }
 
@@ -44,6 +45,15 @@ impl Display for CartridgeError {
                 write!(
                     f,
                     "Unsupported ROM size code 0x{code:02X}; supported: 32KB (0x00), 64KB (0x01)"
+                )
+            }
+            Self::UnsupportedRomSizeForCartridge {
+                cart_type,
+                rom_size_code,
+            } => {
+                write!(
+                    f,
+                    "Unsupported ROM size code 0x{rom_size_code:02X} for cartridge type 0x{cart_type:02X}"
                 )
             }
             Self::UnsupportedRomLength(len) => {
@@ -84,6 +94,13 @@ impl Cartridge {
         let rom_size_code = rom[0x0148];
         if rom_size_code != ROM_SIZE_32KB_CODE && rom_size_code != ROM_SIZE_64KB_CODE {
             return Err(CartridgeError::UnsupportedRomSizeCode(rom_size_code));
+        }
+
+        if cart_type == ROM_ONLY && rom_size_code != ROM_SIZE_32KB_CODE {
+            return Err(CartridgeError::UnsupportedRomSizeForCartridge {
+                cart_type,
+                rom_size_code,
+            });
         }
 
         let expected_len = match rom_size_code {
@@ -244,6 +261,22 @@ mod tests {
         let rom = make_rom(ROM_32KB_BYTES - 1, ROM_ONLY, ROM_SIZE_32KB_CODE);
         match Cartridge::from_bytes(rom) {
             Err(CartridgeError::UnsupportedRomLength(_)) => {}
+            Err(other) => panic!("unexpected error: {other}"),
+            Ok(_) => panic!("expected ROM loading to fail"),
+        }
+    }
+
+    #[test]
+    fn rejects_rom_only_with_64kb_size_code() {
+        let rom = make_rom(ROM_64KB_BYTES, ROM_ONLY, ROM_SIZE_64KB_CODE);
+        match Cartridge::from_bytes(rom) {
+            Err(CartridgeError::UnsupportedRomSizeForCartridge {
+                cart_type,
+                rom_size_code,
+            }) => {
+                assert_eq!(cart_type, ROM_ONLY);
+                assert_eq!(rom_size_code, ROM_SIZE_64KB_CODE);
+            }
             Err(other) => panic!("unexpected error: {other}"),
             Ok(_) => panic!("expected ROM loading to fail"),
         }
