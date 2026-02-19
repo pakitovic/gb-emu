@@ -6,7 +6,7 @@ Current scope:
 - ROM-only plus basic MBC1/MBC5 support.
 - CPU core with growing opcode coverage.
 - Memory bus + timer/interrupt basics.
-- Blargg ROM test integration in local scripts and CI.
+- Blargg + Gekkio ROM test integration in local scripts and CI.
 
 ## Project Structure
 
@@ -55,6 +55,18 @@ Supported models for `--model`:
 - `sgb`
 - `sgb2`
 
+## Current Limitations
+
+- Supported cartridge types: ROM-only (0x00), MBC1 (0x01/0x02/0x03), MBC5 (0x19/0x1A/0x1B).
+- Supported ROM size codes: 32KB (0x00) and 64KB (0x01).
+- ROM-only cartridges must be 32KB.
+- Unsupported cartridge/ROM size combinations fail fast when loading the ROM.
+
+## Local Requirements
+
+- Rust stable toolchain (see `rust-toolchain.toml`).
+- `git`, `curl`, `unzip`, `perl`, and `rg` (ripgrep) for ROM fetch/run scripts.
+
 ## Quality and Tests
 
 Formatting/lint aliases are defined in `.cargo/config.toml`.
@@ -65,13 +77,17 @@ cargo lint
 cargo test --locked
 ```
 
-Blargg suite:
+ROM test suites:
 
 ```bash
+# Blargg
 scripts/blargg/fetch_blargg_roms.sh
 # Runs all configured DMG Blargg ROMs:
 scripts/blargg/run_blargg.sh
+
+# Gekkio (Mooneye)
 scripts/gekkio/fetch_gekkio_roms.sh
+# Default is GEKKIO_SUITE=all:
 scripts/gekkio/run_gekkio.sh
 # Default stable Gekkio suite (core + acceptance/ppu):
 GEKKIO_SUITE=all scripts/gekkio/run_gekkio.sh
@@ -81,6 +97,13 @@ GEKKIO_SUITE=boot_models scripts/gekkio/run_gekkio.sh
 GB_MODEL=sgb GEKKIO_SUITE=all scripts/gekkio/run_gekkio.sh
 GB_MODEL=mgb scripts/blargg/run_blargg.sh
 ```
+
+Useful environment overrides for scripts:
+- `GB_MODEL` (default: `dmg`) for both `run_blargg.sh` and `run_gekkio.sh`.
+- `GEKKIO_SUITE` (`all`, `core`, `boot_models`) for `run_gekkio.sh`.
+- `ROM_ROOT` to point to a custom ROM directory.
+- `MAX_STEPS` and `TIMEOUT_SECS` to tune execution limits.
+- `GEKKIO_VERSION` to fetch a specific Mooneye bundle version.
 
 ## CI
 
@@ -94,7 +117,11 @@ Workflows:
 
 `/roms` is intentionally ignored in `.gitignore` to avoid storing test ROM binaries in this repository.
 
-CI and local setup use `scripts/blargg/fetch_blargg_roms.sh`, which pulls public test ROM sources at runtime.
+CI and local setup use both:
+- `scripts/blargg/fetch_blargg_roms.sh`
+- `scripts/gekkio/fetch_gekkio_roms.sh`
+
+Both pull public test ROM sources at runtime.
 
 Why:
 - Keeps the repository lightweight.
@@ -126,3 +153,4 @@ When adding new ROM suites, document:
 - Keep code identifiers/comments in English.
 - Prefer small, safe refactors with tests.
 - Add/adjust tests whenever behavior changes (unit + integration as needed).
+- Optional local hook setup: `scripts/setup-hooks.sh` (pre-commit runs `cargo fmt-check` and `cargo lint`).
