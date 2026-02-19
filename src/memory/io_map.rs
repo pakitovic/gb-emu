@@ -1,0 +1,28 @@
+pub(super) fn io_unused_bits_mask(addr: u16) -> u8 {
+    match addr {
+        0xFF00 => 0xC0, // P1
+        0xFF02 => 0x7E, // SC
+        0xFF07 => 0xF8, // TAC
+        0xFF0F => 0xE0, // IF
+        0xFF10 => 0x80, // NR10
+        0xFF1A => 0x7F, // NR30
+        0xFF1C => 0x9F, // NR32
+        0xFF20 => 0xC0, // NR41
+        0xFF23 => 0x3F, // NR44
+        0xFF26 => 0x70, // NR52
+        0xFF41 => 0x80, // STAT
+        _ => 0x00,
+    }
+}
+
+pub(super) fn is_unmapped_io(addr: u16) -> bool {
+    matches!(
+        addr,
+        0xFF03
+            | 0xFF08..=0xFF0E
+            | 0xFF15
+            | 0xFF1F
+            | 0xFF27..=0xFF2F
+            | 0xFF4C..=0xFF7F
+    )
+}

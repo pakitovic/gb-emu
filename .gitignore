@@ -1,4 +1,5 @@
 /target
-/roms
+/roms/*
+!/roms/.gitkeep
 
 **/.DS_Store

@@ -1,10 +1,15 @@
+mod bus_access;
+mod bus_router;
 mod cpu_context;
 mod dma;
 mod init;
 mod interrupts;
 mod io;
+mod io_map;
+mod io_router;
 mod map;
 mod ppu;
+mod scheduler;
 mod serial;
 mod timer;
 

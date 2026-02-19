@@ -13,6 +13,10 @@ impl Bus {
         self.io[0x0F] = (value & 0x1F) | 0xE0;
     }
 
+    pub(super) fn write_if(&mut self, value: u8) {
+        self.set_interrupt_flags(value);
+    }
+
     pub fn pending_interrupts(&self) -> u8 {
         self.interrupt_enable() & self.interrupt_flags() & 0x1F
     }
