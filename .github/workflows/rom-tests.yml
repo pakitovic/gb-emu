@@ -61,9 +61,9 @@ jobs:
       - name: Fetch Gekkio ROMs
         run: scripts/gekkio/fetch_gekkio_roms.sh
 
-      - name: Run ROM suite (gekkio-core)
+      - name: Run ROM suite (gekkio-all)
         env:
-          GEKKIO_SUITE: "core"
+          GEKKIO_SUITE: "all"
           MAX_STEPS: "120000000"
           TIMEOUT_SECS: "120"
         run: scripts/gekkio/run_gekkio.sh
@@ -71,14 +71,6 @@ jobs:
       - name: Run ROM suite (gekkio-boot-models)
         env:
           GEKKIO_SUITE: "boot_models"
-          MAX_STEPS: "120000000"
-          TIMEOUT_SECS: "120"
-        run: scripts/gekkio/run_gekkio.sh
-
-      - name: Run ROM suite (gekkio-acceptance-ppu, non-blocking)
-        continue-on-error: true
-        env:
-          GEKKIO_SUITE: "acceptance_ppu"
           MAX_STEPS: "120000000"
           TIMEOUT_SECS: "120"
         run: scripts/gekkio/run_gekkio.sh
