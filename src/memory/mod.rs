@@ -1,3 +1,4 @@
+mod cpu_context;
 mod dma;
 mod init;
 mod interrupts;
@@ -8,6 +9,10 @@ mod serial;
 mod timer;
 
 use crate::cartridge::Cartridge;
+use dma::DmaState;
+use ppu::PpuState;
+use serial::SerialState;
+use timer::TimerState;
 
 pub struct Bus {
     cartridge: Cartridge,
@@ -18,25 +23,10 @@ pub struct Bus {
     io: [u8; 0x0080],
     hram: [u8; 0x007F],
     ie: u8,
-    serial_output: String,
-    div_counter: u16,
-    ly_counter: u16,
-    tima_reload_delay: u8,
-    tima_reload_block: u8,
-    dma_active: bool,
-    dma_source: u16,
-    dma_pending_source: u16,
-    dma_cycles_remaining: u16,
-    dma_start_delay: u8,
-    dma_cycle_accum: u8,
-    dma_index: u8,
-    serial_bits_remaining: u8,
-    serial_tx_byte: u8,
-    ppu_startup_line: bool,
-    ppu_post_enable_phase: u8,
-    ppu_enable_delay: u8,
-    stat_irq_line: bool,
-    stat_mode0_enabled_this_line: bool,
+    timer: TimerState,
+    ppu: PpuState,
+    dma: DmaState,
+    serial: SerialState,
 }
 
 #[cfg(test)]

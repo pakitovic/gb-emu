@@ -27,7 +27,7 @@ impl Bus {
                 }
                 let index = (addr - 0xFF00) as usize;
                 let value = if addr == 0xFF04 {
-                    (self.div_counter >> 8) as u8
+                    (self.timer.div_counter >> 8) as u8
                 } else if addr == 0xFF41 {
                     self.stat_read_value()
                 } else {
@@ -78,7 +78,7 @@ impl Bus {
             self.write_stat(value);
         } else if addr == 0xFF04 {
             let old_input = self.timer_input_high();
-            self.div_counter = 0;
+            self.timer.div_counter = 0;
             let new_input = self.timer_input_high();
             if old_input && !new_input {
                 self.increment_tima();
@@ -100,17 +100,17 @@ impl Bus {
         } else if addr == 0xFF45 {
             self.write_lyc(value);
         } else if addr == 0xFF05 {
-            if self.tima_reload_block > 0 {
+            if self.timer.tima_reload_block > 0 {
                 // ignored
-            } else if self.tima_reload_delay > 0 {
+            } else if self.timer.tima_reload_delay > 0 {
                 self.io[index] = value;
-                self.tima_reload_delay = 0;
+                self.timer.tima_reload_delay = 0;
             } else {
                 self.io[index] = value;
             }
         } else if addr == 0xFF06 {
             self.io[index] = value;
-            if self.tima_reload_block > 0 {
+            if self.timer.tima_reload_block > 0 {
                 self.io[0x05] = value;
             }
         } else {

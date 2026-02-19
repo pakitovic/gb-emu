@@ -161,3 +161,78 @@ fn interrupt_ie_push_lower_byte_is_too_late_to_cancel_dispatch() {
     assert_eq!(bus.interrupt_enable(), 0x35);
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x00);
 }
+
+#[test]
+fn halt_without_pending_interrupts_stays_halted() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.registers.pc = 0xC000;
+    bus.write_byte(0xC000, 0x76); // HALT
+
+    let cycles_1 = cpu.step(&mut bus);
+    assert_eq!(cycles_1, 4);
+    assert!(cpu.halted);
+    assert_eq!(cpu.registers.pc, 0xC001);
+
+    let cycles_2 = cpu.step(&mut bus);
+    assert_eq!(cycles_2, 4);
+    assert!(cpu.halted);
+    assert_eq!(cpu.registers.pc, 0xC001);
+}
+
+#[test]
+fn halt_with_pending_interrupt_and_ime_off_triggers_halt_bug() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.ime = false;
+    cpu.registers.pc = 0xC000;
+    cpu.registers.b = 0x00;
+    bus.write_byte(0xC000, 0x76); // HALT
+    bus.write_byte(0xC001, 0x04); // INC B
+    bus.write_byte(0xFFFF, 0x01); // IE: VBlank
+    bus.set_interrupt_flags(0x01); // IF: VBlank pending
+
+    let cycles_1 = cpu.step(&mut bus);
+    assert_eq!(cycles_1, 4);
+    assert!(!cpu.halted);
+    assert!(cpu.halt_bug);
+    assert_eq!(cpu.registers.pc, 0xC001);
+
+    let cycles_2 = cpu.step(&mut bus);
+    assert_eq!(cycles_2, 4);
+    assert_eq!(cpu.registers.b, 0x01);
+    assert_eq!(cpu.registers.pc, 0xC001);
+    assert!(!cpu.halt_bug);
+
+    let cycles_3 = cpu.step(&mut bus);
+    assert_eq!(cycles_3, 4);
+    assert_eq!(cpu.registers.b, 0x02);
+    assert_eq!(cpu.registers.pc, 0xC002);
+}
+
+#[test]
+fn halt_with_pending_interrupt_and_ime_on_dispatches_interrupt() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.ime = true;
+    cpu.registers.pc = 0xC000;
+    cpu.registers.sp = 0xD000;
+    bus.write_byte(0xC000, 0x76); // HALT
+    bus.write_byte(0xFFFF, 0x01); // IE: VBlank
+    bus.set_interrupt_flags(0x00); // clear post-boot IF defaults
+
+    let cycles_1 = cpu.step(&mut bus);
+    assert_eq!(cycles_1, 4); // HALT instruction itself
+    assert!(cpu.halted);
+    assert_eq!(cpu.registers.pc, 0xC001);
+
+    bus.set_interrupt_flags(0x01); // IF: VBlank pending after HALT
+    let cycles_2 = cpu.step(&mut bus);
+    assert_eq!(cycles_2, 20);
+    assert!(!cpu.halted);
+    assert!(!cpu.ime);
+    assert_eq!(cpu.registers.pc, 0x0040);
+}

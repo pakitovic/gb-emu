@@ -53,6 +53,18 @@ fn wait_for_ly(bus: &mut Bus, target_ly: u8) {
     panic!("LY={target_ly} not observed");
 }
 
+fn wait_for_visible_hblank(bus: &mut Bus) {
+    for _ in 0..(154 * 456 * 2) {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if (1..144).contains(&ly) && mode == 0 {
+            return;
+        }
+        bus.tick(1);
+    }
+    panic!("Visible HBlank not observed");
+}
+
 #[test]
 fn echo_ram_mirrors_work_ram() {
     let mut bus = make_test_bus();
@@ -104,6 +116,30 @@ fn div_write_can_increment_tima_on_falling_edge() {
 
     bus.tick(8); // div bit3 becomes high
     bus.write_byte(0xFF04, 0x00); // reset DIV => falling edge => TIMA++
+
+    assert_eq!(bus.read_byte(0xFF05), 0x01);
+}
+
+#[test]
+fn tac_disable_can_increment_tima_on_falling_edge() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF07, 0x05); // TAC: enable + bit3 source
+    bus.write_byte(0xFF05, 0x00); // TIMA
+
+    bus.tick(8); // selected input bit becomes high
+    bus.write_byte(0xFF07, 0x00); // disable timer => falling edge => TIMA++
+
+    assert_eq!(bus.read_byte(0xFF05), 0x01);
+}
+
+#[test]
+fn tac_frequency_switch_can_increment_tima_on_falling_edge() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF07, 0x05); // TAC: enable + bit3 source
+    bus.write_byte(0xFF05, 0x00); // TIMA
+
+    bus.tick(8); // bit3 high while bit5 is still low
+    bus.write_byte(0xFF07, 0x06); // switch to bit5 source => falling edge => TIMA++
 
     assert_eq!(bus.read_byte(0xFF05), 0x01);
 }
@@ -194,6 +230,49 @@ fn serial_transfer_is_phase_aligned_to_div_and_not_to_start_write() {
 
     bus.tick(1);
     assert_ne!(bus.interrupt_flags() & (1 << 3), 0);
+}
+
+#[test]
+fn serial_stop_cancels_transfer_and_does_not_request_interrupt() {
+    let mut bus = make_test_bus();
+    bus.set_interrupt_flags(0x00);
+    bus.write_byte(0xFF01, b'X');
+    bus.write_byte(0xFF02, 0x81);
+
+    bus.tick(255); // before first serial clock falling edge
+    bus.write_byte(0xFF02, 0x00); // explicit stop
+
+    for _ in 0..5000 {
+        bus.tick(1);
+    }
+
+    assert_eq!(bus.interrupt_flags() & (1 << 3), 0);
+    assert_eq!(bus.read_byte(0xFF02) & 0x80, 0x00);
+    assert!(!bus.serial_output().contains('X'));
+}
+
+#[test]
+fn serial_restart_uses_latest_tx_byte() {
+    let mut bus = make_test_bus();
+    bus.set_interrupt_flags(0x00);
+    bus.write_byte(0xFF01, b'A');
+    bus.write_byte(0xFF02, 0x81); // start transfer
+
+    bus.tick(200); // transfer still in progress
+    bus.write_byte(0xFF01, b'B');
+    bus.write_byte(0xFF02, 0x81); // restart transfer
+
+    let mut finished = false;
+    for _ in 0..5000 {
+        bus.tick(1);
+        if (bus.interrupt_flags() & (1 << 3)) != 0 {
+            finished = true;
+            break;
+        }
+    }
+
+    assert!(finished, "serial transfer did not complete after restart");
+    assert_eq!(bus.serial_output(), "B");
 }
 
 #[test]
@@ -331,6 +410,23 @@ fn stat_irq_is_edge_triggered_when_enabling_mode1_source() {
     bus.set_interrupt_flags(0x00);
     bus.write_byte(0xFF41, 0x10); // line already high => no new edge
     assert_eq!(bus.interrupt_flags() & (1 << 1), 0);
+}
+
+#[test]
+fn stat_mode0_irq_retriggers_when_toggled_during_hblank() {
+    let mut bus = make_test_bus();
+
+    wait_for_visible_hblank(&mut bus);
+    bus.write_byte(0xFF41, 0x00); // disable all STAT sources
+
+    bus.set_interrupt_flags(0x00);
+    bus.write_byte(0xFF41, 0x08); // enable mode 0 source in active HBlank
+    assert_ne!(bus.interrupt_flags() & (1 << 1), 0);
+
+    bus.set_interrupt_flags(0x00);
+    bus.write_byte(0xFF41, 0x00); // drop STAT line
+    bus.write_byte(0xFF41, 0x08); // raise again in same HBlank
+    assert_ne!(bus.interrupt_flags() & (1 << 1), 0);
 }
 
 #[test]
@@ -558,9 +654,9 @@ fn dmg0_boot_profile_uses_expected_div_phase_and_ly_start() {
     let cart = Cartridge::from_bytes(rom).expect("test ROM should be valid");
     let bus = Bus::new_with_model(cart, HardwareModel::Dmg0);
 
-    assert_eq!(bus.div_counter, 0x1830);
+    assert_eq!(bus.timer.div_counter, 0x1830);
     assert_eq!(bus.io[0x44], 0x91);
-    assert_eq!(bus.ly_counter, 96);
+    assert_eq!(bus.ppu.ly_counter, 96);
 }
 
 #[test]
@@ -577,9 +673,9 @@ fn sgb_boot_div_phase_depends_on_header_checksum() {
 
     // boot_div-S.gb checksum bytes at 0x014E/0x014F.
     let bus_a = make_bus(0x34, 0x12);
-    assert_eq!(bus_a.div_counter, 0xD860);
+    assert_eq!(bus_a.timer.div_counter, 0xD860);
 
     // boot_div2-S.gb checksum bytes at 0x014E/0x014F.
     let bus_b = make_bus(0x96, 0xA7);
-    assert_eq!(bus_b.div_counter, 0xD850);
+    assert_eq!(bus_b.timer.div_counter, 0xD850);
 }

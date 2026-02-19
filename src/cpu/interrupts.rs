@@ -1,5 +1,5 @@
 use super::Cpu;
-use crate::memory::Bus;
+use crate::cpu::CpuContext;
 
 fn select_interrupt(pending: u8) -> Option<(u8, u16)> {
     if (pending & 0x01) != 0 {
@@ -18,7 +18,7 @@ fn select_interrupt(pending: u8) -> Option<(u8, u16)> {
 }
 
 impl Cpu {
-    pub(super) fn service_interrupt(&mut self, bus: &mut Bus, _pending: u8) -> u8 {
+    pub(super) fn service_interrupt(&mut self, bus: &mut impl CpuContext, _pending: u8) -> u8 {
         self.ime = false;
         self.halted = false;
 

@@ -1,8 +1,12 @@
+use crate::cpu::CpuContext;
 use crate::cpu::{Cpu, set_flag_c, set_flag_h, set_flag_n, set_flag_z};
-use crate::memory::Bus;
 
 impl Cpu {
-    pub(in crate::cpu) fn execute_instr_load(&mut self, opcode: u8, bus: &mut Bus) -> Option<u8> {
+    pub(in crate::cpu) fn execute_instr_load(
+        &mut self,
+        opcode: u8,
+        bus: &mut impl CpuContext,
+    ) -> Option<u8> {
         let cycles = match opcode {
             // LD r, d8
             0x3E => {

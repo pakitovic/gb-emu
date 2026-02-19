@@ -7,6 +7,16 @@ const STAT_MODE_TRANSFER: u8 = 3;
 const STARTUP_MODE0_DOTS: u16 = 80;
 const STARTUP_LINE_DOTS: u16 = 452;
 
+#[derive(Default)]
+pub(super) struct PpuState {
+    pub(super) ly_counter: u16,
+    pub(super) startup_line: bool,
+    pub(super) post_enable_phase: u8,
+    pub(super) enable_delay: u8,
+    pub(super) stat_irq_line: bool,
+    pub(super) stat_mode0_enabled_this_line: bool,
+}
+
 impl Bus {
     pub(super) fn lcd_enabled(&self) -> bool {
         (self.io[0x40] & 0x80) != 0
@@ -17,29 +27,29 @@ impl Bus {
     }
 
     pub(super) fn ppu_startup_mode0_slice_active(&self) -> bool {
-        self.ppu_post_enable_phase > 0
+        self.ppu.post_enable_phase > 0
             && self.io[0x44] > 0
             && self.io[0x44] < 144
             && self.ppu_mode() == STAT_MODE_HBLANK
-            && self.ly_counter < 4
+            && self.ppu.ly_counter < 4
     }
 
     pub(super) fn ppu_startup_mode2_tail_active(&self) -> bool {
-        self.ppu_post_enable_phase > 0
+        self.ppu.post_enable_phase > 0
             && self.io[0x44] > 0
             && self.io[0x44] < 144
             && self.ppu_mode() == STAT_MODE_OAM
-            && (80..84).contains(&self.ly_counter)
+            && (80..84).contains(&self.ppu.ly_counter)
     }
 
     pub(super) fn ppu_blocks_oam_read(&self) -> bool {
-        self.dma_active
+        self.dma.active
             || self.ppu_startup_mode0_slice_active()
             || (self.lcd_enabled() && matches!(self.ppu_mode(), STAT_MODE_OAM | STAT_MODE_TRANSFER))
     }
 
     pub(super) fn ppu_blocks_oam_write(&self) -> bool {
-        self.dma_active || !self.ppu_allows_oam_access()
+        self.dma.active || !self.ppu_allows_oam_access()
     }
 
     pub(super) fn ppu_blocks_vram_read(&self) -> bool {
@@ -85,22 +95,22 @@ impl Bus {
         match (was_enabled, now_enabled) {
             (true, false) => {
                 self.io[0x44] = 0;
-                self.ly_counter = 0;
-                self.ppu_startup_line = false;
-                self.ppu_post_enable_phase = 0;
-                self.ppu_enable_delay = 0;
-                self.stat_mode0_enabled_this_line = false;
+                self.ppu.ly_counter = 0;
+                self.ppu.startup_line = false;
+                self.ppu.post_enable_phase = 0;
+                self.ppu.enable_delay = 0;
+                self.ppu.stat_mode0_enabled_this_line = false;
                 self.set_stat_mode(STAT_MODE_HBLANK);
                 // LY=LYC flag is retained while LCD is disabled.
                 self.update_stat_irq_line();
             }
             (false, true) => {
                 self.io[0x44] = 0;
-                self.ly_counter = 0;
-                self.ppu_startup_line = true;
-                self.ppu_post_enable_phase = 0;
-                self.ppu_enable_delay = 0;
-                self.stat_mode0_enabled_this_line = false;
+                self.ppu.ly_counter = 0;
+                self.ppu.startup_line = true;
+                self.ppu.post_enable_phase = 0;
+                self.ppu.enable_delay = 0;
+                self.ppu.stat_mode0_enabled_this_line = false;
                 self.set_stat_mode(STAT_MODE_HBLANK);
                 self.update_lyc_flag();
                 self.update_stat_irq_line();
@@ -115,9 +125,9 @@ impl Bus {
         self.io[0x41] = (self.io[0x41] & 0x07) | (value & 0x78);
         let new_mode0_source = (self.io[0x41] & 0x08) != 0;
         if !old_mode0_source && new_mode0_source && self.lcd_enabled() && self.io[0x44] < 144 {
-            self.stat_mode0_enabled_this_line = true;
+            self.ppu.stat_mode0_enabled_this_line = true;
         } else if !new_mode0_source {
-            self.stat_mode0_enabled_this_line = false;
+            self.ppu.stat_mode0_enabled_this_line = false;
         }
         self.update_stat_irq_line();
     }
@@ -133,11 +143,11 @@ impl Bus {
     pub(super) fn write_ly(&mut self, value: u8) {
         let _ = value;
         self.io[0x44] = 0;
-        self.ly_counter = 0;
-        self.ppu_startup_line = false;
-        self.ppu_post_enable_phase = 0;
-        self.ppu_enable_delay = 0;
-        self.stat_mode0_enabled_this_line = false;
+        self.ppu.ly_counter = 0;
+        self.ppu.startup_line = false;
+        self.ppu.post_enable_phase = 0;
+        self.ppu.enable_delay = 0;
+        self.ppu.stat_mode0_enabled_this_line = false;
         if self.lcd_enabled() {
             self.set_stat_mode(STAT_MODE_HBLANK);
             self.update_lyc_flag();
@@ -152,8 +162,8 @@ impl Bus {
             return;
         }
 
-        if self.ppu_enable_delay > 0 {
-            self.ppu_enable_delay -= 1;
+        if self.ppu.enable_delay > 0 {
+            self.ppu.enable_delay -= 1;
             self.update_lyc_flag();
             self.update_stat_irq_line();
             return;
@@ -161,18 +171,18 @@ impl Bus {
 
         let ly = self.io[0x44];
         let line_length = self.line_length_tcycles(ly);
-        self.ly_counter = self.ly_counter.wrapping_add(1);
-        if self.ly_counter >= line_length {
-            self.ly_counter = 0;
+        self.ppu.ly_counter = self.ppu.ly_counter.wrapping_add(1);
+        if self.ppu.ly_counter >= line_length {
+            self.ppu.ly_counter = 0;
             let next_ly = if ly >= 153 { 0 } else { ly.wrapping_add(1) };
             self.io[0x44] = next_ly;
-            self.stat_mode0_enabled_this_line = false;
+            self.ppu.stat_mode0_enabled_this_line = false;
 
-            if self.ppu_startup_line && ly == 0 {
-                self.ppu_startup_line = false;
-                self.ppu_post_enable_phase = 2;
-            } else if self.ppu_post_enable_phase > 0 {
-                self.ppu_post_enable_phase -= 1;
+            if self.ppu.startup_line && ly == 0 {
+                self.ppu.startup_line = false;
+                self.ppu.post_enable_phase = 2;
+            } else if self.ppu.post_enable_phase > 0 {
+                self.ppu.post_enable_phase -= 1;
             }
             if next_ly == 144 {
                 let iflags = self.interrupt_flags() | (1 << 0);
@@ -184,7 +194,7 @@ impl Bus {
         let mode = if ly >= 144 {
             STAT_MODE_VBLANK
         } else {
-            self.mode_for_visible_line(ly, self.ly_counter, self.ppu_startup_line && ly == 0)
+            self.mode_for_visible_line(ly, self.ppu.ly_counter, self.ppu.startup_line && ly == 0)
         };
         self.set_stat_mode(mode);
         self.update_lyc_flag();
@@ -192,7 +202,7 @@ impl Bus {
     }
 
     fn line_length_tcycles(&self, ly: u8) -> u16 {
-        if self.ppu_startup_line && ly == 0 {
+        if self.ppu.startup_line && ly == 0 {
             STARTUP_LINE_DOTS
         } else {
             456
@@ -210,13 +220,13 @@ impl Bus {
                 STAT_MODE_HBLANK
             }
         } else {
-            let mode2_end = match self.ppu_post_enable_phase {
+            let mode2_end = match self.ppu.post_enable_phase {
                 2 => 84u16,
                 1 => 84u16,
                 _ => 80u16,
             };
 
-            if self.ppu_post_enable_phase == 0 {
+            if self.ppu.post_enable_phase == 0 {
                 if line_cycle < 80 {
                     STAT_MODE_OAM
                 } else if line_cycle < 80u16.saturating_add(mode3_dots) {
@@ -360,7 +370,7 @@ impl Bus {
         // DMG quirk: if mode 2 interrupt is enabled, entering LY=144 also
         // raises STAT alongside VBlank.
         let mode2_or_vblank_start = mode == STAT_MODE_OAM
-            || (mode == STAT_MODE_VBLANK && self.io[0x44] == 144 && self.ly_counter == 0);
+            || (mode == STAT_MODE_VBLANK && self.io[0x44] == 144 && self.ppu.ly_counter == 0);
         let mode0_active = mode == STAT_MODE_HBLANK && self.mode0_stat_source_active_now();
         ((stat & 0x40) != 0 && lyc)
             || ((stat & 0x20) != 0 && mode2_or_vblank_start)
@@ -374,27 +384,27 @@ impl Bus {
             return false;
         }
 
-        let startup_line = self.ppu_startup_line && ly == 0;
+        let startup_line = self.ppu.startup_line && ly == 0;
         let mode3_end = if startup_line {
             STARTUP_MODE0_DOTS.saturating_add(self.mode3_length_tcycles(ly, true))
         } else {
             80u16.saturating_add(self.mode3_length_tcycles(ly, false))
         };
 
-        let delay_tcycles = if self.stat_mode0_enabled_this_line {
+        let delay_tcycles = if self.ppu.stat_mode0_enabled_this_line {
             0
         } else {
             4
         };
-        self.ly_counter >= mode3_end.saturating_add(delay_tcycles)
+        self.ppu.ly_counter >= mode3_end.saturating_add(delay_tcycles)
     }
 
     fn update_stat_irq_line(&mut self) {
         let high = self.stat_irq_source_active();
-        if high && !self.stat_irq_line {
+        if high && !self.ppu.stat_irq_line {
             let iflags = self.interrupt_flags() | (1 << 1);
             self.set_interrupt_flags(iflags);
         }
-        self.stat_irq_line = high;
+        self.ppu.stat_irq_line = high;
     }
 }

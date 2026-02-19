@@ -6,6 +6,6 @@ impl Bus {
     }
 
     pub fn serial_output(&self) -> &str {
-        &self.serial_output
+        &self.serial.output
     }
 }

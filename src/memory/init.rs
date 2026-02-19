@@ -17,51 +17,36 @@ impl Bus {
             io: [0; 0x0080],
             hram: [0; 0x007F],
             ie: 0,
-            serial_output: String::new(),
-            div_counter: 0,
-            ly_counter: 0,
-            tima_reload_delay: 0,
-            tima_reload_block: 0,
-            dma_active: false,
-            dma_source: 0,
-            dma_pending_source: 0,
-            dma_cycles_remaining: 0,
-            dma_start_delay: 0,
-            dma_cycle_accum: 0,
-            dma_index: 0,
-            serial_bits_remaining: 0,
-            serial_tx_byte: 0,
-            ppu_startup_line: false,
-            ppu_post_enable_phase: 0,
-            ppu_enable_delay: 0,
-            stat_irq_line: false,
-            stat_mode0_enabled_this_line: false,
+            timer: Default::default(),
+            ppu: Default::default(),
+            dma: Default::default(),
+            serial: Default::default(),
         };
         bus.apply_boot_defaults(model);
-        bus.stat_irq_line = bus.stat_irq_source_active();
+        bus.ppu.stat_irq_line = bus.stat_irq_source_active();
         bus
     }
 
     fn apply_boot_defaults(&mut self, model: HardwareModel) {
         match model {
             HardwareModel::Dmg0 => {
-                self.div_counter = 0x1830;
+                self.timer.div_counter = 0x1830;
                 self.apply_dmg_family_io_defaults();
                 self.io[0x41] = 0x03;
                 self.io[0x44] = 0x91;
                 // DMG0 starts part-way through the current scanline at test entry.
-                self.ly_counter = 96;
+                self.ppu.ly_counter = 96;
             }
             HardwareModel::Dmg => {
-                self.div_counter = 0xABCC;
+                self.timer.div_counter = 0xABCC;
                 self.apply_dmg_family_io_defaults();
             }
             HardwareModel::Mgb => {
-                self.div_counter = 0xABCC;
+                self.timer.div_counter = 0xABCC;
                 self.apply_dmg_family_io_defaults();
             }
             HardwareModel::Sgb | HardwareModel::Sgb2 => {
-                self.div_counter = self.sgb_family_div_counter();
+                self.timer.div_counter = self.sgb_family_div_counter();
                 self.apply_sgb_family_io_defaults();
             }
         }

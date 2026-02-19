@@ -1,11 +1,11 @@
+use crate::cpu::CpuContext;
 use crate::cpu::{Cpu, get_flag_c, set_flag_c, set_flag_h, set_flag_n, set_flag_z};
-use crate::memory::Bus;
 
 impl Cpu {
     pub(in crate::cpu) fn execute_instr_control(
         &mut self,
         opcode: u8,
-        bus: &mut Bus,
+        bus: &mut impl CpuContext,
     ) -> Option<u8> {
         let cycles = match opcode {
             // NOP

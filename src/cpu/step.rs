@@ -1,8 +1,8 @@
 use super::Cpu;
-use crate::memory::Bus;
+use crate::cpu::CpuContext;
 
 impl Cpu {
-    pub fn step(&mut self, bus: &mut Bus) -> u8 {
+    pub fn step(&mut self, bus: &mut impl CpuContext) -> u8 {
         self.step_tcycles = 0;
         let pending = bus.pending_interrupts();
 

@@ -1,6 +1,13 @@
 use super::Bus;
 use std::io::{self, Write};
 
+#[derive(Default)]
+pub(super) struct SerialState {
+    pub(super) output: String,
+    pub(super) bits_remaining: u8,
+    pub(super) tx_byte: u8,
+}
+
 impl Bus {
     pub(super) fn write_sc(&mut self, value: u8) {
         // On DMG/MGB/SGB, only bit7 (transfer start) and bit0 (clock source)
@@ -9,16 +16,16 @@ impl Bus {
 
         if (value & 0x81) == 0x81 {
             // Start/restart internal-clock transfer.
-            self.serial_bits_remaining = 8;
-            self.serial_tx_byte = self.io[0x01];
+            self.serial.bits_remaining = 8;
+            self.serial.tx_byte = self.io[0x01];
         } else if (value & 0x80) == 0 {
             // Explicit stop.
-            self.serial_bits_remaining = 0;
+            self.serial.bits_remaining = 0;
         }
     }
 
     pub(super) fn step_serial(&mut self, old_div: u16, new_div: u16) {
-        if self.serial_bits_remaining == 0 {
+        if self.serial.bits_remaining == 0 {
             return;
         }
 
@@ -36,8 +43,8 @@ impl Bus {
 
         // Shift one bit; receive line is high (no external device attached).
         self.io[0x01] = (self.io[0x01] << 1) | 0x01;
-        self.serial_bits_remaining -= 1;
-        if self.serial_bits_remaining != 0 {
+        self.serial.bits_remaining -= 1;
+        if self.serial.bits_remaining != 0 {
             return;
         }
 
@@ -47,8 +54,8 @@ impl Bus {
         self.set_interrupt_flags(iflags);
 
         // Keep Blargg serial output compatible.
-        let ch = self.serial_tx_byte as char;
-        self.serial_output.push(ch);
+        let ch = self.serial.tx_byte as char;
+        self.serial.output.push(ch);
         print!("{ch}");
         let _ = io::stdout().flush();
     }
