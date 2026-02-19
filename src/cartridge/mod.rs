@@ -6,6 +6,7 @@ const HEADER_MIN_LEN: usize = 0x150;
 const ROM_ONLY: u8 = 0x00;
 const MBC1: u8 = 0x01;
 const MBC1_RAM: u8 = 0x02;
+const MBC1_RAM_BATTERY: u8 = 0x03;
 const MBC5: u8 = 0x19;
 const MBC5_RAM: u8 = 0x1A;
 const MBC5_RAM_BATTERY: u8 = 0x1B;
@@ -36,7 +37,7 @@ impl Display for CartridgeError {
             Self::UnsupportedCartridgeType(code) => {
                 write!(
                     f,
-                    "Unsupported cartridge type 0x{code:02X}; supported: ROM-only (0x00), MBC1 (0x01), MBC1+RAM (0x02), MBC5 (0x19), MBC5+RAM (0x1A), MBC5+RAM+BATTERY (0x1B)"
+                    "Unsupported cartridge type 0x{code:02X}; supported: ROM-only (0x00), MBC1 (0x01), MBC1+RAM (0x02), MBC1+RAM+BATTERY (0x03), MBC5 (0x19), MBC5+RAM (0x1A), MBC5+RAM+BATTERY (0x1B)"
                 )
             }
             Self::UnsupportedRomSizeCode(code) => {
@@ -151,12 +152,12 @@ impl Cartridge {
 fn is_supported_cart_type(cart_type: u8) -> bool {
     matches!(
         cart_type,
-        ROM_ONLY | MBC1 | MBC1_RAM | MBC5 | MBC5_RAM | MBC5_RAM_BATTERY
+        ROM_ONLY | MBC1 | MBC1_RAM | MBC1_RAM_BATTERY | MBC5 | MBC5_RAM | MBC5_RAM_BATTERY
     )
 }
 
 fn is_mbc1(cart_type: u8) -> bool {
-    matches!(cart_type, MBC1 | MBC1_RAM)
+    matches!(cart_type, MBC1 | MBC1_RAM | MBC1_RAM_BATTERY)
 }
 
 fn is_mbc5(cart_type: u8) -> bool {
@@ -202,6 +203,19 @@ mod tests {
         rom[0x4000 + 0x4000] = 0x22; // bank 2 first byte
 
         let mut cart = Cartridge::from_bytes(rom).expect("valid MBC1 ROM should load");
+        assert_eq!(cart.read_rom_byte(0x4000), 0x11);
+
+        cart.write_rom_control(0x2000, 0x02);
+        assert_eq!(cart.read_rom_byte(0x4000), 0x22);
+    }
+
+    #[test]
+    fn mbc1_ram_battery_switches_rom_bank() {
+        let mut rom = make_rom(ROM_64KB_BYTES, MBC1_RAM_BATTERY, ROM_SIZE_64KB_CODE);
+        rom[0x4000] = 0x11; // bank 1 first byte
+        rom[0x4000 + 0x4000] = 0x22; // bank 2 first byte
+
+        let mut cart = Cartridge::from_bytes(rom).expect("valid MBC1+RAM+BATTERY ROM should load");
         assert_eq!(cart.read_rom_byte(0x4000), 0x11);
 
         cart.write_rom_control(0x2000, 0x02);

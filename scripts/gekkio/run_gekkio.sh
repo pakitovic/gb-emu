@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 ROM_ROOT="${ROM_ROOT:-}"
 if [ -z "$ROM_ROOT" ]; then
   ROM_ROOT="$ROOT_DIR/roms/gekkio's_test_roms"
@@ -11,9 +11,9 @@ MAX_STEPS="${MAX_STEPS:-120000000}"
 TIMEOUT_SECS="${TIMEOUT_SECS:-30}"
 GEKKIO_SUITE="${GEKKIO_SUITE:-core}"
 GB_MODEL="${GB_MODEL:-dmg}"
-CORE_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_core.txt"
-BOOT_MODELS_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_boot_models.txt"
-ACCEPTANCE_PPU_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_acceptance_ppu.txt"
+CORE_LIST_FILE="$ROOT_DIR/scripts/gekkio/roms_core.txt"
+BOOT_MODELS_LIST_FILE="$ROOT_DIR/scripts/gekkio/roms_boot_models.txt"
+ACCEPTANCE_PPU_LIST_FILE="$ROOT_DIR/scripts/gekkio/roms_acceptance_ppu.txt"
 
 list_roms() {
   sed -e 's/\r$//' -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$@"

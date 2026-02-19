@@ -1,13 +1,13 @@
 #!/usr/bin/env sh
 set -eu
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 DEST_DIR="$ROOT_DIR/roms/gekkio's_test_roms"
 VERSION="${GEKKIO_VERSION:-mts-20240926-1737-443f6e1}"
 ZIP_URL="https://gekkio.fi/files/mooneye-test-suite/$VERSION/$VERSION.zip"
-CORE_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_core.txt"
-BOOT_MODELS_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_boot_models.txt"
-ACCEPTANCE_PPU_LIST_FILE="$ROOT_DIR/scripts/gekkio_roms_acceptance_ppu.txt"
+CORE_LIST_FILE="$ROOT_DIR/scripts/gekkio/roms_core.txt"
+BOOT_MODELS_LIST_FILE="$ROOT_DIR/scripts/gekkio/roms_boot_models.txt"
+ACCEPTANCE_PPU_LIST_FILE="$ROOT_DIR/scripts/gekkio/roms_acceptance_ppu.txt"
 
 list_roms() {
   sed -e 's/\r$//' -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$@"

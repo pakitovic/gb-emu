@@ -29,13 +29,13 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Fetch Blargg ROMs
-        run: scripts/fetch_blargg_roms.sh
+        run: scripts/blargg/fetch_blargg_roms.sh
 
-      - name: Run ROM suite (blargg-core)
+      - name: Run ROM suite (blargg-all)
         env:
           MAX_STEPS: "120000000"
           TIMEOUT_SECS: "120"
-        run: scripts/run_blargg.sh
+        run: scripts/blargg/run_blargg.sh
 
   rom-gekkio:
     runs-on: ubuntu-latest
@@ -59,21 +59,21 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Fetch Gekkio ROMs
-        run: scripts/fetch_gekkio_roms.sh
+        run: scripts/gekkio/fetch_gekkio_roms.sh
 
       - name: Run ROM suite (gekkio-core)
         env:
           GEKKIO_SUITE: "core"
           MAX_STEPS: "120000000"
           TIMEOUT_SECS: "120"
-        run: scripts/run_gekkio.sh
+        run: scripts/gekkio/run_gekkio.sh
 
       - name: Run ROM suite (gekkio-boot-models)
         env:
           GEKKIO_SUITE: "boot_models"
           MAX_STEPS: "120000000"
           TIMEOUT_SECS: "120"
-        run: scripts/run_gekkio.sh
+        run: scripts/gekkio/run_gekkio.sh
 
       - name: Run ROM suite (gekkio-acceptance-ppu, non-blocking)
         continue-on-error: true
@@ -81,4 +81,4 @@ jobs:
           GEKKIO_SUITE: "acceptance_ppu"
           MAX_STEPS: "120000000"
           TIMEOUT_SECS: "120"
-        run: scripts/run_gekkio.sh
+        run: scripts/gekkio/run_gekkio.sh
