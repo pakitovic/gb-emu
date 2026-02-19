@@ -1,6 +1,7 @@
 use crate::cartridge::Cartridge;
 use crate::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::hardware::HardwareModel;
+use crate::input::Button;
 use wasm_bindgen::prelude::*;
 
 const FRAME_STEP_LIMIT: usize = 250_000;
@@ -59,5 +60,12 @@ impl WebEmulator {
 
     pub fn rom_title(&self) -> String {
         self.gb.rom_title().to_string()
+    }
+
+    pub fn set_button(&mut self, button: u8, pressed: bool) -> Result<(), JsValue> {
+        let button = Button::from_index(button)
+            .ok_or_else(|| JsValue::from_str("Invalid button index (expected 0..7)"))?;
+        self.gb.set_button_pressed(button, pressed);
+        Ok(())
     }
 }

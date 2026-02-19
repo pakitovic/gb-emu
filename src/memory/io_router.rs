@@ -10,6 +10,7 @@ impl Bus {
         }
 
         match addr {
+            0xFF00 => self.write_p1(value),
             0xFF0F => self.write_if(value),
             0xFF40 => self.write_lcdc(value),
             0xFF41 => self.write_stat(value),
@@ -31,6 +32,7 @@ impl Bus {
         }
 
         let value = match addr {
+            0xFF00 => self.read_p1(),
             0xFF04 => self.read_div(),
             0xFF41 => self.stat_read_value(),
             _ => self.io[(addr - 0xFF00) as usize],

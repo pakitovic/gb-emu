@@ -1,6 +1,7 @@
 use crate::cartridge::Cartridge;
 use crate::cpu::Cpu;
 use crate::hardware::HardwareModel;
+use crate::input::Button;
 use crate::memory::Bus;
 
 const MOONEYE_LOOP_WINDOW: usize = 8;
@@ -83,6 +84,10 @@ impl GameBoy {
             }
         }
         None
+    }
+
+    pub fn set_button_pressed(&mut self, button: Button, pressed: bool) {
+        self.bus.set_button_pressed(button, pressed);
     }
 
     // Main execution loop

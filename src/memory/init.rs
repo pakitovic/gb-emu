@@ -21,6 +21,7 @@ impl Bus {
             ppu: Default::default(),
             dma: Default::default(),
             serial: Default::default(),
+            joypad: Default::default(),
             framebuffer: [0xFF; super::LCD_FRAME_PIXELS],
         };
         bus.apply_boot_defaults(model);

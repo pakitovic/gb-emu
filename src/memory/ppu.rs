@@ -6,6 +6,7 @@ const STAT_MODE_OAM: u8 = 2;
 const STAT_MODE_TRANSFER: u8 = 3;
 const STARTUP_MODE0_DOTS: u16 = 80;
 const STARTUP_LINE_DOTS: u16 = 452;
+const DMG_SHADE_TO_LUMA: [u8; 4] = [0xFF, 0xAA, 0x55, 0x00];
 
 #[derive(Default)]
 pub(super) struct PpuState {
@@ -118,7 +119,7 @@ impl PpuState {
                 let iflags = bus.interrupt_flags() | (1 << 0);
                 bus.set_interrupt_flags(iflags);
                 bus.ppu.frame_counter = bus.ppu.frame_counter.wrapping_add(1);
-                Self::render_placeholder_frame(bus);
+                Self::render_bg_frame(bus);
             }
         }
 
@@ -357,21 +358,52 @@ impl PpuState {
         penalty
     }
 
-    fn render_placeholder_frame(bus: &mut Bus) {
-        // Frontend bootstrap placeholder until full pixel pipeline is exposed.
-        let phase = (bus.ppu.frame_counter & 0x1F) as usize;
+    fn render_bg_frame(bus: &mut Bus) {
+        let lcdc = bus.io[0x40];
+        if (lcdc & 0x01) == 0 {
+            bus.framebuffer.fill(DMG_SHADE_TO_LUMA[0]);
+            return;
+        }
+
+        let scx = bus.io[0x43];
+        let scy = bus.io[0x42];
+        let bgp = bus.io[0x47];
+        let bg_map_base = if (lcdc & 0x08) != 0 {
+            0x1C00usize
+        } else {
+            0x1800usize
+        };
+
         for y in 0..super::LCD_HEIGHT {
+            let bg_y = (y as u8).wrapping_add(scy);
+            let tile_row = (bg_y / 8) as usize;
+            let line_in_tile = (bg_y & 0x07) as usize;
+
             for x in 0..super::LCD_WIDTH {
-                let stripe = ((x + phase) / 8) & 1;
-                let checker = ((x / 16) ^ (y / 16)) & 1;
-                let shade = match (stripe, checker) {
-                    (0, 0) => 0xE0,
-                    (0, 1) => 0xB0,
-                    (1, 0) => 0x70,
-                    _ => 0x30,
-                };
-                bus.framebuffer[y * super::LCD_WIDTH + x] = shade;
+                let bg_x = (x as u8).wrapping_add(scx);
+                let tile_col = (bg_x / 8) as usize;
+                let tile_map_index = tile_row * 32 + tile_col;
+                let tile_index = bus.vram[bg_map_base + tile_map_index];
+
+                let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, line_in_tile);
+                let low = bus.vram[tile_line_addr];
+                let high = bus.vram[tile_line_addr + 1];
+
+                let bit = 7u8.wrapping_sub(bg_x & 0x07);
+                let color_id = (((high >> bit) & 1) << 1) | ((low >> bit) & 1);
+                let shade_id = (bgp >> (color_id * 2)) & 0x03;
+                bus.framebuffer[y * super::LCD_WIDTH + x] = DMG_SHADE_TO_LUMA[shade_id as usize];
             }
+        }
+    }
+
+    fn bg_tile_line_addr(lcdc: u8, tile_index: u8, line_in_tile: usize) -> usize {
+        if (lcdc & 0x10) != 0 {
+            (tile_index as usize) * 16 + line_in_tile * 2
+        } else {
+            let signed_index = tile_index as i8 as i16;
+            let tile_base = 0x1000i16 + signed_index * 16;
+            (tile_base as usize) + line_in_tile * 2
         }
     }
 

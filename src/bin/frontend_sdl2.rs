@@ -1,6 +1,7 @@
 use gb_emu::cartridge::Cartridge;
 use gb_emu::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
 use gb_emu::hardware::HardwareModel;
+use gb_emu::input::Button;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
@@ -68,6 +69,24 @@ fn run() -> Result<(), Box<dyn Error>> {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'main_loop,
+                Event::KeyDown {
+                    keycode: Some(code),
+                    repeat: false,
+                    ..
+                } => {
+                    if let Some(button) = map_key_to_button(code) {
+                        gb.set_button_pressed(button, true);
+                    }
+                }
+                Event::KeyUp {
+                    keycode: Some(code),
+                    repeat: false,
+                    ..
+                } => {
+                    if let Some(button) = map_key_to_button(code) {
+                        gb.set_button_pressed(button, false);
+                    }
+                }
                 _ => {}
             }
         }
@@ -108,6 +127,20 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+fn map_key_to_button(code: Keycode) -> Option<Button> {
+    match code {
+        Keycode::Right => Some(Button::Right),
+        Keycode::Left => Some(Button::Left),
+        Keycode::Up => Some(Button::Up),
+        Keycode::Down => Some(Button::Down),
+        Keycode::Z => Some(Button::A),
+        Keycode::X => Some(Button::B),
+        Keycode::Backspace => Some(Button::Select),
+        Keycode::Return => Some(Button::Start),
+        _ => None,
+    }
 }
 
 fn parse_args<I>(args: I) -> Result<(String, HardwareModel), io::Error>

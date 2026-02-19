@@ -1,5 +1,6 @@
 use super::*;
 use crate::hardware::HardwareModel;
+use crate::input::Button;
 
 fn make_test_bus() -> Bus {
     make_test_bus_with_model(HardwareModel::default())
@@ -63,6 +64,17 @@ fn wait_for_visible_hblank(bus: &mut Bus) {
         bus.tick(1);
     }
     panic!("Visible HBlank not observed");
+}
+
+fn wait_for_next_frame(bus: &mut Bus) {
+    let start = bus.frame_counter();
+    for _ in 0..(154 * 456 * 2) {
+        if bus.frame_counter() > start {
+            return;
+        }
+        bus.tick(1);
+    }
+    panic!("Frame boundary not observed");
 }
 
 #[test]
@@ -273,6 +285,65 @@ fn serial_restart_uses_latest_tx_byte() {
 
     assert!(finished, "serial transfer did not complete after restart");
     assert_eq!(bus.serial_output(), "B");
+}
+
+#[test]
+fn p1_reads_action_buttons_when_button_group_is_selected() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF00, 0x10); // P15=0 (buttons), P14=1 (dpad not selected)
+    assert_eq!(bus.read_byte(0xFF00) & 0x0F, 0x0F);
+
+    bus.set_button_pressed(Button::A, true);
+    assert_eq!(bus.read_byte(0xFF00) & 0x0F, 0x0E);
+
+    bus.set_button_pressed(Button::Start, true);
+    assert_eq!(bus.read_byte(0xFF00) & 0x0F, 0x06);
+}
+
+#[test]
+fn p1_reads_dpad_buttons_when_direction_group_is_selected() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF00, 0x20); // P14=0 (dpad), P15=1 (buttons not selected)
+    assert_eq!(bus.read_byte(0xFF00) & 0x0F, 0x0F);
+
+    bus.set_button_pressed(Button::Right, true);
+    assert_eq!(bus.read_byte(0xFF00) & 0x0F, 0x0E);
+
+    bus.set_button_pressed(Button::Up, true);
+    assert_eq!(bus.read_byte(0xFF00) & 0x0F, 0x0A);
+}
+
+#[test]
+fn joypad_interrupt_is_requested_on_new_selected_press() {
+    let mut bus = make_test_bus();
+    bus.set_interrupt_flags(0x00);
+    bus.write_byte(0xFF00, 0x20); // select dpad
+
+    bus.set_button_pressed(Button::Right, true);
+    assert_ne!(bus.interrupt_flags() & (1 << 4), 0);
+
+    bus.set_interrupt_flags(0x00);
+    bus.set_button_pressed(Button::Right, true); // still pressed, no new edge
+    assert_eq!(bus.interrupt_flags() & (1 << 4), 0);
+
+    bus.set_button_pressed(Button::Right, false);
+    assert_eq!(bus.interrupt_flags() & (1 << 4), 0);
+
+    bus.set_button_pressed(Button::Right, true); // new falling edge
+    assert_ne!(bus.interrupt_flags() & (1 << 4), 0);
+}
+
+#[test]
+fn joypad_interrupt_can_be_requested_when_selection_changes() {
+    let mut bus = make_test_bus();
+    bus.set_interrupt_flags(0x00);
+
+    bus.set_button_pressed(Button::A, true);
+    bus.write_byte(0xFF00, 0x10); // select action keys after A is already pressed
+
+    assert_ne!(bus.interrupt_flags() & (1 << 4), 0);
 }
 
 #[test]
@@ -644,6 +715,53 @@ fn io_register_unused_bits_read_back_as_one() {
 
     bus.write_byte(0xFF26, 0x00);
     assert_eq!(bus.read_byte(0xFF26) & 0x70, 0x70);
+}
+
+#[test]
+fn framebuffer_renders_bg_tile_colors_with_identity_palette() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off to allow deterministic VRAM setup
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF47, 0xE4); // BGP identity: 0->0, 1->1, 2->2, 3->3
+
+    // Tile map first entry points to tile 0.
+    bus.write_byte(0x9800, 0x00);
+    // Tile 0, row 0 encodes color ids: 0,1,2,3,0,1,2,3.
+    bus.write_byte(0x8000, 0x55); // low plane
+    bus.write_byte(0x8001, 0x33); // high plane
+
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on + unsigned tile data at 0x8000
+    wait_for_next_frame(&mut bus);
+
+    let frame = bus.framebuffer();
+    let expected = [0xFF, 0xAA, 0x55, 0x00, 0xFF, 0xAA, 0x55, 0x00];
+    assert_eq!(&frame[..8], &expected);
+}
+
+#[test]
+fn framebuffer_applies_scx_scroll_to_bg_sampling() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off to allow deterministic VRAM setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x08); // SCX: shift view by one tile
+    bus.write_byte(0xFF47, 0xE4); // BGP identity
+
+    // First tile is white, second tile is black.
+    bus.write_byte(0x9800, 0x00);
+    bus.write_byte(0x9801, 0x01);
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on
+    wait_for_next_frame(&mut bus);
+
+    let frame = bus.framebuffer();
+    assert_eq!(frame[0], 0x00);
 }
 
 #[test]

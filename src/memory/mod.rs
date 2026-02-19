@@ -7,6 +7,7 @@ mod interrupts;
 mod io;
 mod io_map;
 mod io_router;
+mod joypad;
 mod map;
 mod ppu;
 mod scheduler;
@@ -15,6 +16,7 @@ mod timer;
 
 use crate::cartridge::Cartridge;
 use dma::DmaState;
+use joypad::JoypadState;
 use ppu::PpuState;
 use serial::SerialState;
 use timer::TimerState;
@@ -36,6 +38,7 @@ pub struct Bus {
     ppu: PpuState,
     dma: DmaState,
     serial: SerialState,
+    joypad: JoypadState,
     framebuffer: [u8; LCD_FRAME_PIXELS],
 }
 

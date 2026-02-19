@@ -8,6 +8,8 @@ Current scope:
 - Memory bus + timer/interrupt basics.
 - Blargg + Gekkio ROM test integration in local scripts and CI.
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
+- DMG background layer rendering to a grayscale framebuffer.
+- Joypad input API in core with P1 register behavior and joypad interrupt edges.
 
 ## Project Structure
 
@@ -65,7 +67,7 @@ Supported models for `--model`:
 - Supported ROM size codes: 32KB (0x00) and 64KB (0x01).
 - ROM-only cartridges must be 32KB.
 - Unsupported cartridge/ROM size combinations fail fast when loading the ROM.
-- Frontend framebuffer is currently a bootstrap placeholder pattern (full pixel-accurate PPU renderer exposure is pending).
+- Framebuffer currently renders DMG background layer only (window/sprites/palette edge cases are pending).
 
 ## Local Requirements
 
@@ -129,6 +131,7 @@ wasm-pack build --target web --features frontend-web
 Notes:
 - The core remains frontend-agnostic and can be embedded by multiple frontends.
 - Current web entrypoint is `WebEmulator` in `src/web.rs`.
+- SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
 
 ## CI
 
