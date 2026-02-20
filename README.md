@@ -10,6 +10,7 @@ Current scope:
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
 - DMG background layer rendering to a grayscale framebuffer.
 - DMG window + sprite (OBJ) composition with priority/palette/flip handling.
+- Mode 3 background/window pixel FIFO stepping per dot (timing-sensitive SCX/window effects are now line-progressive).
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 
 ## Project Structure
@@ -69,6 +70,7 @@ Supported models for `--model`:
 - ROM-only cartridges must be 32KB.
 - Unsupported cartridge/ROM size combinations fail fast when loading the ROM.
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
+- Audio output backend is not implemented yet; frontends currently expose/track audio timing as emulated t-cycles.
 
 ## Local Requirements
 

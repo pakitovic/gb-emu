@@ -765,6 +765,104 @@ fn framebuffer_applies_scx_scroll_to_bg_sampling() {
 }
 
 #[test]
+fn framebuffer_scx_write_mid_frame_affects_following_lines_only() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX (initial)
+    bus.write_byte(0xFF47, 0xE4); // identity palette
+
+    // Tile 0 white, tile 1 black.
+    bus.write_byte(0x9800, 0x00);
+    bus.write_byte(0x9801, 0x01);
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+    bus.write_byte(0x8014, 0xFF);
+    bus.write_byte(0x8015, 0xFF);
+
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on
+
+    let mut reached_ly2_mode2 = false;
+    for _ in 0..(154 * 456 * 2) {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if ly == 2 && mode == 2 {
+            reached_ly2_mode2 = true;
+            break;
+        }
+        bus.tick(1);
+    }
+    assert!(reached_ly2_mode2);
+
+    // Change SCX during frame after lines 0 and 1 are already rendered.
+    bus.write_byte(0xFF43, 0x08);
+    wait_for_next_frame(&mut bus);
+
+    let frame = bus.framebuffer();
+    // Line 1 keeps old SCX=0 (white at x=0).
+    assert_eq!(frame[160], 0xFF);
+    // Line 2 uses new SCX=8 (black at x=0).
+    assert_eq!(frame[320], 0x00);
+}
+
+#[test]
+fn framebuffer_scx_write_during_mode3_affects_remaining_pixels_same_line() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity palette
+
+    // Fill first BG map row with alternating white/black tiles.
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, if (i & 1) == 0 { 0x00 } else { 0x01 });
+    }
+
+    // Tile 0 white.
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+    bus.write_byte(0x8004, 0x00);
+    bus.write_byte(0x8005, 0x00);
+
+    // Tile 1 black.
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+    bus.write_byte(0x8014, 0xFF);
+    bus.write_byte(0x8015, 0xFF);
+
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on
+
+    // Reach LY=2 mode 3.
+    let mut reached_ly2_mode3 = false;
+    for _ in 0..(154 * 456 * 2) {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if ly == 2 && mode == 3 {
+            reached_ly2_mode3 = true;
+            break;
+        }
+        bus.tick(1);
+    }
+    assert!(reached_ly2_mode3);
+
+    // Let some pixels of LY=2 render with SCX=0, then shift by one tile.
+    bus.tick(20);
+    bus.write_byte(0xFF43, 0x08);
+    wait_for_next_frame(&mut bus);
+
+    let frame = bus.framebuffer();
+    let line2 = 2 * 160;
+    // Early pixel rendered before SCX write: tile 0 (white).
+    assert_eq!(frame[line2], 0xFF);
+    // Later pixel rendered after SCX write: shifted one tile (white instead of black).
+    assert_eq!(frame[line2 + 40], 0xFF);
+}
+
+#[test]
 fn framebuffer_window_overrides_bg_where_visible() {
     let mut bus = make_test_bus();
 
