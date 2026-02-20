@@ -43,6 +43,8 @@ scripts/
     run_gekkio.sh
     rom.txt
     roms_boot_models.txt
+  pr/
+    create_pr.sh
   setup-hooks.sh
 ```
 
@@ -197,3 +199,7 @@ When adding new ROM suites, document:
 - Prefer small, safe refactors with tests.
 - Add/adjust tests whenever behavior changes (unit + integration as needed).
 - Optional local hook setup: `scripts/setup-hooks.sh` (pre-commit runs `cargo fmt-check` and `cargo lint`).
+- PR helper:
+  - From a feature branch, run `scripts/pr/create_pr.sh` (or `scripts/pr/create_pr.sh main`).
+  - PR title is set to the latest commit subject.
+  - PR body is taken from the latest commit body, or falls back to `.github/pull_request_template.md`.
