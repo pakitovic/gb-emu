@@ -1,10 +1,18 @@
 import initWasm, { WebEmulator } from "./pkg/gb_emu.js";
+import {
+  createAdaptiveQueueState,
+  DEFAULT_ADAPTIVE_QUEUE_OPTIONS,
+  updateAdaptiveQueueTarget,
+} from "./audio-adaptive.mjs";
 
 const SCREEN_WIDTH = 160;
 const SCREEN_HEIGHT = 144;
 const AUDIO_BLOCK_SAMPLES = 512;
-const AUDIO_QUEUE_TARGET_SAMPLES = 4096;
+const AUDIO_QUEUE_TARGET_INITIAL_SAMPLES = 4096;
 const AUDIO_REFILL_INTERVAL_MS = 8;
+const AUDIO_ADAPTIVE_QUEUE_OPTIONS = {
+  ...DEFAULT_ADAPTIVE_QUEUE_OPTIONS,
+};
 
 const KEY_TO_BUTTON = {
   ArrowRight: 0,
@@ -42,6 +50,8 @@ let queuedAudioSamples = 0;
 let audioWorkletLoaded = false;
 let audioConsumedSamplesTotal = 0;
 let audioUnderrunSamplesTotal = 0;
+let audioQueueTargetSamples = AUDIO_QUEUE_TARGET_INITIAL_SAMPLES;
+let audioAdaptiveQueueState = createAdaptiveQueueState();
 
 function setStatus(message) {
   statusLabel.textContent = message;
@@ -68,6 +78,8 @@ function resetAudioTelemetryState() {
   queuedAudioSamples = 0;
   audioConsumedSamplesTotal = 0;
   audioUnderrunSamplesTotal = 0;
+  audioQueueTargetSamples = AUDIO_QUEUE_TARGET_INITIAL_SAMPLES;
+  audioAdaptiveQueueState = createAdaptiveQueueState(performance.now(), 0);
 }
 
 function updateAudioTelemetry() {
@@ -81,12 +93,25 @@ function updateAudioTelemetry() {
 
   const sampleRate = Math.max(1, audioContext.sampleRate || 48_000);
   const queuedMs = (queuedAudioSamples * 1000) / sampleRate;
-  const targetMs = (AUDIO_QUEUE_TARGET_SAMPLES * 1000) / sampleRate;
+  const targetMs = (audioQueueTargetSamples * 1000) / sampleRate;
   const underrunMs = (audioUnderrunSamplesTotal * 1000) / sampleRate;
   const playedSeconds = audioConsumedSamplesTotal / sampleRate;
   audioTelemetryLabel.textContent =
     `Audio: ${audioContext.state} | queued ${queuedMs.toFixed(1)}ms / target ${targetMs.toFixed(1)}ms | ` +
     `underruns ${audioUnderrunSamplesTotal} samples (${underrunMs.toFixed(2)}ms) | played ${playedSeconds.toFixed(1)}s`;
+}
+
+function maybeAdjustAudioQueueTarget(nowMs) {
+  const result = updateAdaptiveQueueTarget({
+    state: audioAdaptiveQueueState,
+    nowMs,
+    queuedSamples: queuedAudioSamples,
+    targetSamples: audioQueueTargetSamples,
+    totalUnderrunSamples: audioUnderrunSamplesTotal,
+    blockSamples: AUDIO_BLOCK_SAMPLES,
+    options: AUDIO_ADAPTIVE_QUEUE_OPTIONS,
+  });
+  audioQueueTargetSamples = result.targetSamples;
 }
 
 function stepFrame(nowMs) {
@@ -221,8 +246,10 @@ function refillAudioQueue() {
     return;
   }
 
+  maybeAdjustAudioQueueTarget(performance.now());
+
   let guard = 0;
-  while (queuedAudioSamples < AUDIO_QUEUE_TARGET_SAMPLES && guard < 16) {
+  while (queuedAudioSamples < audioQueueTargetSamples && guard < 16) {
     const samples = emulator.drain_audio_samples_realtime(AUDIO_BLOCK_SAMPLES);
     if (!samples || samples.length === 0) {
       break;
