@@ -1,7 +1,10 @@
+use gb_emu::audio::{AudioMixer, MixerSource};
 use gb_emu::cartridge::Cartridge;
 use gb_emu::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
 use gb_emu::hardware::HardwareModel;
 use gb_emu::input::Button;
+use gb_emu::timing::{DMG_T_CYCLES_PER_SECOND, FramePacer};
+use sdl2::audio::AudioSpecDesired;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
@@ -12,6 +15,9 @@ use std::time::{Duration, Instant};
 
 const SCALE: u32 = 4;
 const FRAME_STEP_LIMIT: usize = 250_000;
+const AUDIO_QUEUE_LOW_WATER_SAMPLES: usize = 2048;
+const AUDIO_QUEUE_TARGET_SAMPLES: usize = 4096;
+const AUDIO_QUEUE_MAX_SAMPLES: usize = 16384;
 
 fn main() {
     if let Err(err) = run() {
@@ -28,6 +34,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let sdl = sdl2::init().map_err(io::Error::other)?;
     let video = sdl.video().map_err(io::Error::other)?;
+    let audio = sdl.audio().map_err(io::Error::other)?;
 
     let window = video
         .window(
@@ -43,7 +50,6 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut canvas = window
         .into_canvas()
         .accelerated()
-        .present_vsync()
         .build()
         .map_err(io::Error::other)?;
 
@@ -56,11 +62,31 @@ fn run() -> Result<(), Box<dyn Error>> {
         )
         .map_err(io::Error::other)?;
 
+    let desired_audio = AudioSpecDesired {
+        freq: Some(48_000),
+        channels: Some(1),
+        samples: Some(1024),
+    };
+    let audio_queue = audio
+        .open_queue::<f32, _>(None, &desired_audio)
+        .map_err(io::Error::other)?;
+    audio_queue.resume();
+    let mut audio_mixer = AudioMixer::new(audio_queue.spec().freq.max(1) as u32);
+    if env::var("GB_AUDIO_TEST_TONE")
+        .map(|value| value == "1")
+        .unwrap_or(false)
+    {
+        audio_mixer.set_source(MixerSource::TestTone);
+    }
+
     let mut event_pump = sdl.event_pump().map_err(io::Error::other)?;
-    let target_frame_time = Duration::from_micros(16_667);
+    let mut pacer = FramePacer::default();
+    let mut last_host_tick = Instant::now();
 
     'main_loop: loop {
-        let frame_start = Instant::now();
+        let now = Instant::now();
+        pacer.push_host_time(now.saturating_duration_since(last_host_tick));
+        last_host_tick = now;
 
         for event in event_pump.poll_iter() {
             match event {
@@ -91,13 +117,29 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
         }
 
-        let Some(_) = gb.run_frame_with_limit(false, FRAME_STEP_LIMIT) else {
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "PPU frame was not produced within the SDL frame step budget",
-            )
-            .into());
-        };
+        let mut produced_frame = false;
+        while pacer.has_frame_budget() {
+            let Some(cycles) = gb.run_frame_with_limit(false, FRAME_STEP_LIMIT) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "PPU frame was not produced within the SDL frame step budget",
+                )
+                .into());
+            };
+            pacer.consume_emulated_cycles(cycles);
+            audio_mixer.push_tcycles(pacer.drain_audio_tcycles());
+            produced_frame = true;
+        }
+
+        refill_audio_queue(&audio_queue, &mut audio_mixer);
+
+        if !produced_frame {
+            let sleep_for = pacer.duration_until_next_frame();
+            if sleep_for > Duration::from_micros(200) {
+                std::thread::sleep(sleep_for.min(Duration::from_millis(2)));
+            }
+            continue;
+        }
 
         let frame = gb.framebuffer();
         texture
@@ -119,11 +161,6 @@ fn run() -> Result<(), Box<dyn Error>> {
             .copy(&texture, None, None)
             .map_err(io::Error::other)?;
         canvas.present();
-
-        let elapsed = frame_start.elapsed();
-        if elapsed < target_frame_time {
-            std::thread::sleep(target_frame_time - elapsed);
-        }
     }
 
     Ok(())
@@ -140,6 +177,32 @@ fn map_key_to_button(code: Keycode) -> Option<Button> {
         Keycode::Backspace => Some(Button::Select),
         Keycode::Return => Some(Button::Start),
         _ => None,
+    }
+}
+
+fn refill_audio_queue(audio_queue: &sdl2::audio::AudioQueue<f32>, mixer: &mut AudioMixer) {
+    let sample_size_bytes = std::mem::size_of::<f32>();
+    let queued_samples = (audio_queue.size() as usize) / sample_size_bytes;
+
+    if queued_samples > AUDIO_QUEUE_MAX_SAMPLES {
+        audio_queue.clear();
+    }
+
+    if queued_samples >= AUDIO_QUEUE_LOW_WATER_SAMPLES {
+        return;
+    }
+
+    let wanted = AUDIO_QUEUE_TARGET_SAMPLES.saturating_sub(queued_samples);
+    let samples = mixer.drain_samples(wanted);
+    if !samples.is_empty() {
+        let _ = audio_queue.queue_audio(&samples);
+    } else if mixer.sample_rate_hz() > 0 {
+        // Keep the queue active when no emulated cycles arrived yet.
+        let keep_alive_tcycles =
+            (DMG_T_CYCLES_PER_SECOND / (mixer.sample_rate_hz() as u64)).saturating_mul(64);
+        mixer.push_tcycles(keep_alive_tcycles);
+        let keep_alive_samples = mixer.drain_samples(64);
+        let _ = audio_queue.queue_audio(&keep_alive_samples);
     }
 }
 

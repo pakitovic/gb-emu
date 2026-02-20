@@ -1,7 +1,10 @@
+use crate::audio::{AudioMixer, MixerSource};
 use crate::cartridge::Cartridge;
 use crate::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::hardware::HardwareModel;
 use crate::input::Button;
+use crate::timing::FramePacer;
+use std::time::Duration;
 use wasm_bindgen::prelude::*;
 
 const FRAME_STEP_LIMIT: usize = 250_000;
@@ -9,6 +12,8 @@ const FRAME_STEP_LIMIT: usize = 250_000;
 #[wasm_bindgen]
 pub struct WebEmulator {
     gb: GameBoy,
+    pacer: FramePacer,
+    audio_mixer: AudioMixer,
 }
 
 #[wasm_bindgen]
@@ -27,6 +32,8 @@ impl WebEmulator {
 
         Ok(Self {
             gb: GameBoy::new_with_model(cartridge, model),
+            pacer: FramePacer::default(),
+            audio_mixer: AudioMixer::new(48_000),
         })
     }
 
@@ -43,11 +50,65 @@ impl WebEmulator {
     }
 
     pub fn run_frame(&mut self) -> Result<u64, JsValue> {
-        self.gb
+        let cycles = self
+            .gb
             .run_frame_with_limit(false, FRAME_STEP_LIMIT)
             .ok_or_else(|| {
                 JsValue::from_str("PPU frame was not produced within the web frame step budget")
-            })
+            })?;
+        self.pacer.consume_emulated_cycles(cycles);
+        Ok(cycles)
+    }
+
+    pub fn run_for_elapsed_micros(&mut self, elapsed_micros: u32) -> Result<u32, JsValue> {
+        self.pacer
+            .push_host_time(Duration::from_micros(elapsed_micros as u64));
+
+        let mut ran_frames = 0u32;
+        while self.pacer.has_frame_budget() {
+            let cycles = self
+                .gb
+                .run_frame_with_limit(false, FRAME_STEP_LIMIT)
+                .ok_or_else(|| {
+                    JsValue::from_str("PPU frame was not produced within the web frame step budget")
+                })?;
+            self.pacer.consume_emulated_cycles(cycles);
+            ran_frames = ran_frames.saturating_add(1);
+        }
+
+        Ok(ran_frames)
+    }
+
+    pub fn pending_frame_budget(&self) -> u32 {
+        self.pacer.frame_budget_count()
+    }
+
+    pub fn audio_clock_tcycles(&self) -> u64 {
+        self.pacer.audio_clock_tcycles()
+    }
+
+    pub fn drain_audio_tcycles(&mut self) -> u64 {
+        self.pacer.drain_audio_tcycles()
+    }
+
+    pub fn set_audio_sample_rate(&mut self, sample_rate_hz: u32) {
+        let source = self.audio_mixer.source();
+        self.audio_mixer = AudioMixer::new(sample_rate_hz.max(1));
+        self.audio_mixer.set_source(source);
+    }
+
+    pub fn set_audio_test_tone_enabled(&mut self, enabled: bool) {
+        self.audio_mixer.set_source(if enabled {
+            MixerSource::TestTone
+        } else {
+            MixerSource::Silence
+        });
+    }
+
+    pub fn drain_audio_samples(&mut self, max_samples: u32) -> Vec<f32> {
+        let pending_tcycles = self.pacer.drain_audio_tcycles();
+        self.audio_mixer.push_tcycles(pending_tcycles);
+        self.audio_mixer.drain_samples(max_samples as usize)
     }
 
     pub fn grayscale_frame(&self) -> Vec<u8> {
