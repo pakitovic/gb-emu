@@ -11,7 +11,7 @@ Current scope:
 - DMG background layer rendering to a grayscale framebuffer.
 - DMG window + sprite (OBJ) composition with priority/palette/flip handling.
 - Mode 3 background/window pixel FIFO stepping per dot (timing-sensitive SCX/window effects are now line-progressive).
-- Mode 3 OBJ pixels are mixed per output dot with DMG priority/palette rules (mid-line OBJ register writes affect remaining pixels).
+- Mode 3 OBJ fetch stalls and sprite pixel mixing are stepped per dot with DMG priority/palette rules (mid-line register writes affect remaining pixels).
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core audio mixer clock bridge from emulated t-cycles to PCM samples.
@@ -84,7 +84,7 @@ Supported models for `--model`:
 - ROM-only cartridges must be 32KB.
 - Unsupported cartridge/ROM size combinations fail fast when loading the ROM.
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
-- Full cycle-exact sprite fetch stalls/contention are still approximated.
+- Dot-stepped OBJ fetch stalls are modeled, but full cycle-exact BG/OBJ fetch contention is still approximated.
 - APU emulation is not implemented yet; current audio path is timing-synchronized PCM generation (silence by default, optional test tone).
 
 ## Local Requirements

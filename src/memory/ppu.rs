@@ -10,6 +10,8 @@ const DMG_SHADE_TO_LUMA: [u8; 4] = [0xFF, 0xAA, 0x55, 0x00];
 const MAX_SPRITES_PER_LINE: usize = 10;
 const MODE3_BG_WARMUP_DOTS: u8 = 12;
 const BG_FIFO_CAPACITY: usize = 16;
+const OBJ_FETCH_BASE_DOTS: u8 = 6;
+const OBJ_SESSION_SHUTDOWN_PENALTY: [u8; 8] = [3, 2, 3, 2, 3, 2, 2, 2];
 
 #[derive(Clone, Copy)]
 struct ObjCandidate {
@@ -49,6 +51,8 @@ struct Mode3ObjSprite {
     low: u8,
     high: u8,
     attr: u8,
+    fetch_dots: u8,
+    post_fetch_dots: u8,
 }
 
 impl Mode3ObjSprite {
@@ -57,6 +61,8 @@ impl Mode3ObjSprite {
         low: 0,
         high: 0,
         attr: 0,
+        fetch_dots: OBJ_FETCH_BASE_DOTS,
+        post_fetch_dots: 0,
     };
 }
 
@@ -76,6 +82,9 @@ struct Mode3FifoState {
     obj_sprites: [Mode3ObjSprite; MAX_SPRITES_PER_LINE],
     obj_sprite_count: usize,
     obj_next_sprite: usize,
+    obj_active_sprite: Option<Mode3ObjSprite>,
+    obj_fetch_dots_remaining: u8,
+    obj_shutdown_dots_remaining: u8,
 }
 
 impl Mode3FifoState {
@@ -93,6 +102,9 @@ impl Mode3FifoState {
         self.obj_sprites.fill(Mode3ObjSprite::EMPTY);
         self.obj_sprite_count = 0;
         self.obj_next_sprite = 0;
+        self.obj_active_sprite = None;
+        self.obj_fetch_dots_remaining = 0;
+        self.obj_shutdown_dots_remaining = 0;
     }
 
     fn reset(&mut self) {
@@ -109,6 +121,9 @@ impl Mode3FifoState {
         self.obj_sprites.fill(Mode3ObjSprite::EMPTY);
         self.obj_sprite_count = 0;
         self.obj_next_sprite = 0;
+        self.obj_active_sprite = None;
+        self.obj_fetch_dots_remaining = 0;
+        self.obj_shutdown_dots_remaining = 0;
     }
 
     fn can_push_8(&self) -> bool {
@@ -141,6 +156,9 @@ impl Mode3FifoState {
         self.obj_head = 0;
         self.obj_len = 0;
         self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
+        self.obj_active_sprite = None;
+        self.obj_fetch_dots_remaining = 0;
+        self.obj_shutdown_dots_remaining = 0;
     }
 
     fn obj_ensure_len(&mut self, needed: usize) {
@@ -177,6 +195,9 @@ impl Mode3FifoState {
         self.obj_head = 0;
         self.obj_len = 0;
         self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
+        self.obj_active_sprite = None;
+        self.obj_fetch_dots_remaining = 0;
+        self.obj_shutdown_dots_remaining = 0;
     }
 }
 
@@ -527,16 +548,6 @@ impl PpuState {
         // Penalty order is left-to-right; ties broken by OAM index.
         sprites[..sprite_count].sort_unstable();
 
-        // DMG sprite timing heuristic compatible with mooneye acceptance:
-        // - sprites are evaluated in sessions
-        // - first sprite in a session has startup adjustment based on X mod 8
-        // - every additional sprite in the same session costs 6 dots
-        // - every ended (non-final) session incurs a shutdown adjustment
-        //
-        // A new session starts when sprite X has a gap of 8+ pixels compared
-        // to the previous sprite.
-        const SHUTDOWN_PENALTY: [u16; 8] = [3, 2, 3, 2, 3, 2, 2, 2];
-
         let mut penalty = 0u16;
         let mut i = 0usize;
         while i < sprite_count {
@@ -551,27 +562,36 @@ impl PpuState {
                 }
             }
 
-            let first_x_mod = (sprites[i].0 & 0x07) as i16;
-            let startup_adjust = match first_x_mod {
-                0 | 1 => 2,
-                4..=7 => -2,
-                _ => 0,
-            };
-            let first_penalty = (6i16 + startup_adjust) as u16;
+            let first_x_mod = sprites[i].0 & 0x07;
+            let startup_adjust = Self::obj_session_startup_adjust(first_x_mod);
+            let first_penalty = (OBJ_FETCH_BASE_DOTS as i16 + startup_adjust).max(1) as u16;
             penalty = penalty.saturating_add(first_penalty);
 
-            let additional_sprites = j - i;
-            penalty = penalty.saturating_add((additional_sprites as u16).saturating_mul(6));
+            let additional_sprites = (j - i) as u16;
+            penalty = penalty
+                .saturating_add(additional_sprites.saturating_mul(OBJ_FETCH_BASE_DOTS as u16));
 
             if j + 1 < sprite_count {
-                let last_x_mod = (sprites[j].0 & 0x07) as usize;
-                penalty = penalty.saturating_add(SHUTDOWN_PENALTY[last_x_mod]);
+                let last_x_mod = sprites[j].0 & 0x07;
+                penalty = penalty.saturating_add(Self::obj_session_shutdown_penalty(last_x_mod));
             }
 
             i = j + 1;
         }
 
         penalty
+    }
+
+    fn obj_session_startup_adjust(x_mod: u8) -> i16 {
+        match x_mod {
+            0 | 1 => 2,
+            4..=7 => -2,
+            _ => 0,
+        }
+    }
+
+    fn obj_session_shutdown_penalty(x_mod: u8) -> u16 {
+        OBJ_SESSION_SHUTDOWN_PENALTY[x_mod as usize] as u16
     }
 
     fn mode3_start_tcycle(bus: &Bus, startup_line: bool) -> u16 {
@@ -603,6 +623,11 @@ impl PpuState {
         }
 
         if !bus.ppu.mode3_fifo.active {
+            return;
+        }
+
+        let screen_x = Self::mode3_current_screen_x(bus);
+        if Self::mode3_step_obj_fetch(bus, screen_x) {
             return;
         }
 
@@ -645,12 +670,16 @@ impl PpuState {
         if (bus.ppu.mode3_fifo.output_x as usize) < super::LCD_WIDTH {
             let x = bus.ppu.mode3_fifo.output_x as usize;
             bus.ppu.mode3_fifo.output_x = bus.ppu.mode3_fifo.output_x.saturating_add(1);
-            let obj_pixel = Self::mode3_pop_obj_pixel(bus, x as i16);
+            let obj_pixel = Self::mode3_pop_obj_pixel(bus);
             let shade_id = Self::compose_mode3_shade_id(bus, lcdc, color_id, obj_pixel);
             let row_start = y * super::LCD_WIDTH;
             bus.ppu.bg_color_ids_line[x] = color_id;
             bus.framebuffer[row_start + x] = DMG_SHADE_TO_LUMA[shade_id as usize];
         }
+    }
+
+    fn mode3_current_screen_x(bus: &Bus) -> i16 {
+        bus.ppu.mode3_fifo.output_x as i16 - bus.ppu.mode3_fifo.discard_pixels as i16
     }
 
     fn bg_window_color_id_for_screen_x(bus: &Bus, lcdc: u8, y: usize, screen_x: i16) -> u8 {
@@ -723,7 +752,7 @@ impl PpuState {
             let tile = bus.oam[base + 2];
             let attr = bus.oam[base + 3];
 
-            if x_raw == 0 || x_raw >= 168 {
+            if x_raw >= 168 {
                 continue;
             }
 
@@ -748,6 +777,35 @@ impl PpuState {
         candidates[..candidate_count]
             .sort_unstable_by_key(|sprite| (sprite.x_raw, sprite.oam_index));
 
+        let mut fetch_dots = [OBJ_FETCH_BASE_DOTS; MAX_SPRITES_PER_LINE];
+        let mut post_fetch_dots = [0u8; MAX_SPRITES_PER_LINE];
+        let mut i = 0usize;
+        while i < candidate_count {
+            let mut j = i;
+            while j + 1 < candidate_count {
+                let x = candidates[j].x_raw;
+                let next_x = candidates[j + 1].x_raw;
+                if next_x.wrapping_sub(x) < 8 {
+                    j += 1;
+                } else {
+                    break;
+                }
+            }
+
+            let startup_adjust = Self::obj_session_startup_adjust(candidates[i].x_raw & 0x07);
+            fetch_dots[i] = (OBJ_FETCH_BASE_DOTS as i16 + startup_adjust).max(1) as u8;
+            for dots in &mut fetch_dots[(i + 1)..=j] {
+                *dots = OBJ_FETCH_BASE_DOTS;
+            }
+
+            if j + 1 < candidate_count {
+                post_fetch_dots[j] =
+                    Self::obj_session_shutdown_penalty(candidates[j].x_raw & 0x07) as u8;
+            }
+
+            i = j + 1;
+        }
+
         let mut sprites = [Mode3ObjSprite::EMPTY; MAX_SPRITES_PER_LINE];
         for (i, candidate) in candidates[..candidate_count].iter().enumerate() {
             let y_top = candidate.y_raw as i16 - 16;
@@ -770,27 +828,60 @@ impl PpuState {
                 low: bus.vram[line_addr],
                 high: bus.vram[line_addr + 1],
                 attr: candidate.attr,
+                fetch_dots: fetch_dots[i],
+                post_fetch_dots: post_fetch_dots[i],
             };
         }
 
         bus.ppu.mode3_fifo.obj_set_sprites(sprites, candidate_count);
     }
 
-    fn mode3_pop_obj_pixel(bus: &mut Bus, screen_x: i16) -> ObjFifoPixel {
+    fn mode3_step_obj_fetch(bus: &mut Bus, screen_x: i16) -> bool {
+        if (bus.io[0x40] & 0x02) == 0 {
+            bus.ppu.mode3_fifo.obj_clear_pending();
+            return false;
+        }
+
+        if bus.ppu.mode3_fifo.obj_fetch_dots_remaining > 0 {
+            bus.ppu.mode3_fifo.obj_fetch_dots_remaining -= 1;
+            if bus.ppu.mode3_fifo.obj_fetch_dots_remaining == 0
+                && let Some(sprite) = bus.ppu.mode3_fifo.obj_active_sprite.take()
+            {
+                Self::mode3_merge_sprite_into_obj_fifo(bus, sprite, screen_x);
+                bus.ppu.mode3_fifo.obj_shutdown_dots_remaining = sprite.post_fetch_dots;
+            }
+            return true;
+        }
+
+        if bus.ppu.mode3_fifo.obj_shutdown_dots_remaining > 0 {
+            bus.ppu.mode3_fifo.obj_shutdown_dots_remaining -= 1;
+            return true;
+        }
+
+        if bus.ppu.mode3_fifo.obj_next_sprite < bus.ppu.mode3_fifo.obj_sprite_count {
+            let sprite = bus.ppu.mode3_fifo.obj_sprites[bus.ppu.mode3_fifo.obj_next_sprite];
+            if sprite.x_left <= screen_x {
+                bus.ppu.mode3_fifo.obj_next_sprite += 1;
+                bus.ppu.mode3_fifo.obj_active_sprite = Some(sprite);
+                bus.ppu.mode3_fifo.obj_fetch_dots_remaining = sprite.fetch_dots.max(1);
+                bus.ppu.mode3_fifo.obj_fetch_dots_remaining -= 1;
+                if bus.ppu.mode3_fifo.obj_fetch_dots_remaining == 0 {
+                    bus.ppu.mode3_fifo.obj_active_sprite = None;
+                    Self::mode3_merge_sprite_into_obj_fifo(bus, sprite, screen_x);
+                    bus.ppu.mode3_fifo.obj_shutdown_dots_remaining = sprite.post_fetch_dots;
+                }
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn mode3_pop_obj_pixel(bus: &mut Bus) -> ObjFifoPixel {
         if (bus.io[0x40] & 0x02) == 0 {
             bus.ppu.mode3_fifo.obj_clear_pending();
             return ObjFifoPixel::TRANSPARENT;
         }
-
-        while bus.ppu.mode3_fifo.obj_next_sprite < bus.ppu.mode3_fifo.obj_sprite_count {
-            let sprite = bus.ppu.mode3_fifo.obj_sprites[bus.ppu.mode3_fifo.obj_next_sprite];
-            if sprite.x_left > screen_x {
-                break;
-            }
-            Self::mode3_merge_sprite_into_obj_fifo(bus, sprite, screen_x);
-            bus.ppu.mode3_fifo.obj_next_sprite += 1;
-        }
-
         bus.ppu.mode3_fifo.obj_ensure_len(1);
         bus.ppu.mode3_fifo.obj_pop()
     }
