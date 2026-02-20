@@ -41,6 +41,7 @@ scripts/
   dev/
     bootstrap.sh
     create_pr.sh
+    run_web_demo.sh
     setup-hooks.sh
   blargg/
     fetch_blargg_roms.sh
@@ -95,6 +96,7 @@ Supported models for `--model`:
 - `git`, `curl`, `unzip`, `perl`, and `rg` (ripgrep) for ROM fetch/run scripts.
 - Optional for SDL2 frontend: SDL2 runtime/dev libraries available in the OS.
 - Optional for web frontend: `wasm-pack` (or equivalent wasm build tooling).
+- Optional for `scripts/dev/run_web_demo.sh`: `python3`.
 
 Bootstrap helper:
 
@@ -171,8 +173,7 @@ wasm-pack build --target web --features frontend-web
 Minimal browser demo (AudioWorklet + keyboard + ROM file loader):
 
 ```bash
-wasm-pack build --target web --features frontend-web --out-dir web/minimal/pkg
-python3 -m http.server 8080
+scripts/dev/run_web_demo.sh
 # Open http://localhost:8080/web/minimal/
 ```
 
