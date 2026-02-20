@@ -113,6 +113,9 @@ Before considering a task complete, all of the following must hold:
 - Use small, focused commits with imperative commit messages.
 - Keep PRs narrowly scoped and reviewable.
 - If creating branches, use the `codex/` prefix.
+- Never implement changes directly on `main`; create a dedicated branch per logical change/feature.
+- Default to one PR per branch/change. If the request includes multiple sequential changes, split them into separate branches/PRs unless explicitly asked to combine.
+- Prepare commit title, PR title, and PR description in English.
 - PR descriptions should include:
   - Problem statement.
   - Behavioral change summary.
