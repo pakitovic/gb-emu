@@ -25,7 +25,7 @@ impl Bus {
             framebuffer: [0xFF; super::LCD_FRAME_PIXELS],
         };
         bus.apply_boot_defaults(model);
-        bus.sync_apu_boot_state();
+        bus.sync_apu_boot_state(model);
         bus.ppu.stat_irq_line = bus.stat_irq_source_active();
         bus
     }

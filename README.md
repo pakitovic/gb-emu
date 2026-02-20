@@ -17,7 +17,7 @@ Current scope:
 - Mode 3 line duration now grows from runtime OBJ fetch contention (including mid-line OBJ enable/disable effects), reducing reliance on static per-line penalty estimates.
 - Additional PPU/DMA timing edge cases: mode0 STAT source enabled during mode3 triggers on HBlank entry, and DMA restart keeps prior transfer running through the full restart-delay window.
 - APU core channel state-machine scaffolding: NR52 power control, NR50/NR51 mixer register gating, CH1/CH2/CH3/CH4 trigger/state progression, and DIV-driven frame sequencer stepping (length/sweep/envelope clocks).
-- APU output path now applies a DMG-style DC-blocking high-pass filter and linear t-cycle-to-PCM resampling for cleaner realtime frontend audio output.
+- APU output path now uses model-specific analog profiles (`dmg0/dmg/mgb/sgb/sgb2`) with per-channel DAC shaping, stereo mixer drive/soft-clip, low-pass + DC-blocking high-pass filtering, and linear t-cycle-to-PCM resampling.
 - APU frontend output now preserves stereo channel routing (NR50/NR51 left/right masks) end-to-end for SDL2 and WebAudio.
 - APU length-enable edge behavior now includes immediate length clocking on non-length frame-sequencer steps when enabling length mid-playback.
 - APU DMG quirk coverage now includes CH1 sweep overflow/negate-clear disable behavior, trigger+length-zero reload/decrement edges, envelope trigger reload offset on envelope-clock steps, CH3 wave sample-buffer retrigger semantics, and CH4 `clock_shift >= 14` no-clock behavior.
@@ -113,7 +113,7 @@ Supported models for `--model`:
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 - Dot-stepped OBJ fetch contention now extends Mode 3 at runtime and takeover boundaries include FIFO-stall arbitration; some DMG fetcher bus-phase details (for example full hardware sleep/push micro-ops) are still approximated.
-- APU channel synthesis (CH1/CH2/CH3/CH4) is audible through SDL2/Web via the core t-cycle audio stream with stereo routing, DC-blocking HPF, and linear resampling, but analog mixing/output characteristics are still simplified (no full model-specific analog path).
+- APU analog output is now model-specific and significantly closer to DMG-family/SGB behavior, but it remains an emulator-side approximation (not full per-device circuit calibration).
 
 ## Mapper Coverage Examples
 
