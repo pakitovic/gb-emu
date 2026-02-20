@@ -17,7 +17,7 @@ Current scope:
 - Core audio mixer clock bridge from emulated t-cycles to PCM samples.
 - Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
 - Minimal browser demo (`web/minimal`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
-- Minimal browser demo audio telemetry for queued audio depth and underrun tracking.
+- Minimal browser demo audio telemetry plus adaptive queue targeting for underrun recovery and latency tuning.
 
 ## Project Structure
 
@@ -96,6 +96,7 @@ Supported models for `--model`:
 - `git`, `curl`, `unzip`, `perl`, and `rg` (ripgrep) for ROM fetch/run scripts.
 - Optional for SDL2 frontend: SDL2 runtime/dev libraries available in the OS.
 - Optional for web frontend: `wasm-pack` (or equivalent wasm build tooling).
+- Optional for web frontend unit tests: Node.js (for `node --test`).
 - Optional for `scripts/dev/run_web_demo.sh`: `python3`.
 
 Bootstrap helper:
@@ -126,6 +127,12 @@ Formatting/lint aliases are defined in `.cargo/config.toml`.
 cargo fmt-check
 cargo lint
 cargo test --locked
+```
+
+Optional web frontend unit test:
+
+```bash
+node --test web/minimal/audio-adaptive.test.mjs
 ```
 
 ROM test suites:
@@ -192,7 +199,7 @@ Notes:
   - `drain_audio_samples_realtime(block_samples)` for callback-style fixed-size WebAudio blocks.
   - `set_audio_test_tone_enabled(enabled)` for pipeline/debug validation.
 - `web/minimal` is intentionally small and uses `AudioWorkletNode` for lower-latency callback-style audio.
-- `web/minimal` surfaces simple audio telemetry (`queued ms` and cumulative underrun samples/ms) to help tune refill target and callback block size.
+- `web/minimal` surfaces simple audio telemetry (`queued ms` and cumulative underrun samples/ms) and auto-adjusts the refill target queue based on recent underrun windows.
 
 ## CI
 
