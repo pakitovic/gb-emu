@@ -30,6 +30,36 @@ impl ObjCandidate {
     };
 }
 
+#[derive(Clone, Copy, Default)]
+struct ObjFifoPixel {
+    color_id: u8,
+    attr: u8,
+}
+
+impl ObjFifoPixel {
+    const TRANSPARENT: Self = Self {
+        color_id: 0,
+        attr: 0,
+    };
+}
+
+#[derive(Clone, Copy, Default)]
+struct Mode3ObjSprite {
+    x_left: i16,
+    low: u8,
+    high: u8,
+    attr: u8,
+}
+
+impl Mode3ObjSprite {
+    const EMPTY: Self = Self {
+        x_left: 0,
+        low: 0,
+        high: 0,
+        attr: 0,
+    };
+}
+
 #[derive(Default)]
 struct Mode3FifoState {
     active: bool,
@@ -40,6 +70,12 @@ struct Mode3FifoState {
     head: usize,
     len: usize,
     pixels: [u8; BG_FIFO_CAPACITY],
+    obj_head: usize,
+    obj_len: usize,
+    obj_pixels: [ObjFifoPixel; BG_FIFO_CAPACITY],
+    obj_sprites: [Mode3ObjSprite; MAX_SPRITES_PER_LINE],
+    obj_sprite_count: usize,
+    obj_next_sprite: usize,
 }
 
 impl Mode3FifoState {
@@ -51,6 +87,12 @@ impl Mode3FifoState {
         self.fetch_screen_x = -(discard_pixels as i16);
         self.head = 0;
         self.len = 0;
+        self.obj_head = 0;
+        self.obj_len = 0;
+        self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
+        self.obj_sprites.fill(Mode3ObjSprite::EMPTY);
+        self.obj_sprite_count = 0;
+        self.obj_next_sprite = 0;
     }
 
     fn reset(&mut self) {
@@ -61,6 +103,12 @@ impl Mode3FifoState {
         self.fetch_screen_x = 0;
         self.head = 0;
         self.len = 0;
+        self.obj_head = 0;
+        self.obj_len = 0;
+        self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
+        self.obj_sprites.fill(Mode3ObjSprite::EMPTY);
+        self.obj_sprite_count = 0;
+        self.obj_next_sprite = 0;
     }
 
     fn can_push_8(&self) -> bool {
@@ -84,6 +132,51 @@ impl Mode3FifoState {
         self.head = (self.head + 1) % self.pixels.len();
         self.len -= 1;
         Some(color_id)
+    }
+
+    fn obj_set_sprites(&mut self, sprites: [Mode3ObjSprite; MAX_SPRITES_PER_LINE], count: usize) {
+        self.obj_sprites = sprites;
+        self.obj_sprite_count = count;
+        self.obj_next_sprite = 0;
+        self.obj_head = 0;
+        self.obj_len = 0;
+        self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
+    }
+
+    fn obj_ensure_len(&mut self, needed: usize) {
+        while self.obj_len < needed && self.obj_len < self.obj_pixels.len() {
+            let tail = (self.obj_head + self.obj_len) % self.obj_pixels.len();
+            self.obj_pixels[tail] = ObjFifoPixel::TRANSPARENT;
+            self.obj_len += 1;
+        }
+    }
+
+    fn obj_set_if_transparent(&mut self, offset: usize, pixel: ObjFifoPixel) {
+        self.obj_ensure_len(offset.saturating_add(1));
+        if offset >= self.obj_len {
+            return;
+        }
+        let index = (self.obj_head + offset) % self.obj_pixels.len();
+        if self.obj_pixels[index].color_id == 0 {
+            self.obj_pixels[index] = pixel;
+        }
+    }
+
+    fn obj_pop(&mut self) -> ObjFifoPixel {
+        if self.obj_len == 0 {
+            return ObjFifoPixel::TRANSPARENT;
+        }
+        let pixel = self.obj_pixels[self.obj_head];
+        self.obj_pixels[self.obj_head] = ObjFifoPixel::TRANSPARENT;
+        self.obj_head = (self.obj_head + 1) % self.obj_pixels.len();
+        self.obj_len -= 1;
+        pixel
+    }
+
+    fn obj_clear_pending(&mut self) {
+        self.obj_head = 0;
+        self.obj_len = 0;
+        self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
     }
 }
 
@@ -223,9 +316,6 @@ impl PpuState {
         if bus.ppu.ly_counter >= line_length {
             bus.ppu.ly_counter = 0;
             if ly < 144 {
-                let lcdc = bus.io[0x40];
-                let bg_color_ids_line = bus.ppu.bg_color_ids_line;
-                Self::render_objects_scanline(bus, lcdc, ly as usize, &bg_color_ids_line);
                 bus.ppu.mode3_fifo.reset();
             }
             let next_ly = if ly >= 153 { 0 } else { ly.wrapping_add(1) };
@@ -509,6 +599,7 @@ impl PpuState {
             bus.ppu.bg_color_ids_line.fill(0);
             let discard_pixels = bus.io[0x43] & 0x07;
             bus.ppu.mode3_fifo.start(discard_pixels);
+            Self::prepare_mode3_obj_line(bus, ly as usize);
         }
 
         if !bus.ppu.mode3_fifo.active {
@@ -554,11 +645,8 @@ impl PpuState {
         if (bus.ppu.mode3_fifo.output_x as usize) < super::LCD_WIDTH {
             let x = bus.ppu.mode3_fifo.output_x as usize;
             bus.ppu.mode3_fifo.output_x = bus.ppu.mode3_fifo.output_x.saturating_add(1);
-            let shade_id = if (lcdc & 0x01) == 0 {
-                0
-            } else {
-                (bus.io[0x47] >> (color_id * 2)) & 0x03
-            };
+            let obj_pixel = Self::mode3_pop_obj_pixel(bus, x as i16);
+            let shade_id = Self::compose_mode3_shade_id(bus, lcdc, color_id, obj_pixel);
             let row_start = y * super::LCD_WIDTH;
             bus.ppu.bg_color_ids_line[x] = color_id;
             bus.framebuffer[row_start + x] = DMG_SHADE_TO_LUMA[shade_id as usize];
@@ -621,25 +709,13 @@ impl PpuState {
         (((high >> bit) & 1) << 1) | ((low >> bit) & 1)
     }
 
-    fn render_objects_scanline(
-        bus: &mut Bus,
-        lcdc: u8,
-        y: usize,
-        bg_color_ids: &[u8; super::LCD_WIDTH],
-    ) {
-        if (lcdc & 0x02) == 0 {
-            return;
-        }
-
+    fn prepare_mode3_obj_line(bus: &mut Bus, y: usize) {
+        let lcdc = bus.io[0x40];
         let sprite_height: usize = if (lcdc & 0x04) != 0 { 16 } else { 8 };
-        let obp0 = bus.io[0x48];
-        let obp1 = bus.io[0x49];
-        let row_start = y * super::LCD_WIDTH;
         let y_i = y as i16;
 
-        let mut sprites = [ObjCandidate::EMPTY; MAX_SPRITES_PER_LINE];
-        let mut sprite_count = 0usize;
-
+        let mut candidates = [ObjCandidate::EMPTY; MAX_SPRITES_PER_LINE];
+        let mut candidate_count = 0usize;
         for oam_index in 0u8..40 {
             let base = (oam_index as usize) * 4;
             let y_raw = bus.oam[base];
@@ -647,7 +723,6 @@ impl PpuState {
             let tile = bus.oam[base + 2];
             let attr = bus.oam[base + 3];
 
-            // Hidden objects on DMG.
             if x_raw == 0 || x_raw >= 168 {
                 continue;
             }
@@ -657,73 +732,120 @@ impl PpuState {
                 continue;
             }
 
-            sprites[sprite_count] = ObjCandidate {
+            candidates[candidate_count] = ObjCandidate {
                 x_raw,
                 y_raw,
                 tile,
                 attr,
                 oam_index,
             };
-            sprite_count += 1;
-            if sprite_count == MAX_SPRITES_PER_LINE {
+            candidate_count += 1;
+            if candidate_count == MAX_SPRITES_PER_LINE {
                 break;
             }
         }
 
-        sprites[..sprite_count].sort_unstable_by_key(|sprite| (sprite.x_raw, sprite.oam_index));
+        candidates[..candidate_count]
+            .sort_unstable_by_key(|sprite| (sprite.x_raw, sprite.oam_index));
 
-        // Draw lowest-priority first, highest-priority last.
-        for sprite in sprites[..sprite_count].iter().rev() {
-            let x_left = sprite.x_raw as i16 - 8;
-            let y_top = sprite.y_raw as i16 - 16;
-
+        let mut sprites = [Mode3ObjSprite::EMPTY; MAX_SPRITES_PER_LINE];
+        for (i, candidate) in candidates[..candidate_count].iter().enumerate() {
+            let y_top = candidate.y_raw as i16 - 16;
             let mut y_in_sprite = (y_i - y_top) as usize;
-            if (sprite.attr & 0x40) != 0 {
+            if (candidate.attr & 0x40) != 0 {
                 y_in_sprite = sprite_height - 1 - y_in_sprite;
             }
 
             let tile_line = if sprite_height == 16 {
-                let base_tile = sprite.tile & 0xFE;
+                let base_tile = candidate.tile & 0xFE;
                 base_tile.wrapping_add((y_in_sprite / 8) as u8)
             } else {
-                sprite.tile
+                candidate.tile
             };
             let line_in_tile = y_in_sprite & 0x07;
             let line_addr = (tile_line as usize) * 16 + line_in_tile * 2;
-            let low = bus.vram[line_addr];
-            let high = bus.vram[line_addr + 1];
 
-            for x_in_sprite in 0..8usize {
-                let screen_x = x_left + x_in_sprite as i16;
-                if !(0..super::LCD_WIDTH as i16).contains(&screen_x) {
-                    continue;
-                }
-
-                let bit = if (sprite.attr & 0x20) != 0 {
-                    x_in_sprite as u8
-                } else {
-                    7u8.wrapping_sub(x_in_sprite as u8)
-                };
-                let color_id = (((high >> bit) & 1) << 1) | ((low >> bit) & 1);
-                if color_id == 0 {
-                    continue;
-                }
-
-                let x_index = screen_x as usize;
-                let obj_behind_bg = (sprite.attr & 0x80) != 0;
-                if obj_behind_bg && bg_color_ids[x_index] != 0 {
-                    continue;
-                }
-
-                let palette = if (sprite.attr & 0x10) != 0 {
-                    obp1
-                } else {
-                    obp0
-                };
-                let shade_id = (palette >> (color_id * 2)) & 0x03;
-                bus.framebuffer[row_start + x_index] = DMG_SHADE_TO_LUMA[shade_id as usize];
-            }
+            sprites[i] = Mode3ObjSprite {
+                x_left: candidate.x_raw as i16 - 8,
+                low: bus.vram[line_addr],
+                high: bus.vram[line_addr + 1],
+                attr: candidate.attr,
+            };
         }
+
+        bus.ppu.mode3_fifo.obj_set_sprites(sprites, candidate_count);
+    }
+
+    fn mode3_pop_obj_pixel(bus: &mut Bus, screen_x: i16) -> ObjFifoPixel {
+        if (bus.io[0x40] & 0x02) == 0 {
+            bus.ppu.mode3_fifo.obj_clear_pending();
+            return ObjFifoPixel::TRANSPARENT;
+        }
+
+        while bus.ppu.mode3_fifo.obj_next_sprite < bus.ppu.mode3_fifo.obj_sprite_count {
+            let sprite = bus.ppu.mode3_fifo.obj_sprites[bus.ppu.mode3_fifo.obj_next_sprite];
+            if sprite.x_left > screen_x {
+                break;
+            }
+            Self::mode3_merge_sprite_into_obj_fifo(bus, sprite, screen_x);
+            bus.ppu.mode3_fifo.obj_next_sprite += 1;
+        }
+
+        bus.ppu.mode3_fifo.obj_ensure_len(1);
+        bus.ppu.mode3_fifo.obj_pop()
+    }
+
+    fn mode3_merge_sprite_into_obj_fifo(bus: &mut Bus, sprite: Mode3ObjSprite, screen_x: i16) {
+        let x_start = sprite.x_left - screen_x;
+        let mut lane_start = 0usize;
+        let mut rel_offset = x_start;
+        if rel_offset < 0 {
+            lane_start = (-rel_offset) as usize;
+            rel_offset = 0;
+        }
+
+        for x_in_sprite in lane_start..8usize {
+            let bit = if (sprite.attr & 0x20) != 0 {
+                x_in_sprite as u8
+            } else {
+                7u8.wrapping_sub(x_in_sprite as u8)
+            };
+            let color_id = (((sprite.high >> bit) & 1) << 1) | ((sprite.low >> bit) & 1);
+            if color_id == 0 {
+                continue;
+            }
+
+            let rel = rel_offset as usize + (x_in_sprite - lane_start);
+            let pixel = ObjFifoPixel {
+                color_id,
+                attr: sprite.attr,
+            };
+            bus.ppu.mode3_fifo.obj_set_if_transparent(rel, pixel);
+        }
+    }
+
+    fn compose_mode3_shade_id(bus: &Bus, lcdc: u8, bg_color_id: u8, obj_pixel: ObjFifoPixel) -> u8 {
+        let bg_shade_id = if (lcdc & 0x01) == 0 {
+            0
+        } else {
+            (bus.io[0x47] >> (bg_color_id * 2)) & 0x03
+        };
+
+        if obj_pixel.color_id == 0 {
+            return bg_shade_id;
+        }
+
+        let obj_behind_bg = (obj_pixel.attr & 0x80) != 0;
+        if obj_behind_bg && bg_color_id != 0 {
+            return bg_shade_id;
+        }
+
+        let palette = if (obj_pixel.attr & 0x10) != 0 {
+            bus.io[0x49]
+        } else {
+            bus.io[0x48]
+        };
+        (palette >> (obj_pixel.color_id * 2)) & 0x03
     }
 
     fn bg_tile_line_addr(lcdc: u8, tile_index: u8, line_in_tile: usize) -> usize {

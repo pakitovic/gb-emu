@@ -905,6 +905,63 @@ fn framebuffer_scx_low_bits_write_during_mode3_does_not_truncate_line_output() {
 }
 
 #[test]
+fn framebuffer_obp_write_during_mode3_affects_later_obj_pixels_only() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+    bus.write_byte(0xFF48, 0xE4); // identity OBP0
+
+    // White BG tile.
+    bus.write_byte(0x9800, 0x00);
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+    bus.write_byte(0x8004, 0x00);
+    bus.write_byte(0x8005, 0x00);
+
+    // Sprite tile 2 with color id=2 across the row used by LY=2.
+    bus.write_byte(0x8024, 0x00);
+    bus.write_byte(0x8025, 0xFF);
+
+    // Two sprites on LY=2: one at x=0..7 and one at x=16..23.
+    bus.write_byte(0xFE00, 16); // Y
+    bus.write_byte(0xFE01, 8); // X
+    bus.write_byte(0xFE02, 2); // tile
+    bus.write_byte(0xFE03, 0x00); // attrs
+
+    bus.write_byte(0xFE04, 16); // Y
+    bus.write_byte(0xFE05, 24); // X
+    bus.write_byte(0xFE06, 2); // tile
+    bus.write_byte(0xFE07, 0x00); // attrs
+
+    bus.write_byte(0xFF40, 0x93); // LCD on + BG + OBJ
+
+    let mut reached_ly2_mode3 = false;
+    for _ in 0..(154 * 456 * 2) {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if ly == 2 && mode == 3 {
+            reached_ly2_mode3 = true;
+            break;
+        }
+        bus.tick(1);
+    }
+    assert!(reached_ly2_mode3);
+
+    // Render first sprite with original OBP0, then switch palette before second sprite.
+    bus.tick(22);
+    bus.write_byte(0xFF48, 0x00); // color 2 -> shade 0 (white)
+    wait_for_next_frame(&mut bus);
+
+    let frame = bus.framebuffer();
+    let line2 = 2 * 160;
+    assert_eq!(frame[line2], 0x55); // first sprite kept old OBP0 mapping
+    assert_eq!(frame[line2 + 16], 0xFF); // second sprite used updated OBP0 mapping
+}
+
+#[test]
 fn framebuffer_bg_disabled_forces_white_backdrop_ignoring_bgp() {
     let mut bus = make_test_bus();
 
