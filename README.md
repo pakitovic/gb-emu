@@ -16,7 +16,7 @@ Current scope:
 - Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core audio mixer clock bridge from emulated t-cycles to PCM samples.
 - Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
-- Cartridge header ROM size decoding across standard size codes, mapper-specific RAM enable/banking behavior (including MBC5 rumble register semantics), and battery-backed persistence (`.sav`, plus `.rtc` for MBC3 timer cartridges).
+- Cartridge header ROM size decoding across standard size codes, mapper-specific RAM enable/banking behavior (including MBC5 rumble register semantics), and battery-backed persistence (`.sav`, plus `.rtc` for MBC3 timer cartridges) with atomic file replace writes.
 - SDL2 frontend adaptive audio queue targeting with underrun estimation from queue depth and host time.
 - Minimal browser demo (`web/minimal`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
 - Minimal browser demo audio telemetry plus adaptive queue targeting for underrun recovery and latency tuning.
@@ -227,7 +227,7 @@ Notes:
 - SDL2 queue target is auto-tuned over time windows (same policy as web) using estimated underruns from elapsed playback vs queued samples.
 - `scripts/dev/run_sdl2_frontend.sh` is the recommended local command for clean SDL2 rebuilds and consistent macOS/Homebrew linker env setup.
 - Optional SDL2 debug tone: set `GB_AUDIO_TEST_TONE=1`.
-- Battery-backed cartridges loaded via `Cartridge::from_file(...)` persist external RAM to a sibling `.sav` file; MBC3 timer carts also persist RTC metadata to `.rtc`. Current CLI/SDL2 frontends flush saves on graceful exit.
+- Battery-backed cartridges loaded via `Cartridge::from_file(...)` persist external RAM to a sibling `.sav` file; MBC3 timer carts also persist RTC metadata to `.rtc`. Save writes use atomic temp-file+rename replacement. Current CLI/SDL2 frontends flush saves on graceful exit.
 - Web helpers:
   - `run_for_elapsed_micros(elapsed_micros)` to step as many emulated frames as host time allows.
   - `audio_clock_tcycles()` / `drain_audio_tcycles()` for raw emulated audio clock access.

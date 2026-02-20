@@ -1,6 +1,8 @@
 use std::fmt::{Display, Formatter};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const HEADER_MIN_LEN: usize = 0x150;
 const ROM_ONLY: u8 = 0x00;
@@ -28,6 +30,21 @@ const MBC2_RAM_BYTES: usize = 512;
 const ROM_ONLY_ROM_BANK_COUNT: usize = 2;
 const SAVE_FILE_EXTENSION: &str = "sav";
 const RTC_FILE_EXTENSION: &str = "rtc";
+
+trait RtcClock {
+    fn now_epoch_secs(&self) -> u64;
+}
+
+struct SystemRtcClock;
+
+impl RtcClock for SystemRtcClock {
+    fn now_epoch_secs(&self) -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MapperType {
@@ -162,7 +179,6 @@ impl Mbc3Rtc {
         let mut total = (self.seconds as u64)
             + (self.minutes as u64) * 60
             + (self.hours as u64) * 3600
-            + (self.day_counter as u64) * 86_400
             + elapsed_secs;
 
         let total_days = total / 86_400;
@@ -291,6 +307,7 @@ pub struct Cartridge {
     has_timer: bool,
     has_rumble: bool,
     rumble_active: bool,
+    clock: Box<dyn RtcClock>,
     save_path: Option<PathBuf>,
     rtc_path: Option<PathBuf>,
     save_dirty: bool,
@@ -309,14 +326,28 @@ pub struct Cartridge {
 
 impl Cartridge {
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, CartridgeError> {
+        Self::from_file_with_clock(path, Box::new(SystemRtcClock))
+    }
+
+    fn from_file_with_clock(
+        path: impl AsRef<Path>,
+        clock: Box<dyn RtcClock>,
+    ) -> Result<Self, CartridgeError> {
         let path_ref = path.as_ref();
         let rom = fs::read(path_ref).map_err(CartridgeError::Io)?;
-        let mut cartridge = Self::from_bytes(rom)?;
+        let mut cartridge = Self::from_bytes_with_clock(rom, clock)?;
         cartridge.attach_save_from_rom_path(path_ref)?;
         Ok(cartridge)
     }
 
     pub fn from_bytes(rom: Vec<u8>) -> Result<Self, CartridgeError> {
+        Self::from_bytes_with_clock(rom, Box::new(SystemRtcClock))
+    }
+
+    fn from_bytes_with_clock(
+        rom: Vec<u8>,
+        clock: Box<dyn RtcClock>,
+    ) -> Result<Self, CartridgeError> {
         if rom.len() < HEADER_MIN_LEN {
             return Err(CartridgeError::RomTooSmall { actual: rom.len() });
         }
@@ -390,8 +421,9 @@ impl Cartridge {
         } else {
             ram.len().div_ceil(RAM_BANK_BYTES)
         };
+        let now_epoch_secs = clock.now_epoch_secs();
         let rtc = if spec.has_timer {
-            Some(Mbc3Rtc::new(current_epoch_secs()))
+            Some(Mbc3Rtc::new(now_epoch_secs))
         } else {
             None
         };
@@ -407,6 +439,7 @@ impl Cartridge {
             has_timer: spec.has_timer,
             has_rumble,
             rumble_active: false,
+            clock,
             save_path: None,
             rtc_path: None,
             save_dirty: false,
@@ -469,8 +502,9 @@ impl Cartridge {
                     self.mbc3_ram_bank_or_rtc = value;
                 }
                 0x6000..=0x7FFF => {
+                    let now_epoch_secs = self.clock.now_epoch_secs();
                     if let Some(rtc) = self.rtc.as_mut() {
-                        rtc.tick_to_epoch(current_epoch_secs());
+                        rtc.tick_to_epoch(now_epoch_secs);
                         rtc.latch_command(value);
                     }
                 }
@@ -518,13 +552,13 @@ impl Cartridge {
                 value | 0xF0
             }
             MapperType::Mbc3 if self.mbc3_ram_bank_or_rtc >= 0x08 => {
-                let now = current_epoch_secs();
+                let now_epoch_secs = self.clock.now_epoch_secs();
                 match self.rtc.as_ref() {
                     Some(rtc) if rtc.has_latched_snapshot => {
                         rtc.read_register(self.mbc3_ram_bank_or_rtc, true)
                     }
                     Some(rtc) => {
-                        let live = rtc.live_registers_at_epoch(now);
+                        let live = rtc.live_registers_at_epoch(now_epoch_secs);
                         let index = (self.mbc3_ram_bank_or_rtc.saturating_sub(0x08)) as usize;
                         live.get(index).copied().unwrap_or(0xFF)
                     }
@@ -566,8 +600,9 @@ impl Cartridge {
                 }
             }
             MapperType::Mbc3 if self.mbc3_ram_bank_or_rtc >= 0x08 => {
+                let now_epoch_secs = self.clock.now_epoch_secs();
                 if let Some(rtc) = self.rtc.as_mut() {
-                    rtc.write_register(self.mbc3_ram_bank_or_rtc, value, current_epoch_secs());
+                    rtc.write_register(self.mbc3_ram_bank_or_rtc, value, now_epoch_secs);
                     self.save_dirty = true;
                 }
             }
@@ -597,15 +632,16 @@ impl Cartridge {
             && self.save_dirty
             && let Some(path) = self.save_path.as_ref()
         {
-            fs::write(path, &self.ram).map_err(CartridgeError::SaveIo)?;
+            write_file_atomic(path, &self.ram).map_err(CartridgeError::SaveIo)?;
             self.save_dirty = false;
         }
 
         if self.has_timer
             && let (Some(rtc), Some(path)) = (self.rtc.as_mut(), self.rtc_path.as_ref())
         {
-            let rtc_bytes = rtc.serialize(current_epoch_secs());
-            fs::write(path, rtc_bytes).map_err(CartridgeError::SaveIo)?;
+            let now_epoch_secs = self.clock.now_epoch_secs();
+            let rtc_bytes = rtc.serialize(now_epoch_secs);
+            write_file_atomic(path, &rtc_bytes).map_err(CartridgeError::SaveIo)?;
         }
 
         Ok(())
@@ -905,11 +941,56 @@ fn ram_size_bytes_from_code(code: u8) -> Option<usize> {
     Some(bytes)
 }
 
-fn current_epoch_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+fn write_file_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    let mut attempt = 0u32;
+    loop {
+        let temp_path = atomic_temp_path(path, attempt);
+        attempt = attempt.saturating_add(1);
+
+        let open_result = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temp_path);
+        let mut file = match open_result {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        };
+
+        let write_result = (|| {
+            file.write_all(data)?;
+            file.sync_all()?;
+            drop(file);
+            match fs::rename(&temp_path, path) {
+                Ok(()) => Ok(()),
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                    fs::remove_file(path)?;
+                    fs::rename(&temp_path, path)
+                }
+                Err(err) => Err(err),
+            }
+        })();
+
+        if write_result.is_err() {
+            let _ = fs::remove_file(&temp_path);
+        }
+
+        return write_result;
+    }
+}
+
+fn atomic_temp_path(path: &Path, attempt: u32) -> PathBuf {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let base_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("save");
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs()
+        .as_nanos();
+    let pid = std::process::id();
+    parent.join(format!(".{base_name}.tmp.{pid}.{nanos}.{attempt}"))
 }
 
 fn parse_title(rom: &[u8]) -> String {
@@ -929,7 +1010,9 @@ fn parse_title(rom: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn make_rom(size: usize, cart_type: u8, rom_size_code: u8, ram_size_code: u8) -> Vec<u8> {
@@ -954,6 +1037,29 @@ mod tests {
             .as_nanos();
         let pid = std::process::id();
         std::env::temp_dir().join(format!("gb_emu_{name}_{pid}_{nanos}.{ext}"))
+    }
+
+    #[derive(Clone)]
+    struct TestClock {
+        now_epoch_secs: Arc<AtomicU64>,
+    }
+
+    impl TestClock {
+        fn new(now_epoch_secs: u64) -> Self {
+            Self {
+                now_epoch_secs: Arc::new(AtomicU64::new(now_epoch_secs)),
+            }
+        }
+
+        fn set_now_epoch_secs(&self, now_epoch_secs: u64) {
+            self.now_epoch_secs.store(now_epoch_secs, Ordering::Relaxed);
+        }
+    }
+
+    impl RtcClock for TestClock {
+        fn now_epoch_secs(&self) -> u64 {
+            self.now_epoch_secs.load(Ordering::Relaxed)
+        }
     }
 
     #[test]
@@ -1202,6 +1308,78 @@ mod tests {
     }
 
     #[test]
+    fn mbc3_rtc_halt_stops_elapsed_time_with_test_clock() {
+        let clock = TestClock::new(100);
+        let rom = make_rom(32 * 1024, MBC3_TIMER_BATTERY, 0x00, 0x00);
+        let mut cart = Cartridge::from_bytes_with_clock(rom, Box::new(clock.clone()))
+            .expect("valid MBC3 ROM should load");
+
+        cart.write_rom_control(0x0000, 0x0A); // RAM/RTC enable
+        cart.write_rom_control(0x4000, 0x08); // seconds register
+        cart.write_ram_byte(0xA000, 10);
+
+        cart.write_rom_control(0x4000, 0x0C); // day high
+        cart.write_ram_byte(0xA000, 0x40); // halt
+
+        clock.set_now_epoch_secs(160);
+        cart.write_rom_control(0x4000, 0x08);
+        assert_eq!(cart.read_ram_byte(0xA000), 10);
+
+        cart.write_rom_control(0x4000, 0x0C);
+        cart.write_ram_byte(0xA000, 0x00); // resume
+
+        clock.set_now_epoch_secs(165);
+        cart.write_rom_control(0x4000, 0x08);
+        assert_eq!(cart.read_ram_byte(0xA000), 15);
+    }
+
+    #[test]
+    fn mbc3_rtc_latch_snapshot_is_stable_until_next_latch_with_test_clock() {
+        let clock = TestClock::new(10);
+        let rom = make_rom(32 * 1024, MBC3_TIMER_BATTERY, 0x00, 0x00);
+        let mut cart = Cartridge::from_bytes_with_clock(rom, Box::new(clock.clone()))
+            .expect("valid MBC3 ROM should load");
+
+        cart.write_rom_control(0x0000, 0x0A); // RAM/RTC enable
+        cart.write_rom_control(0x4000, 0x08); // seconds register
+        cart.write_ram_byte(0xA000, 0);
+
+        clock.set_now_epoch_secs(15);
+        cart.write_rom_control(0x6000, 0x00);
+        cart.write_rom_control(0x6000, 0x01);
+
+        clock.set_now_epoch_secs(20);
+        cart.write_rom_control(0x4000, 0x08);
+        assert_eq!(cart.read_ram_byte(0xA000), 5);
+
+        cart.write_rom_control(0x6000, 0x00);
+        cart.write_rom_control(0x6000, 0x01);
+        assert_eq!(cart.read_ram_byte(0xA000), 10);
+    }
+
+    #[test]
+    fn mbc3_rtc_day_counter_sets_carry_after_overflow_with_test_clock() {
+        let clock = TestClock::new(0);
+        let rom = make_rom(32 * 1024, MBC3_TIMER_BATTERY, 0x00, 0x00);
+        let mut cart = Cartridge::from_bytes_with_clock(rom, Box::new(clock.clone()))
+            .expect("valid MBC3 ROM should load");
+
+        cart.write_rom_control(0x0000, 0x0A); // RAM/RTC enable
+        cart.write_rom_control(0x4000, 0x0B); // day low
+        cart.write_ram_byte(0xA000, 0xFF);
+        cart.write_rom_control(0x4000, 0x0C); // day high
+        cart.write_ram_byte(0xA000, 0x01); // day bit 8 = 1 => 511 days
+
+        clock.set_now_epoch_secs(86_400);
+        cart.write_rom_control(0x4000, 0x0B);
+        assert_eq!(cart.read_ram_byte(0xA000), 0x00);
+        cart.write_rom_control(0x4000, 0x0C);
+        let day_high = cart.read_ram_byte(0xA000);
+        assert_eq!(day_high & 0x01, 0x00);
+        assert_eq!(day_high & 0x80, 0x80);
+    }
+
+    #[test]
     fn mbc3_timer_battery_persists_rtc_sidecar() {
         let rom_path = unique_temp_file_path("mbc3_timer_rtc", "gb");
         let save_path = rom_path.with_extension("sav");
@@ -1333,5 +1511,30 @@ mod tests {
 
         let _ = fs::remove_file(save_path);
         let _ = fs::remove_file(rom_path);
+    }
+
+    #[test]
+    fn atomic_save_writer_replaces_existing_file_without_temp_leaks() {
+        let save_path = unique_temp_file_path("atomic_save_replace", "sav");
+        fs::write(&save_path, [0xAA, 0xBB]).expect("initial write should work");
+
+        write_file_atomic(&save_path, &[0x11, 0x22, 0x33]).expect("atomic write should work");
+        let data = fs::read(&save_path).expect("read should work");
+        assert_eq!(data, vec![0x11, 0x22, 0x33]);
+
+        let parent = save_path.parent().unwrap_or_else(|| Path::new("."));
+        let file_name = save_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("temp save path should have a utf8 name");
+        let tmp_prefix = format!(".{file_name}.tmp.");
+        let has_temp_files = fs::read_dir(parent)
+            .expect("read_dir should work")
+            .filter_map(Result::ok)
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .any(|name| name.starts_with(&tmp_prefix));
+        assert!(!has_temp_files);
+
+        let _ = fs::remove_file(save_path);
     }
 }
