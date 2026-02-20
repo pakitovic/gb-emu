@@ -1,5 +1,5 @@
 use super::Bus;
-use crate::cartridge::CartridgeError;
+use crate::cartridge::{CartridgeError, CartridgeMetadata};
 
 impl Bus {
     pub fn rom_title(&self) -> &str {
@@ -20,6 +20,10 @@ impl Bus {
 
     pub fn flush_battery_save(&mut self) -> Result<(), CartridgeError> {
         self.cartridge.flush_save()
+    }
+
+    pub fn cartridge_metadata(&self) -> CartridgeMetadata {
+        self.cartridge.metadata()
     }
 
     pub fn cartridge_has_rumble(&self) -> bool {

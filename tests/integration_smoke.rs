@@ -1,5 +1,5 @@
 use gb_emu::audio::AudioMixer;
-use gb_emu::cartridge::{Cartridge, CartridgeError};
+use gb_emu::cartridge::{Cartridge, CartridgeError, CartridgeMapper};
 use gb_emu::gameboy::GameBoy;
 use gb_emu::timing::{DMG_T_CYCLES_PER_SECOND, FramePacer};
 use std::fs;
@@ -341,4 +341,26 @@ fn supported_mapper_type_matrix_constructs_gameboy_and_steps() {
         let cycles = gb.step();
         assert_eq!(cycles, 4, "{} should execute NOP from ROM", case.name);
     }
+}
+
+#[test]
+fn gameboy_exposes_cartridge_metadata_for_debug() {
+    let cartridge = Cartridge::from_bytes(make_mbc5_rumble_ram_battery_rom_64kb())
+        .expect("cartridge should load");
+    let gb = GameBoy::new(cartridge);
+    let metadata = gb.cartridge_metadata();
+
+    assert_eq!(metadata.mapper, CartridgeMapper::Mbc5);
+    assert_eq!(metadata.cart_type_code, 0x1E);
+    assert_eq!(metadata.rom_size_code, 0x01);
+    assert_eq!(metadata.ram_size_code, 0x04);
+    assert_eq!(metadata.rom_bank_count, 4);
+    assert_eq!(metadata.ram_bank_count, 16);
+    assert_eq!(metadata.declared_ram_size_bytes, 128 * 1024);
+    assert_eq!(metadata.effective_ram_size_bytes, 128 * 1024);
+    assert!(metadata.has_battery);
+    assert!(!metadata.has_timer);
+    assert!(metadata.has_rumble);
+    assert!(metadata.has_battery_save);
+    assert!(!metadata.rumble_active);
 }
