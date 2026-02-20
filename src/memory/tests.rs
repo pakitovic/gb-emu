@@ -32,6 +32,18 @@ fn wait_for_transition(bus: &mut Bus, ly: u8, from_mode: u8, to_mode: u8) {
     panic!("Transition LY={ly} {from_mode}->{to_mode} not observed");
 }
 
+fn wait_for_ly_mode(bus: &mut Bus, target_ly: u8, target_mode: u8) {
+    for _ in 0..(154 * 456 * 2) {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if ly == target_ly && mode == target_mode {
+            return;
+        }
+        bus.tick(1);
+    }
+    panic!("LY={target_ly} mode={target_mode} not observed");
+}
+
 fn measure_hblank_until_ly_increment(bus: &mut Bus, ly: u8) -> u16 {
     let mut ticks = 0u16;
     for _ in 0..512 {
@@ -1370,6 +1382,57 @@ fn line2_hblank_delay_with_obj_toggle(
     measure_hblank_until_ly_increment(&mut bus, 2)
 }
 
+fn setup_line2_mode3_bus_with_hidden_obj(obj_enabled: bool) -> Bus {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0x8000, 0x12); // VRAM probe byte
+
+    // Hidden X=0 sprite on LY=2 still consumes OBJ fetch dots when OBJ is enabled.
+    bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    bus.write_byte(0xFE01, 0); // X hidden/off-screen
+    bus.write_byte(0xFE02, 0x00); // tile
+    bus.write_byte(0xFE03, 0x00); // attrs
+
+    let mut lcdc = 0x91; // LCD on + BG on
+    if obj_enabled {
+        lcdc |= 0x02;
+    }
+    bus.write_byte(0xFF40, lcdc);
+    wait_for_ly_mode(&mut bus, 2, 3);
+    bus
+}
+
+fn ticks_until_mode3_exit_on_current_line(bus: &mut Bus) -> u16 {
+    let target_ly = bus.read_byte(0xFF44);
+    assert_eq!(bus.read_byte(0xFF41) & 0x03, 3);
+
+    let mut ticks = 0u16;
+    for _ in 0..512 {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if ly == target_ly && mode != 3 {
+            return ticks;
+        }
+        bus.tick(1);
+        ticks = ticks.saturating_add(1);
+    }
+    panic!("mode3 exit not observed on LY={target_ly}");
+}
+
+fn ticks_until_stat_irq(bus: &mut Bus) -> u16 {
+    let mut ticks = 0u16;
+    for _ in 0..512 {
+        if (bus.interrupt_flags() & (1 << 1)) != 0 {
+            return ticks;
+        }
+        bus.tick(1);
+        ticks = ticks.saturating_add(1);
+    }
+    panic!("STAT IRQ not observed within expected window");
+}
+
 #[test]
 fn mode3_enabling_obj_mid_line_shortens_hblank_via_runtime_contention() {
     let delay_no_obj = line2_hblank_delay_with_obj_toggle(false, None);
@@ -1482,7 +1545,37 @@ fn mode3_obj_fetch_waits_for_bg_fetch_boundary_before_starting() {
 }
 
 #[test]
-fn mode3_window_trigger_queues_until_bg_takeover_boundary_when_fifo_is_full() {
+fn mode3_obj_fetch_can_start_from_fifo_stall_boundary() {
+    let mut bus = setup_line2_mode3_bus_with_hidden_obj(false);
+
+    let mut reached_fifo_stall_boundary = false;
+    for _ in 0..128 {
+        bus.tick(1);
+        if bus.mode3_bg_fetch_phase() == 0
+            && bus.mode3_bg_fetch_dots_remaining() == 0
+            && bus.mode3_bg_fifo_len() > 8
+            && bus.mode3_obj_next_sprite_index() == 0
+        {
+            reached_fifo_stall_boundary = true;
+            break;
+        }
+    }
+    assert!(
+        reached_fifo_stall_boundary,
+        "expected a FIFO stall boundary before enabling OBJ"
+    );
+
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x02); // enable OBJ mid-line
+    bus.tick(1);
+    assert_eq!(
+        bus.mode3_obj_next_sprite_index(),
+        1,
+        "expected OBJ fetch to start from FIFO stall takeover boundary"
+    );
+}
+
+#[test]
+fn mode3_window_trigger_can_restart_from_fifo_stall_boundary() {
     let mut bus = make_test_bus();
 
     bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
@@ -1505,36 +1598,95 @@ fn mode3_window_trigger_queues_until_bg_takeover_boundary_when_fifo_is_full() {
     bus.write_byte(0x8011, 0xFF);
 
     bus.write_byte(0xFF4A, 0x00); // WY
-    bus.write_byte(0xFF4B, 8); // WX => trigger at x=1
-    bus.write_byte(0xFF40, 0xB9); // LCD on + BG + Window + BG map 9C00, tile data 8000
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on, window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
 
-    let mut reached_ly2_mode3 = false;
-    for _ in 0..(154 * 456 * 2) {
-        let ly = bus.read_byte(0xFF44);
-        let mode = bus.read_byte(0xFF41) & 0x03;
-        if ly == 2 && mode == 3 {
-            reached_ly2_mode3 = true;
-            break;
-        }
+    let mut reached_fifo_stall_boundary = false;
+    for _ in 0..128 {
         bus.tick(1);
-    }
-    assert!(reached_ly2_mode3);
-
-    let mut saw_pending_without_boundary = false;
-    for _ in 0..64 {
-        bus.tick(1);
-        if bus.mode3_window_trigger_pending()
-            && !bus.mode3_window_triggered_this_line()
-            && !bus.mode3_window_takeover_boundary()
+        if bus.mode3_bg_fetch_phase() == 0
+            && bus.mode3_bg_fetch_dots_remaining() == 0
+            && bus.mode3_bg_fifo_len() > 8
         {
-            saw_pending_without_boundary = true;
+            reached_fifo_stall_boundary = true;
             break;
         }
     }
     assert!(
-        saw_pending_without_boundary,
-        "expected window trigger to queue while waiting for a valid BG takeover boundary"
+        reached_fifo_stall_boundary,
+        "expected FIFO stall boundary before arming window trigger"
     );
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).min(166);
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window mid-line
+
+    bus.tick(1);
+    assert!(
+        bus.mode3_window_triggered_this_line(),
+        "expected window to restart from FIFO stall takeover boundary (output_x={output_x}, wx={wx})"
+    );
+    assert!(!bus.mode3_window_trigger_pending());
+}
+
+#[test]
+fn mode3_window_trigger_queues_until_obj_fetch_finishes() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+
+    // Sprite later on the line to keep OBJ fetch active while output_x > 0.
+    bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    bus.write_byte(0xFE01, 32); // X => left edge at x=24
+    bus.write_byte(0xFE02, 0x00); // tile
+    bus.write_byte(0xFE03, 0x00); // attrs
+
+    // BG tile map row (9C00) uses white tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+
+    // Window map row uses black tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x93); // LCD on + BG + OBJ, window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut obj_fetch_active = false;
+    for _ in 0..192 {
+        bus.tick(1);
+        if bus.mode3_obj_fetch_dots_remaining() >= 2 {
+            obj_fetch_active = true;
+            break;
+        }
+    }
+    assert!(
+        obj_fetch_active,
+        "expected active OBJ fetch window on LY=2 before arming window trigger"
+    );
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window mid-line
+    bus.tick(1);
+
+    assert!(!bus.mode3_window_triggered_this_line());
+    assert!(bus.mode3_window_trigger_pending());
+    assert!(!bus.mode3_window_takeover_boundary());
 
     let mut triggered = false;
     for _ in 0..64 {
@@ -1546,7 +1698,44 @@ fn mode3_window_trigger_queues_until_bg_takeover_boundary_when_fifo_is_full() {
     }
     assert!(
         triggered,
-        "expected queued window trigger to fire on a later boundary"
+        "expected queued window trigger to fire after OBJ fetch releases takeover boundary"
+    );
+}
+
+#[test]
+fn mode3_obj_contention_delays_vram_and_oam_release_into_hblank() {
+    let mut bus_no_obj = setup_line2_mode3_bus_with_hidden_obj(false);
+    let mut bus_with_obj = setup_line2_mode3_bus_with_hidden_obj(true);
+
+    let ticks_to_mode0_no_obj = ticks_until_mode3_exit_on_current_line(&mut bus_no_obj);
+    tick_n(&mut bus_with_obj, ticks_to_mode0_no_obj as usize);
+
+    assert_eq!(bus_no_obj.read_byte(0xFF44), 2);
+    assert_eq!(bus_no_obj.read_byte(0xFF41) & 0x03, 0);
+    assert_eq!(bus_no_obj.read_byte(0x8000), 0x12);
+    assert_eq!(bus_no_obj.read_byte(0xFE00), 18);
+
+    assert_eq!(bus_with_obj.read_byte(0xFF44), 2);
+    assert_eq!(bus_with_obj.read_byte(0xFF41) & 0x03, 3);
+    assert_eq!(bus_with_obj.read_byte(0x8000), 0xFF);
+    assert_eq!(bus_with_obj.read_byte(0xFE00), 0xFF);
+}
+
+#[test]
+fn stat_mode0_irq_is_delayed_by_mode3_obj_contention() {
+    let mut bus_no_obj = setup_line2_mode3_bus_with_hidden_obj(false);
+    let mut bus_with_obj = setup_line2_mode3_bus_with_hidden_obj(true);
+
+    bus_no_obj.write_byte(0xFF41, 0x08); // mode0 STAT source
+    bus_with_obj.write_byte(0xFF41, 0x08); // mode0 STAT source
+    bus_no_obj.set_interrupt_flags(bus_no_obj.interrupt_flags() & !(1 << 1));
+    bus_with_obj.set_interrupt_flags(bus_with_obj.interrupt_flags() & !(1 << 1));
+
+    let no_obj_ticks = ticks_until_stat_irq(&mut bus_no_obj);
+    let with_obj_ticks = ticks_until_stat_irq(&mut bus_with_obj);
+    assert!(
+        with_obj_ticks > no_obj_ticks,
+        "expected mode3 OBJ contention to delay mode0 STAT IRQ (no_obj={no_obj_ticks}, with_obj={with_obj_ticks})"
     );
 }
 

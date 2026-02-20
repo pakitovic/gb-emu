@@ -410,3 +410,71 @@ fn gameboy_exposes_cartridge_metadata_for_debug() {
     assert!(!metadata.rumble_active);
     assert!(!metadata.header_warnings.is_empty());
 }
+
+fn wait_for_ly_mode(gb: &mut GameBoy, target_ly: u8, target_mode: u8) {
+    for _ in 0..(154 * 456 * 2) {
+        let ly = gb.bus.read_byte(0xFF44);
+        let mode = gb.bus.read_byte(0xFF41) & 0x03;
+        if ly == target_ly && mode == target_mode {
+            return;
+        }
+        gb.bus.tick(1);
+    }
+    panic!("LY={target_ly} mode={target_mode} not observed");
+}
+
+fn ticks_until_stat_irq(gb: &mut GameBoy) -> u16 {
+    let mut ticks = 0u16;
+    for _ in 0..512 {
+        if (gb.bus.interrupt_flags() & (1 << 1)) != 0 {
+            return ticks;
+        }
+        gb.bus.tick(1);
+        ticks = ticks.saturating_add(1);
+    }
+    panic!("STAT IRQ not observed within expected window");
+}
+
+fn setup_gameboy_line2_mode3_hidden_obj(obj_enabled: bool) -> GameBoy {
+    let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("valid ROM should load");
+    let mut gb = GameBoy::new(cartridge);
+    gb.bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    gb.bus.write_byte(0xFF42, 0x00); // SCY
+    gb.bus.write_byte(0xFF43, 0x00); // SCX
+
+    // Hidden X=0 sprite on LY=2 to introduce mode3 OBJ contention.
+    gb.bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    gb.bus.write_byte(0xFE01, 0); // X hidden/off-screen
+    gb.bus.write_byte(0xFE02, 0x00); // tile
+    gb.bus.write_byte(0xFE03, 0x00); // attrs
+
+    let mut lcdc = 0x91; // LCD on + BG on
+    if obj_enabled {
+        lcdc |= 0x02;
+    }
+    gb.bus.write_byte(0xFF40, lcdc);
+    wait_for_ly_mode(&mut gb, 2, 3);
+    gb
+}
+
+#[test]
+fn mode3_obj_contention_delays_stat_mode0_irq_via_gameboy_bus() {
+    let mut gb_no_obj = setup_gameboy_line2_mode3_hidden_obj(false);
+    let mut gb_with_obj = setup_gameboy_line2_mode3_hidden_obj(true);
+
+    gb_no_obj.bus.write_byte(0xFF41, 0x08); // mode0 STAT source
+    gb_with_obj.bus.write_byte(0xFF41, 0x08); // mode0 STAT source
+    gb_no_obj
+        .bus
+        .set_interrupt_flags(gb_no_obj.bus.interrupt_flags() & !(1 << 1));
+    gb_with_obj
+        .bus
+        .set_interrupt_flags(gb_with_obj.bus.interrupt_flags() & !(1 << 1));
+
+    let no_obj_ticks = ticks_until_stat_irq(&mut gb_no_obj);
+    let with_obj_ticks = ticks_until_stat_irq(&mut gb_with_obj);
+    assert!(
+        with_obj_ticks > no_obj_ticks,
+        "expected OBJ contention to delay mode0 STAT IRQ (no_obj={no_obj_ticks}, with_obj={with_obj_ticks})"
+    );
+}
