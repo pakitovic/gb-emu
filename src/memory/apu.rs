@@ -602,9 +602,14 @@ impl ApuState {
         self.wave.step_tcycle();
         self.noise.step_tcycle();
         self.refresh_channel_on_mask();
-        self.last_mixed_sample = self.mix_sample(io);
-        if self.capture_tcycle_stream {
-            self.push_tcycle_sample(self.last_mixed_sample);
+        let should_mix_sample = self.capture_tcycle_stream || cfg!(test);
+        if should_mix_sample {
+            self.last_mixed_sample = self.mix_sample(io);
+            if self.capture_tcycle_stream {
+                self.push_tcycle_sample(self.last_mixed_sample);
+            }
+        } else {
+            self.last_mixed_sample = 0.0;
         }
     }
 
