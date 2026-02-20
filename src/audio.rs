@@ -116,20 +116,29 @@ impl AnalogCalibrationProfile {
     }
 
     pub fn normalized(mut self) -> Self {
-        self.hpf_coeff = self.hpf_coeff.clamp(0.0, 0.999_999);
-        self.low_pass_alpha = self.low_pass_alpha.clamp(0.0, 1.0);
-        self.left_gain = self.left_gain.clamp(0.0, 2.0);
-        self.right_gain = self.right_gain.clamp(0.0, 2.0);
-        self.soft_clip_drive = self.soft_clip_drive.clamp(0.1, 8.0);
-        self.crossfeed = self.crossfeed.clamp(0.0, 0.5);
-        self.output_bias_left = self.output_bias_left.clamp(-1.0, 1.0);
-        self.output_bias_right = self.output_bias_right.clamp(-1.0, 1.0);
+        let sanitize = |value: f32, min: f32, max: f32, fallback: f32| -> f32 {
+            if value.is_nan() {
+                fallback
+            } else {
+                value.clamp(min, max)
+            }
+        };
+
+        self.hpf_coeff = sanitize(self.hpf_coeff, 0.0, 0.999_999, 0.999_958);
+        self.low_pass_alpha = sanitize(self.low_pass_alpha, 0.0, 1.0, 0.004_6);
+        self.left_gain = sanitize(self.left_gain, 0.0, 2.0, 1.0);
+        self.right_gain = sanitize(self.right_gain, 0.0, 2.0, 1.0);
+        self.soft_clip_drive = sanitize(self.soft_clip_drive, 0.1, 8.0, 1.0);
+        self.crossfeed = sanitize(self.crossfeed, 0.0, 0.5, 0.0);
+        self.output_bias_left = sanitize(self.output_bias_left, -1.0, 1.0, 0.0);
+        self.output_bias_right = sanitize(self.output_bias_right, -1.0, 1.0, 0.0);
         for index in 0..APU_MIX_CHANNELS {
-            self.channel_gain[index] = self.channel_gain[index].clamp(0.0, 4.0);
-            self.channel_nonlinearity[index] = self.channel_nonlinearity[index].clamp(0.0, 1.0);
-            self.channel_bias[index] = self.channel_bias[index].clamp(-1.0, 1.0);
-            self.routing_left[index] = self.routing_left[index].clamp(0.0, 4.0);
-            self.routing_right[index] = self.routing_right[index].clamp(0.0, 4.0);
+            self.channel_gain[index] = sanitize(self.channel_gain[index], 0.0, 4.0, 0.25);
+            self.channel_nonlinearity[index] =
+                sanitize(self.channel_nonlinearity[index], 0.0, 1.0, 0.0);
+            self.channel_bias[index] = sanitize(self.channel_bias[index], -1.0, 1.0, 0.0);
+            self.routing_left[index] = sanitize(self.routing_left[index], 0.0, 4.0, 1.0);
+            self.routing_right[index] = sanitize(self.routing_right[index], 0.0, 4.0, 1.0);
         }
         self
     }
@@ -546,6 +555,45 @@ mod tests {
         assert_eq!(normalized.crossfeed, 0.5);
         assert_eq!(normalized.output_bias_left, 1.0);
         assert_eq!(normalized.output_bias_right, -1.0);
+    }
+
+    #[test]
+    fn analog_profile_normalization_replaces_nan_values() {
+        let mut profile = AnalogCalibrationProfile::for_model(HardwareModel::Dmg);
+        profile.hpf_coeff = f32::NAN;
+        profile.low_pass_alpha = f32::NAN;
+        profile.left_gain = f32::NAN;
+        profile.right_gain = f32::NAN;
+        profile.soft_clip_drive = f32::NAN;
+        profile.crossfeed = f32::NAN;
+        profile.output_bias_left = f32::NAN;
+        profile.output_bias_right = f32::NAN;
+        profile.channel_gain[0] = f32::NAN;
+        profile.channel_nonlinearity[1] = f32::NAN;
+        profile.channel_bias[2] = f32::NAN;
+        profile.routing_left[3] = f32::NAN;
+        profile.routing_right[0] = f32::NAN;
+
+        let normalized = profile.normalized();
+        assert_eq!(normalized.hpf_coeff, 0.999_958);
+        assert_eq!(normalized.low_pass_alpha, 0.004_6);
+        assert_eq!(normalized.left_gain, 1.0);
+        assert_eq!(normalized.right_gain, 1.0);
+        assert_eq!(normalized.soft_clip_drive, 1.0);
+        assert_eq!(normalized.crossfeed, 0.0);
+        assert_eq!(normalized.output_bias_left, 0.0);
+        assert_eq!(normalized.output_bias_right, 0.0);
+        assert_eq!(normalized.channel_gain[0], 0.25);
+        assert_eq!(normalized.channel_nonlinearity[1], 0.0);
+        assert_eq!(normalized.channel_bias[2], 0.0);
+        assert_eq!(normalized.routing_left[3], 1.0);
+        assert_eq!(normalized.routing_right[0], 1.0);
+
+        assert!(normalized.hpf_coeff.is_finite());
+        assert!(normalized.low_pass_alpha.is_finite());
+        assert!(normalized.left_gain.is_finite());
+        assert!(normalized.right_gain.is_finite());
+        assert!(normalized.soft_clip_drive.is_finite());
     }
 
     #[test]
