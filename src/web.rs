@@ -30,11 +30,14 @@ impl WebEmulator {
         let cartridge = Cartridge::from_bytes(rom_bytes.to_vec())
             .map_err(|err| JsValue::from_str(&err.to_string()))?;
 
+        let mut gb = GameBoy::new_with_model(cartridge, model);
+        gb.set_audio_tcycle_stream_enabled(true);
+
         let mut audio_mixer = AudioMixer::new(48_000);
         audio_mixer.set_source(MixerSource::CoreApu);
 
         Ok(Self {
-            gb: GameBoy::new_with_model(cartridge, model),
+            gb,
             pacer: FramePacer::default(),
             audio_mixer,
         })

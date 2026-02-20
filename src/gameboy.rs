@@ -89,6 +89,10 @@ impl GameBoy {
         self.bus.drain_audio_tcycle_samples()
     }
 
+    pub fn set_audio_tcycle_stream_enabled(&mut self, enabled: bool) {
+        self.bus.set_audio_tcycle_stream_enabled(enabled);
+    }
+
     pub fn run_frame_with_limit(&mut self, trace: bool, max_steps: usize) -> Option<u64> {
         let start_frame = self.frame_counter();
         let mut total_cycles = 0u64;

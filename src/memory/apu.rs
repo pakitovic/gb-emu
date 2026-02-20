@@ -503,6 +503,7 @@ pub(super) struct ApuState {
     noise: NoiseChannel,
     last_mixed_sample: f32,
     pending_tcycle_samples: Vec<f32>,
+    capture_tcycle_stream: bool,
 }
 
 impl Default for ApuState {
@@ -521,6 +522,7 @@ impl Default for ApuState {
             noise: NoiseChannel::default(),
             last_mixed_sample: 0.0,
             pending_tcycle_samples: Vec::new(),
+            capture_tcycle_stream: false,
         }
     }
 }
@@ -589,7 +591,9 @@ impl ApuState {
     fn step_tcycle(&mut self, io: &[u8; 0x80]) {
         if !self.enabled {
             self.last_mixed_sample = 0.0;
-            self.push_tcycle_sample(0.0);
+            if self.capture_tcycle_stream {
+                self.push_tcycle_sample(0.0);
+            }
             return;
         }
 
@@ -599,7 +603,9 @@ impl ApuState {
         self.noise.step_tcycle();
         self.refresh_channel_on_mask();
         self.last_mixed_sample = self.mix_sample(io);
-        self.push_tcycle_sample(self.last_mixed_sample);
+        if self.capture_tcycle_stream {
+            self.push_tcycle_sample(self.last_mixed_sample);
+        }
     }
 
     fn push_tcycle_sample(&mut self, sample: f32) {
@@ -759,6 +765,13 @@ impl Bus {
             return Vec::new();
         }
         self.apu.pending_tcycle_samples.drain(..).collect()
+    }
+
+    pub fn set_audio_tcycle_stream_enabled(&mut self, enabled: bool) {
+        self.apu.capture_tcycle_stream = enabled;
+        if !enabled {
+            self.apu.pending_tcycle_samples.clear();
+        }
     }
 
     fn clear_apu_registers(&mut self) {
