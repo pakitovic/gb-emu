@@ -95,6 +95,7 @@ pub(super) struct PpuState {
     pub(super) stat_irq_line: bool,
     pub(super) stat_mode0_enabled_this_line: bool,
     pub(super) frame_counter: u64,
+    mode3_dots_latched: u16,
     mode3_fifo: Mode3FifoState,
     bg_color_ids_line: [u8; super::LCD_WIDTH],
 }
@@ -109,6 +110,7 @@ impl Default for PpuState {
             stat_irq_line: false,
             stat_mode0_enabled_this_line: false,
             frame_counter: 0,
+            mode3_dots_latched: 0,
             mode3_fifo: Mode3FifoState::default(),
             bg_color_ids_line: [0; super::LCD_WIDTH],
         }
@@ -129,6 +131,7 @@ impl PpuState {
                 bus.ppu.post_enable_phase = 0;
                 bus.ppu.enable_delay = 0;
                 bus.ppu.stat_mode0_enabled_this_line = false;
+                bus.ppu.mode3_dots_latched = 0;
                 bus.ppu.mode3_fifo.reset();
                 bus.ppu.bg_color_ids_line.fill(0);
                 Self::set_stat_mode(bus, STAT_MODE_HBLANK);
@@ -142,6 +145,7 @@ impl PpuState {
                 bus.ppu.post_enable_phase = 0;
                 bus.ppu.enable_delay = 0;
                 bus.ppu.stat_mode0_enabled_this_line = false;
+                bus.ppu.mode3_dots_latched = 0;
                 bus.ppu.mode3_fifo.reset();
                 bus.ppu.bg_color_ids_line.fill(0);
                 Self::set_stat_mode(bus, STAT_MODE_HBLANK);
@@ -181,6 +185,7 @@ impl PpuState {
         bus.ppu.post_enable_phase = 0;
         bus.ppu.enable_delay = 0;
         bus.ppu.stat_mode0_enabled_this_line = false;
+        bus.ppu.mode3_dots_latched = 0;
         bus.ppu.mode3_fifo.reset();
         bus.ppu.bg_color_ids_line.fill(0);
         Self::set_stat_mode(bus, STAT_MODE_HBLANK);
@@ -203,6 +208,11 @@ impl PpuState {
         }
 
         let ly = bus.io[0x44];
+        if ly < 144 && bus.ppu.ly_counter == 0 {
+            let startup_line = bus.ppu.startup_line && ly == 0;
+            bus.ppu.mode3_dots_latched = Self::mode3_length_tcycles(bus, ly, startup_line);
+        }
+
         if ly < 144 {
             let startup_line = bus.ppu.startup_line && ly == 0;
             Self::render_mode3_dot(bus, ly, bus.ppu.ly_counter, startup_line);
@@ -330,7 +340,11 @@ impl PpuState {
     }
 
     fn mode_for_visible_line(bus: &Bus, ly: u8, line_cycle: u16, startup_line: bool) -> u8 {
-        let mode3_dots = Self::mode3_length_tcycles(bus, ly, startup_line);
+        let mode3_dots = if line_cycle == 0 {
+            Self::mode3_length_tcycles(bus, ly, startup_line)
+        } else {
+            bus.ppu.mode3_dots_latched
+        };
         if startup_line {
             if line_cycle < STARTUP_MODE0_DOTS {
                 STAT_MODE_HBLANK
@@ -483,7 +497,7 @@ impl PpuState {
 
     fn render_mode3_dot(bus: &mut Bus, ly: u8, line_cycle: u16, startup_line: bool) {
         let mode3_start = Self::mode3_start_tcycle(bus, startup_line);
-        let mode3_dots = Self::mode3_length_tcycles(bus, ly, startup_line);
+        let mode3_dots = bus.ppu.mode3_dots_latched;
         let mode3_end = mode3_start.saturating_add(mode3_dots);
         if line_cycle < mode3_start || line_cycle >= mode3_end {
             return;
@@ -540,7 +554,11 @@ impl PpuState {
         if (bus.ppu.mode3_fifo.output_x as usize) < super::LCD_WIDTH {
             let x = bus.ppu.mode3_fifo.output_x as usize;
             bus.ppu.mode3_fifo.output_x = bus.ppu.mode3_fifo.output_x.saturating_add(1);
-            let shade_id = (bus.io[0x47] >> (color_id * 2)) & 0x03;
+            let shade_id = if (lcdc & 0x01) == 0 {
+                0
+            } else {
+                (bus.io[0x47] >> (color_id * 2)) & 0x03
+            };
             let row_start = y * super::LCD_WIDTH;
             bus.ppu.bg_color_ids_line[x] = color_id;
             bus.framebuffer[row_start + x] = DMG_SHADE_TO_LUMA[shade_id as usize];
@@ -754,9 +772,9 @@ impl PpuState {
 
         let startup_line = bus.ppu.startup_line && ly == 0;
         let mode3_end = if startup_line {
-            STARTUP_MODE0_DOTS.saturating_add(Self::mode3_length_tcycles(bus, ly, true))
+            STARTUP_MODE0_DOTS.saturating_add(bus.ppu.mode3_dots_latched)
         } else {
-            80u16.saturating_add(Self::mode3_length_tcycles(bus, ly, false))
+            80u16.saturating_add(bus.ppu.mode3_dots_latched)
         };
 
         let delay_tcycles = if bus.ppu.stat_mode0_enabled_this_line {
