@@ -10,7 +10,7 @@ Current scope:
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
 - DMG background layer rendering to a grayscale framebuffer.
 - DMG window + sprite (OBJ) composition with priority/palette/flip handling.
-- Mode 3 background/window pixel FIFO stepping per dot (timing-sensitive SCX/window effects are now line-progressive).
+- Mode 3 background/window pixel FIFO stepping per dot with a 6-dot BG fetch cadence (timing-sensitive SCX/window effects are line-progressive).
 - Mode 3 OBJ fetch stalls and sprite pixel mixing are stepped per dot with DMG priority/palette rules (mid-line register writes affect remaining pixels).
 - Mode 3 line duration now grows from runtime OBJ fetch contention (including mid-line OBJ enable/disable effects), reducing reliance on static per-line penalty estimates.
 - Additional PPU/DMA timing edge cases: mode0 STAT source enabled during mode3 triggers on HBlank entry, and DMA restart keeps prior transfer running through the full restart-delay window.

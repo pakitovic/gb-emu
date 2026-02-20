@@ -1382,6 +1382,45 @@ fn mode3_disabling_obj_mid_line_restores_hblank_budget() {
 }
 
 #[test]
+fn mode3_bg_fetch_pipeline_pushes_first_tile_after_six_dots() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on
+
+    let mut reached_ly2_mode3 = false;
+    for _ in 0..(154 * 456 * 2) {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if ly == 2 && mode == 3 {
+            reached_ly2_mode3 = true;
+            break;
+        }
+        bus.tick(1);
+    }
+    assert!(reached_ly2_mode3);
+
+    // First Mode 3 render dot starts BG fetch (6 dots total), but does not push yet.
+    bus.tick(1);
+    assert_eq!(bus.mode3_bg_fifo_len(), 0);
+    assert_eq!(bus.mode3_bg_fetch_dots_remaining(), 5);
+
+    // After five dots from fetch start, the first tile is still pending.
+    for _ in 0..4 {
+        bus.tick(1);
+    }
+    assert_eq!(bus.mode3_bg_fifo_len(), 0);
+    assert_eq!(bus.mode3_bg_fetch_dots_remaining(), 1);
+
+    // Dot 6 completes the fetch and pushes 8 pixels into the BG FIFO.
+    bus.tick(1);
+    assert_eq!(bus.mode3_bg_fifo_len(), 8);
+    assert_eq!(bus.mode3_bg_fetch_dots_remaining(), 0);
+}
+
+#[test]
 fn framebuffer_bg_disabled_forces_white_backdrop_ignoring_bgp() {
     let mut bus = make_test_bus();
 
