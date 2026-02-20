@@ -136,3 +136,33 @@ impl WebEmulator {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_rom_32kb() -> Vec<u8> {
+        let mut rom = vec![0; 32 * 1024];
+        rom[0x0147] = 0x00; // ROM-only
+        rom[0x0148] = 0x00; // 32KB
+        rom
+    }
+
+    #[test]
+    fn drain_audio_samples_realtime_returns_fixed_block_len() {
+        let rom = make_rom_32kb();
+        let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
+        web.run_frame().expect("a frame should be produced");
+
+        let samples = web.drain_audio_samples_realtime(512);
+        assert_eq!(samples.len(), 512);
+    }
+
+    #[test]
+    fn set_button_accepts_valid_index() {
+        let rom = make_rom_32kb();
+        let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
+        assert!(web.set_button(4, true).is_ok());
+        assert!(web.set_button(4, false).is_ok());
+    }
+}
