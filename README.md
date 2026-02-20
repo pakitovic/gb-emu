@@ -17,7 +17,7 @@ Current scope:
 - APU core channel state-machine scaffolding: NR52 power control, NR50/NR51 mixer register gating, CH1/CH2/CH3/CH4 trigger/state progression, and DIV-driven frame sequencer stepping (length/sweep/envelope clocks).
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
-- Core audio mixer clock bridge from emulated t-cycles to PCM samples.
+- Core audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
 - Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
 - Cartridge header ROM size decoding across standard size codes, mapper-specific RAM enable/banking behavior (including MBC5 rumble register semantics), and battery-backed persistence (`.sav`, plus `.rtc` for MBC3 timer cartridges) with atomic file replace writes.
 - Cartridge header diagnostics for Nintendo logo/header checksum/global checksum, exposed as non-blocking warnings in cartridge metadata.
@@ -107,7 +107,7 @@ Supported models for `--model`:
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 - Dot-stepped OBJ fetch contention now extends Mode 3 at runtime, but full cycle-exact BG/OBJ fetch arbitration is still approximated.
-- APU channel synthesis (CH1/CH2/CH3/CH4) now advances in core state/timing, but SDL2/Web PCM output is still fed by the existing frontend mixer path (silence by default, optional test tone), so synthesized APU stream is not yet audible in frontends.
+- APU channel synthesis (CH1/CH2/CH3/CH4) is now audible through SDL2/Web via the core t-cycle audio stream, but output remains a first-pass mixer (mono-downmix + simple resampling) without DMG analog filtering/HPF details yet.
 
 ## Mapper Coverage Examples
 

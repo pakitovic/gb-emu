@@ -131,6 +131,29 @@ fn frame_pacer_audio_clock_feeds_realtime_audio_block() {
 }
 
 #[test]
+fn gameboy_exposes_apu_tcycle_stream_for_realtime_audio() {
+    let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("valid ROM should load");
+    let mut gb = GameBoy::new(cartridge);
+
+    gb.bus.write_byte(0xFF26, 0x00);
+    gb.bus.write_byte(0xFF26, 0x80);
+    gb.bus.write_byte(0xFF24, 0x77);
+    gb.bus.write_byte(0xFF25, 0x11); // CH1 to both outputs
+    gb.bus.write_byte(0xFF11, 0x80);
+    gb.bus.write_byte(0xFF12, 0xF0);
+    gb.bus.write_byte(0xFF13, 0xFC);
+    gb.bus.write_byte(0xFF14, 0x87); // trigger CH1
+
+    gb.bus.tick(255);
+    gb.bus.tick(255);
+    gb.bus.tick(2);
+    let samples = gb.drain_audio_tcycle_samples();
+    assert_eq!(samples.len(), 512);
+    assert!(samples.iter().any(|sample| *sample != 0.0));
+    assert!(gb.drain_audio_tcycle_samples().is_empty());
+}
+
+#[test]
 fn battery_backed_ram_persists_via_gameboy_bus() {
     let rom_path = unique_temp_file_path("battery_save", "gb");
     let save_path = rom_path.with_extension("sav");

@@ -1,14 +1,17 @@
 use crate::timing::DMG_T_CYCLES_PER_SECOND;
+use std::collections::VecDeque;
 use std::time::Duration;
 
 const TEST_TONE_HZ: f32 = 440.0;
 const TEST_TONE_AMPLITUDE: f32 = 0.05;
 const NANOSECONDS_PER_SECOND: u128 = 1_000_000_000;
+const MAX_PENDING_CORE_TCYCLE_SAMPLES: usize = 524_288;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MixerSource {
     Silence,
     TestTone,
+    CoreApu,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -187,6 +190,10 @@ pub struct AudioMixer {
     pending_sample_numerator: u128,
     pending_samples: u64,
     tone_phase: f32,
+    core_tcycle_samples: VecDeque<f32>,
+    core_sample_numerator: u128,
+    core_sample_sum: f32,
+    core_sample_count: u32,
 }
 
 impl AudioMixer {
@@ -197,6 +204,10 @@ impl AudioMixer {
             pending_sample_numerator: 0,
             pending_samples: 0,
             tone_phase: 0.0,
+            core_tcycle_samples: VecDeque::new(),
+            core_sample_numerator: 0,
+            core_sample_sum: 0.0,
+            core_sample_count: 0,
         }
     }
 
@@ -205,6 +216,19 @@ impl AudioMixer {
     }
 
     pub fn set_source(&mut self, source: MixerSource) {
+        if self.source == source {
+            return;
+        }
+        if source == MixerSource::CoreApu {
+            self.pending_sample_numerator = 0;
+            self.pending_samples = 0;
+            self.tone_phase = 0.0;
+        } else {
+            self.core_tcycle_samples.clear();
+            self.core_sample_numerator = 0;
+            self.core_sample_sum = 0.0;
+            self.core_sample_count = 0;
+        }
         self.source = source;
     }
 
@@ -213,6 +237,9 @@ impl AudioMixer {
     }
 
     pub fn push_tcycles(&mut self, tcycles: u64) {
+        if self.source == MixerSource::CoreApu {
+            return;
+        }
         self.pending_sample_numerator = self
             .pending_sample_numerator
             .saturating_add((tcycles as u128).saturating_mul(self.sample_rate_hz as u128));
@@ -223,12 +250,39 @@ impl AudioMixer {
             .saturating_add(u64::try_from(new_samples).unwrap_or(u64::MAX));
     }
 
+    pub fn push_core_tcycle_samples(&mut self, tcycle_samples: &[f32]) {
+        if self.source != MixerSource::CoreApu || tcycle_samples.is_empty() {
+            return;
+        }
+
+        for sample in tcycle_samples {
+            if self.core_tcycle_samples.len() >= MAX_PENDING_CORE_TCYCLE_SAMPLES {
+                self.core_tcycle_samples.pop_front();
+            }
+            self.core_tcycle_samples.push_back(*sample);
+        }
+    }
+
     pub fn pending_samples(&self) -> u64 {
+        if self.source == MixerSource::CoreApu {
+            let pending_numerator = self.core_sample_numerator.saturating_add(
+                (self.core_tcycle_samples.len() as u128)
+                    .saturating_mul(self.sample_rate_hz as u128),
+            );
+            let pending = pending_numerator / (DMG_T_CYCLES_PER_SECOND as u128);
+            return u64::try_from(pending).unwrap_or(u64::MAX);
+        }
         self.pending_samples
     }
 
     pub fn drain_samples(&mut self, max_samples: usize) -> Vec<f32> {
-        if max_samples == 0 || self.pending_samples == 0 {
+        if max_samples == 0 {
+            return Vec::new();
+        }
+        if self.source == MixerSource::CoreApu {
+            return self.drain_core_apu_samples(max_samples);
+        }
+        if self.pending_samples == 0 {
             return Vec::new();
         }
 
@@ -248,6 +302,36 @@ impl AudioMixer {
                 } else {
                     -TEST_TONE_AMPLITUDE
                 };
+            }
+        }
+
+        samples
+    }
+
+    fn drain_core_apu_samples(&mut self, max_samples: usize) -> Vec<f32> {
+        let mut samples = Vec::with_capacity(max_samples);
+
+        while samples.len() < max_samples {
+            let Some(tcycle_sample) = self.core_tcycle_samples.pop_front() else {
+                break;
+            };
+
+            self.core_sample_numerator = self
+                .core_sample_numerator
+                .saturating_add(self.sample_rate_hz as u128);
+            self.core_sample_sum += tcycle_sample;
+            self.core_sample_count = self.core_sample_count.saturating_add(1);
+
+            if self.core_sample_numerator >= (DMG_T_CYCLES_PER_SECOND as u128) {
+                self.core_sample_numerator -= DMG_T_CYCLES_PER_SECOND as u128;
+                let averaged = if self.core_sample_count == 0 {
+                    0.0
+                } else {
+                    self.core_sample_sum / (self.core_sample_count as f32)
+                };
+                samples.push(averaged.clamp(-1.0, 1.0));
+                self.core_sample_sum = 0.0;
+                self.core_sample_count = 0;
             }
         }
 
@@ -351,6 +435,47 @@ mod tests {
         let samples = mixer.drain_realtime_block(DMG_T_CYCLES_PER_SECOND, 0);
         assert!(samples.is_empty());
         assert_eq!(mixer.pending_samples(), 0);
+    }
+
+    #[test]
+    fn core_apu_source_resamples_constant_tcycle_signal() {
+        let mut mixer = AudioMixer::new(48_000);
+        mixer.set_source(MixerSource::CoreApu);
+
+        let tcycles = (DMG_T_CYCLES_PER_SECOND / 100) as usize;
+        mixer.push_core_tcycle_samples(&vec![0.5; tcycles]);
+
+        let samples = mixer.drain_samples(10_000);
+        let expected =
+            ((tcycles as u128) * 48_000u128 / (DMG_T_CYCLES_PER_SECOND as u128)) as usize;
+        assert_eq!(samples.len(), expected);
+        assert!(samples.iter().all(|sample| (*sample - 0.5).abs() < 0.001));
+    }
+
+    #[test]
+    fn core_apu_source_ignores_synthetic_tcycle_budget_pushes() {
+        let mut mixer = AudioMixer::new(48_000);
+        mixer.set_source(MixerSource::CoreApu);
+        mixer.push_tcycles(DMG_T_CYCLES_PER_SECOND / 2);
+
+        let samples = mixer.drain_samples(10_000);
+        assert!(samples.is_empty());
+        assert_eq!(mixer.pending_samples(), 0);
+    }
+
+    #[test]
+    fn core_apu_realtime_block_pads_with_silence_when_input_is_short() {
+        let mut mixer = AudioMixer::new(48_000);
+        mixer.set_source(MixerSource::CoreApu);
+
+        mixer.push_core_tcycle_samples(&vec![1.0; 512]);
+        let produced = mixer.pending_samples() as usize;
+        let samples = mixer.drain_realtime_block(0, 256);
+
+        assert_eq!(samples.len(), 256);
+        assert!(produced < 256);
+        assert!(samples[..produced].iter().all(|sample| *sample > 0.1));
+        assert!(samples[produced..].iter().all(|sample| *sample == 0.0));
     }
 
     #[test]

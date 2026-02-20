@@ -85,6 +85,10 @@ impl GameBoy {
         self.bus.rumble_active()
     }
 
+    pub fn drain_audio_tcycle_samples(&mut self) -> Vec<f32> {
+        self.bus.drain_audio_tcycle_samples()
+    }
+
     pub fn run_frame_with_limit(&mut self, trace: bool, max_steps: usize) -> Option<u64> {
         let start_frame = self.frame_counter();
         let mut total_cycles = 0u64;

@@ -30,10 +30,13 @@ impl WebEmulator {
         let cartridge = Cartridge::from_bytes(rom_bytes.to_vec())
             .map_err(|err| JsValue::from_str(&err.to_string()))?;
 
+        let mut audio_mixer = AudioMixer::new(48_000);
+        audio_mixer.set_source(MixerSource::CoreApu);
+
         Ok(Self {
             gb: GameBoy::new_with_model(cartridge, model),
             pacer: FramePacer::default(),
-            audio_mixer: AudioMixer::new(48_000),
+            audio_mixer,
         })
     }
 
@@ -57,6 +60,8 @@ impl WebEmulator {
                 JsValue::from_str("PPU frame was not produced within the web frame step budget")
             })?;
         self.pacer.consume_emulated_cycles(cycles);
+        let tcycle_samples = self.gb.drain_audio_tcycle_samples();
+        self.audio_mixer.push_core_tcycle_samples(&tcycle_samples);
         Ok(cycles)
     }
 
@@ -73,6 +78,8 @@ impl WebEmulator {
                     JsValue::from_str("PPU frame was not produced within the web frame step budget")
                 })?;
             self.pacer.consume_emulated_cycles(cycles);
+            let tcycle_samples = self.gb.drain_audio_tcycle_samples();
+            self.audio_mixer.push_core_tcycle_samples(&tcycle_samples);
             ran_frames = ran_frames.saturating_add(1);
         }
 
@@ -101,7 +108,7 @@ impl WebEmulator {
         self.audio_mixer.set_source(if enabled {
             MixerSource::TestTone
         } else {
-            MixerSource::Silence
+            MixerSource::CoreApu
         });
     }
 
@@ -164,6 +171,26 @@ mod tests {
 
         let samples = web.drain_audio_samples_realtime(512);
         assert_eq!(samples.len(), 512);
+    }
+
+    #[test]
+    fn drain_audio_samples_realtime_can_emit_core_apu_signal() {
+        let rom = make_rom_32kb();
+        let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
+
+        web.gb.bus.write_byte(0xFF26, 0x00);
+        web.gb.bus.write_byte(0xFF26, 0x80);
+        web.gb.bus.write_byte(0xFF24, 0x77);
+        web.gb.bus.write_byte(0xFF25, 0x11);
+        web.gb.bus.write_byte(0xFF11, 0x80);
+        web.gb.bus.write_byte(0xFF12, 0xF0);
+        web.gb.bus.write_byte(0xFF13, 0xFC);
+        web.gb.bus.write_byte(0xFF14, 0x87);
+
+        web.run_frame().expect("a frame should be produced");
+        let samples = web.drain_audio_samples_realtime(512);
+        assert_eq!(samples.len(), 512);
+        assert!(samples.iter().any(|sample| *sample != 0.0));
     }
 
     #[test]
