@@ -46,6 +46,27 @@ fn make_mbc5_rumble_ram_battery_rom_64kb() -> Vec<u8> {
     rom
 }
 
+#[derive(Clone, Copy)]
+struct MapperSmokeCase {
+    name: &'static str,
+    cart_type: u8,
+    rom_size_code: u8,
+    ram_size_code: u8,
+}
+
+fn make_mapper_case_rom(case: MapperSmokeCase) -> Vec<u8> {
+    let rom_len = match case.rom_size_code {
+        0x00 => 32 * 1024,
+        0x01 => 64 * 1024,
+        other => panic!("unsupported ROM size code in test case: 0x{other:02X}"),
+    };
+    let mut rom = vec![0; rom_len];
+    rom[0x0147] = case.cart_type;
+    rom[0x0148] = case.rom_size_code;
+    rom[0x0149] = case.ram_size_code;
+    rom
+}
+
 fn unique_temp_file_path(name: &str, ext: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -192,4 +213,132 @@ fn mbc5_rumble_uses_low3_ram_bank_bits_via_gameboy_bus() {
 
     gb.bus.write_byte(0x4000, 0x00); // bank 0
     assert_eq!(gb.bus.read_byte(0xA000), 0x22);
+}
+
+#[test]
+fn supported_mapper_type_matrix_constructs_gameboy_and_steps() {
+    let cases = [
+        MapperSmokeCase {
+            name: "ROM_ONLY",
+            cart_type: 0x00,
+            rom_size_code: 0x00,
+            ram_size_code: 0x00,
+        },
+        MapperSmokeCase {
+            name: "ROM_RAM",
+            cart_type: 0x08,
+            rom_size_code: 0x00,
+            ram_size_code: 0x02,
+        },
+        MapperSmokeCase {
+            name: "ROM_RAM_BATTERY",
+            cart_type: 0x09,
+            rom_size_code: 0x00,
+            ram_size_code: 0x03,
+        },
+        MapperSmokeCase {
+            name: "MBC1",
+            cart_type: 0x01,
+            rom_size_code: 0x01,
+            ram_size_code: 0x00,
+        },
+        MapperSmokeCase {
+            name: "MBC1_RAM",
+            cart_type: 0x02,
+            rom_size_code: 0x01,
+            ram_size_code: 0x02,
+        },
+        MapperSmokeCase {
+            name: "MBC1_RAM_BATTERY",
+            cart_type: 0x03,
+            rom_size_code: 0x01,
+            ram_size_code: 0x03,
+        },
+        MapperSmokeCase {
+            name: "MBC2",
+            cart_type: 0x05,
+            rom_size_code: 0x01,
+            ram_size_code: 0x00,
+        },
+        MapperSmokeCase {
+            name: "MBC2_BATTERY",
+            cart_type: 0x06,
+            rom_size_code: 0x01,
+            ram_size_code: 0x00,
+        },
+        MapperSmokeCase {
+            name: "MBC3",
+            cart_type: 0x11,
+            rom_size_code: 0x01,
+            ram_size_code: 0x00,
+        },
+        MapperSmokeCase {
+            name: "MBC3_RAM",
+            cart_type: 0x12,
+            rom_size_code: 0x01,
+            ram_size_code: 0x02,
+        },
+        MapperSmokeCase {
+            name: "MBC3_RAM_BATTERY",
+            cart_type: 0x13,
+            rom_size_code: 0x01,
+            ram_size_code: 0x03,
+        },
+        MapperSmokeCase {
+            name: "MBC3_TIMER_BATTERY",
+            cart_type: 0x0F,
+            rom_size_code: 0x01,
+            ram_size_code: 0x00,
+        },
+        MapperSmokeCase {
+            name: "MBC3_TIMER_RAM_BATTERY",
+            cart_type: 0x10,
+            rom_size_code: 0x01,
+            ram_size_code: 0x03,
+        },
+        MapperSmokeCase {
+            name: "MBC5",
+            cart_type: 0x19,
+            rom_size_code: 0x01,
+            ram_size_code: 0x00,
+        },
+        MapperSmokeCase {
+            name: "MBC5_RAM",
+            cart_type: 0x1A,
+            rom_size_code: 0x01,
+            ram_size_code: 0x02,
+        },
+        MapperSmokeCase {
+            name: "MBC5_RAM_BATTERY",
+            cart_type: 0x1B,
+            rom_size_code: 0x01,
+            ram_size_code: 0x04,
+        },
+        MapperSmokeCase {
+            name: "MBC5_RUMBLE",
+            cart_type: 0x1C,
+            rom_size_code: 0x01,
+            ram_size_code: 0x00,
+        },
+        MapperSmokeCase {
+            name: "MBC5_RUMBLE_RAM",
+            cart_type: 0x1D,
+            rom_size_code: 0x01,
+            ram_size_code: 0x02,
+        },
+        MapperSmokeCase {
+            name: "MBC5_RUMBLE_RAM_BATTERY",
+            cart_type: 0x1E,
+            rom_size_code: 0x01,
+            ram_size_code: 0x03,
+        },
+    ];
+
+    for case in cases {
+        let cartridge = Cartridge::from_bytes(make_mapper_case_rom(case))
+            .unwrap_or_else(|err| panic!("{} should load: {err}", case.name));
+        let mut gb = GameBoy::new(cartridge);
+        let cycles = gb.step();
+        assert_eq!(cycles, 4, "{} should execute NOP from ROM", case.name);
+    }
 }

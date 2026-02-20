@@ -148,6 +148,8 @@ cargo lint
 cargo test --locked
 ```
 
+`cartridge` tests include a mapper conformance matrix for all currently supported cartridge type codes (`0x0147`) plus integration smoke coverage through `GameBoy`.
+
 Optional web frontend unit test:
 
 ```bash
