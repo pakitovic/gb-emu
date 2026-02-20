@@ -1289,6 +1289,54 @@ fn apu_hpf_state_keeps_decaying_while_tcycle_stream_capture_is_disabled() {
 }
 
 #[test]
+fn apu_analog_profile_is_model_specific() {
+    let dmg = make_test_bus_with_model(HardwareModel::Dmg);
+    let mgb = make_test_bus_with_model(HardwareModel::Mgb);
+    let sgb = make_test_bus_with_model(HardwareModel::Sgb);
+
+    assert!((dmg.apu_analog_hpf_coeff() - mgb.apu_analog_hpf_coeff()).abs() > f32::EPSILON);
+    assert!(
+        (dmg.apu_analog_low_pass_alpha() - mgb.apu_analog_low_pass_alpha()).abs() > f32::EPSILON
+    );
+    assert!(
+        (mgb.apu_analog_soft_clip_drive() - sgb.apu_analog_soft_clip_drive()).abs() > f32::EPSILON
+    );
+}
+
+#[test]
+fn apu_low_pass_stage_softens_initial_attack() {
+    let mut bus = make_test_bus_with_model(HardwareModel::Dmg);
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+    bus.write_byte(0xFF24, 0x77);
+    bus.write_byte(0xFF25, 0x44); // CH3 to both sides
+
+    for addr in 0xFF30..=0xFF3F {
+        bus.write_byte(addr, 0xFF);
+    }
+
+    bus.write_byte(0xFF1A, 0x80); // CH3 DAC on
+    bus.write_byte(0xFF1C, 0x20); // 100% output level
+    bus.write_byte(0xFF1D, 0x00);
+    bus.write_byte(0xFF1E, 0x80); // trigger
+
+    bus.tick(1);
+    let first_abs = bus.apu_last_mixed_sample().abs();
+
+    let mut later_peak = 0.0f32;
+    for _ in 0..512 {
+        bus.tick(1);
+        later_peak = later_peak.max(bus.apu_last_mixed_sample().abs());
+    }
+
+    assert!(first_abs > 0.0);
+    assert!(
+        later_peak > first_abs * 1.2,
+        "expected LPF attack ramp (first={first_abs}, later_peak={later_peak})"
+    );
+}
+
+#[test]
 fn apu_boot_nr52_channel_status_bit_is_stable_after_first_tick() {
     let mut bus = make_test_bus_with_model(HardwareModel::Dmg);
     assert_eq!(bus.read_byte(0xFF26) & 0x0F, 0x01);

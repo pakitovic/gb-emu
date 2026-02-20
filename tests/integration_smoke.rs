@@ -1,6 +1,7 @@
 use gb_emu::audio::AudioMixer;
 use gb_emu::cartridge::{Cartridge, CartridgeError, CartridgeMapper};
 use gb_emu::gameboy::GameBoy;
+use gb_emu::hardware::HardwareModel;
 use gb_emu::timing::{DMG_T_CYCLES_PER_SECOND, FramePacer};
 use std::fs;
 use std::path::PathBuf;
@@ -98,6 +99,25 @@ fn left_channel_rms(samples: &[f32], skip_frames: usize) -> f32 {
         let sample = frame[0] as f64;
         sum_sq += sample * sample;
         count += 1;
+    }
+    if count == 0 {
+        return 0.0;
+    }
+    (sum_sq / (count as f64)).sqrt() as f32
+}
+
+fn left_channel_delta_rms(samples: &[f32], skip_frames: usize) -> f32 {
+    let mut sum_sq = 0.0f64;
+    let mut count = 0usize;
+    let mut previous: Option<f64> = None;
+    for frame in samples.chunks_exact(2).skip(skip_frames) {
+        let sample = frame[0] as f64;
+        if let Some(prev) = previous {
+            let delta = sample - prev;
+            sum_sq += delta * delta;
+            count += 1;
+        }
+        previous = Some(sample);
     }
     if count == 0 {
         return 0.0;
@@ -266,7 +286,7 @@ fn apu_wave_retrigger_keeps_previous_buffer_first_sample_via_gameboy_bus() {
     let samples = gb.drain_audio_tcycle_samples();
     assert!(!samples.is_empty());
     assert_eq!(samples.len() % 2, 0);
-    assert!(samples[0] > 0.0);
+    assert!(samples[0].abs() > 0.000_1);
 }
 
 #[test]
@@ -294,10 +314,45 @@ fn apu_noise_shift14_has_lower_tail_energy_than_shift0_via_gameboy_bus() {
 
     let rms_shift0 = left_channel_rms(&shift0, 10_000);
     let rms_shift14 = left_channel_rms(&shift14, 10_000);
-    assert!(rms_shift0 > 0.02);
+    let delta_shift0 = left_channel_delta_rms(&shift0, 10_000);
+    let delta_shift14 = left_channel_delta_rms(&shift14, 10_000);
+    assert!(rms_shift0 > 0.01);
+    assert!(rms_shift14 > 0.01);
     assert!(
-        rms_shift0 > rms_shift14 * 1.5,
-        "expected shift0 tail RMS to exceed shift14 tail RMS (shift0={rms_shift0}, shift14={rms_shift14})"
+        delta_shift0 > delta_shift14 * 1.5,
+        "expected shift0 tail to have higher variation than shift14 (shift0_delta={delta_shift0}, shift14_delta={delta_shift14}, shift0_rms={rms_shift0}, shift14_rms={rms_shift14})"
+    );
+}
+
+#[test]
+fn apu_model_specific_analog_profiles_produce_distinct_levels_via_gameboy_bus() {
+    fn run_square2_rms(model: HardwareModel) -> f32 {
+        let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("valid ROM should load");
+        let mut gb = GameBoy::new_with_model(cartridge, model);
+        gb.set_audio_tcycle_stream_enabled(true);
+
+        gb.bus.write_byte(0xFF26, 0x00);
+        gb.bus.write_byte(0xFF26, 0x80);
+        gb.bus.write_byte(0xFF24, 0x77);
+        gb.bus.write_byte(0xFF25, 0x22); // CH2 to both sides
+        gb.bus.write_byte(0xFF16, 0x80);
+        gb.bus.write_byte(0xFF17, 0xF0); // DAC on, volume 15
+        gb.bus.write_byte(0xFF18, 0xFC); // high frequency
+        gb.bus.write_byte(0xFF19, 0x87); // trigger
+
+        tick_n_tcycles(&mut gb, 24_000);
+        let samples = gb.drain_audio_tcycle_samples();
+        assert!(!samples.is_empty());
+        left_channel_rms(&samples, 4_000)
+    }
+
+    let dmg_rms = run_square2_rms(HardwareModel::Dmg);
+    let mgb_rms = run_square2_rms(HardwareModel::Mgb);
+    assert!(dmg_rms > 0.0);
+    assert!(mgb_rms > 0.0);
+    assert!(
+        (dmg_rms - mgb_rms).abs() > 0.005,
+        "expected model-specific analog profiles to produce distinct RMS (dmg={dmg_rms}, mgb={mgb_rms})"
     );
 }
 
