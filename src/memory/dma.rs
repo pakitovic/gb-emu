@@ -28,38 +28,41 @@ impl DmaState {
     }
 
     pub(super) fn step(bus: &mut Bus) {
+        let mut restart_now = false;
         if bus.dma.start_delay > 0 {
             bus.dma.start_delay -= 1;
             if bus.dma.start_delay == 0 {
-                // Start (or restart) DMA. For restarts, previous DMA keeps running
-                // until this moment, then the new transfer takes over.
-                bus.dma.active = true;
-                bus.dma.source = bus.dma.pending_source;
-                bus.dma.cycles_remaining = 640; // 160 bytes * 4 t-cycles
+                restart_now = true;
+            }
+        }
+
+        if bus.dma.active {
+            bus.dma.cycle_accum = bus.dma.cycle_accum.wrapping_add(1);
+            if bus.dma.cycle_accum == 4 {
                 bus.dma.cycle_accum = 0;
-                bus.dma.index = 0;
-                return;
+                if bus.dma.index < 0xA0 {
+                    let src = bus.dma.source.wrapping_add(bus.dma.index as u16);
+                    let value = bus.read_byte_raw(src);
+                    bus.oam[bus.dma.index as usize] = value;
+                    bus.dma.index = bus.dma.index.wrapping_add(1);
+                }
+            }
+
+            bus.dma.cycles_remaining = bus.dma.cycles_remaining.saturating_sub(1);
+            if bus.dma.cycles_remaining == 0 {
+                bus.dma.active = false;
             }
         }
 
-        if !bus.dma.active {
-            return;
-        }
-
-        bus.dma.cycle_accum = bus.dma.cycle_accum.wrapping_add(1);
-        if bus.dma.cycle_accum == 4 {
+        if restart_now {
+            // Start (or restart) DMA. For restarts, the previous transfer keeps
+            // running through the full 8 t-cycle delay, then the new transfer
+            // takes over on the next cycle.
+            bus.dma.active = true;
+            bus.dma.source = bus.dma.pending_source;
+            bus.dma.cycles_remaining = 640; // 160 bytes * 4 t-cycles
             bus.dma.cycle_accum = 0;
-            if bus.dma.index < 0xA0 {
-                let src = bus.dma.source.wrapping_add(bus.dma.index as u16);
-                let value = bus.read_byte_raw(src);
-                bus.oam[bus.dma.index as usize] = value;
-                bus.dma.index = bus.dma.index.wrapping_add(1);
-            }
-        }
-
-        bus.dma.cycles_remaining = bus.dma.cycles_remaining.saturating_sub(1);
-        if bus.dma.cycles_remaining == 0 {
-            bus.dma.active = false;
+            bus.dma.index = 0;
         }
     }
 }

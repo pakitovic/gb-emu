@@ -501,6 +501,24 @@ fn stat_mode0_irq_retriggers_when_toggled_during_hblank() {
 }
 
 #[test]
+fn stat_mode0_enable_during_mode3_triggers_on_hblank_entry() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF41, 0x00); // disable all STAT sources
+
+    // Reach a stable visible Mode 3 period.
+    wait_for_transition(&mut bus, 0x42, 0x02, 0x03);
+    assert_eq!(bus.read_byte(0xFF44), 0x42);
+    assert_eq!(bus.read_byte(0xFF41) & 0x03, 0x03);
+
+    bus.set_interrupt_flags(0x00);
+    bus.write_byte(0xFF41, 0x08); // enable mode0 source while still in mode3
+
+    wait_for_transition(&mut bus, 0x42, 0x03, 0x00);
+    // Source is armed during mode3, so interrupt line raises at HBlank entry.
+    assert_ne!(bus.interrupt_flags() & (1 << 1), 0);
+}
+
+#[test]
 fn entering_vblank_requests_vblank_interrupt() {
     let mut bus = make_test_bus();
     bus.set_interrupt_flags(0x00);
@@ -658,6 +676,35 @@ fn oam_dma_restart_switches_source_after_two_mcycles() {
         bus.tick(1);
     }
     assert_eq!(bus.read_byte_raw(0xFE00), 0x22);
+}
+
+#[test]
+fn oam_dma_restart_keeps_previous_transfer_running_during_full_restart_delay() {
+    let mut bus = make_test_bus();
+
+    // Source A pattern.
+    bus.write_byte(0x8000, 0xA0);
+    bus.write_byte(0x8001, 0xA1);
+    bus.write_byte(0x8002, 0xA2);
+    // Source B distinct first bytes.
+    bus.write_byte(0x8100, 0xB0);
+    bus.write_byte(0x8101, 0xB1);
+
+    bus.write_byte(0xFF46, 0x80);
+    bus.tick(8); // DMA A starts.
+    bus.tick(4); // Copy first byte from A -> OAM[0].
+    assert_eq!(bus.read_byte_raw(0xFE00), 0xA0);
+
+    bus.write_byte(0xFF46, 0x81); // request restart to source B
+    bus.tick(8); // full restart delay window
+
+    // Previous DMA should keep running during all 8 t-cycles of restart delay.
+    assert_eq!(bus.read_byte_raw(0xFE01), 0xA1);
+    assert_eq!(bus.read_byte_raw(0xFE02), 0xA2);
+
+    // New DMA should take over after the delay and restart from OAM index 0.
+    bus.tick(4);
+    assert_eq!(bus.read_byte_raw(0xFE00), 0xB0);
 }
 
 #[test]
