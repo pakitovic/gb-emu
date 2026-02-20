@@ -38,6 +38,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let cartridge = Cartridge::from_file(&rom_path)?;
     let mut gb = GameBoy::new_with_model(cartridge, model);
+    gb.set_audio_tcycle_stream_enabled(true);
     let cartridge_metadata = gb.cartridge_metadata();
     let cartridge_debug_report = cartridge_metadata.debug_report();
     println!("{cartridge_debug_report}");
