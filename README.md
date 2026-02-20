@@ -174,6 +174,8 @@ ROM test suites:
 ```bash
 # Blargg
 scripts/blargg/fetch_blargg_roms.sh
+# Targeted performance guard used by CI to catch regressions earlier:
+scripts/blargg/run_cpu_instrs_guard.sh
 # Runs all configured DMG Blargg ROMs:
 scripts/blargg/run_blargg.sh
 
@@ -261,7 +263,7 @@ Notes:
 Workflows:
 - `.github/workflows/quality.yml`: format, lint, build, unit/integration tests.
 - `.github/workflows/rom-tests.yml`: two independent jobs/checks for branch protection:
-  - `rom-blargg`
+  - `rom-blargg` (includes `cpu_instrs` micro-guard before full Blargg suite)
   - `rom-gekkio` (runs `all` + `boot_models`)
 
 ## Test ROMs and Licensing Notes
