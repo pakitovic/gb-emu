@@ -15,6 +15,7 @@ Current scope:
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core audio mixer clock bridge from emulated t-cycles to PCM samples.
+- Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
 
 ## Project Structure
 
@@ -145,11 +146,13 @@ Notes:
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2/Web pacing uses `timing::FramePacer` from the core to avoid frontend-specific timing drift.
 - SDL2 audio uses the core mixer clock bridge and queues PCM in real time.
+- SDL2 queue refill is driven by emulated audio t-cycles; underruns are padded with silence (no synthetic emulated cycles).
 - Optional SDL2 debug tone: set `GB_AUDIO_TEST_TONE=1`.
 - Web helpers:
   - `run_for_elapsed_micros(elapsed_micros)` to step as many emulated frames as host time allows.
   - `audio_clock_tcycles()` / `drain_audio_tcycles()` for raw emulated audio clock access.
   - `set_audio_sample_rate(rate_hz)` and `drain_audio_samples(max_samples)` for WebAudio feeding.
+  - `drain_audio_samples_realtime(block_samples)` for callback-style fixed-size WebAudio blocks.
   - `set_audio_test_tone_enabled(enabled)` for pipeline/debug validation.
 
 ## CI

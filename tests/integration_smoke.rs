@@ -1,5 +1,7 @@
+use gb_emu::audio::AudioMixer;
 use gb_emu::cartridge::{Cartridge, CartridgeError};
 use gb_emu::gameboy::GameBoy;
+use gb_emu::timing::{DMG_T_CYCLES_PER_SECOND, FramePacer};
 
 fn make_rom_32kb() -> Vec<u8> {
     let mut rom = vec![0; 32 * 1024];
@@ -46,4 +48,18 @@ fn gameboy_run_frame_with_limit_produces_frame() {
 
     assert!(cycles > 0);
     assert!(gb.frame_counter() > start);
+}
+
+#[test]
+fn frame_pacer_audio_clock_feeds_realtime_audio_block() {
+    let mut pacer = FramePacer::default();
+    let mut mixer = AudioMixer::new(48_000);
+
+    pacer.consume_emulated_cycles(DMG_T_CYCLES_PER_SECOND / 10);
+    let samples = mixer.drain_realtime_block(pacer.drain_audio_tcycles(), 5_000);
+
+    assert_eq!(samples.len(), 5_000);
+    assert!(samples.iter().all(|sample| *sample == 0.0));
+    assert_eq!(mixer.pending_samples(), 0);
+    assert_eq!(pacer.drain_audio_tcycles(), 0);
 }
