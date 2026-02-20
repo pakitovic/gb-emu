@@ -891,6 +891,38 @@ fn apu_square_channels_generate_dynamic_mixed_output() {
 }
 
 #[test]
+fn apu_tcycle_stream_respects_stereo_routing_masks() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+    bus.write_byte(0xFF24, 0x77); // max left/right output volume
+    bus.write_byte(0xFF25, 0x01); // CH1 routed to right only
+    bus.set_audio_tcycle_stream_enabled(true);
+
+    bus.write_byte(0xFF11, 0x80);
+    bus.write_byte(0xFF12, 0xF0);
+    bus.write_byte(0xFF13, 0xFC);
+    bus.write_byte(0xFF14, 0x87); // trigger CH1
+
+    tick_n(&mut bus, 512);
+    let (last_left, last_right) = bus.apu_last_mixed_sample_stereo();
+    let samples = bus.drain_audio_tcycle_samples();
+    assert!(!samples.is_empty());
+    assert_eq!(samples.len() % 2, 0);
+
+    let mut left_peak = 0.0f32;
+    let mut right_peak = 0.0f32;
+    for frame in samples.chunks_exact(2) {
+        left_peak = left_peak.max(frame[0].abs());
+        right_peak = right_peak.max(frame[1].abs());
+    }
+
+    assert!(right_peak > 0.05);
+    assert!(left_peak < 0.001);
+    assert!(last_right.abs() >= last_left.abs());
+}
+
+#[test]
 fn apu_length_clock_disables_square_channel_when_counter_expires() {
     let mut bus = make_test_bus();
     bus.write_byte(0xFF26, 0x00);
@@ -904,6 +936,25 @@ fn apu_length_clock_disables_square_channel_when_counter_expires() {
     tick_n(&mut bus, 4096);
     bus.write_byte(0xFF04, 0x00); // force first frame-sequencer length clock (step 0)
 
+    assert_eq!(bus.read_byte(0xFF26) & 0x02, 0x00);
+}
+
+#[test]
+fn apu_enabling_length_on_non_length_step_clocks_length_immediately() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+
+    bus.write_byte(0xFF16, 0x3F); // CH2 length=1
+    bus.write_byte(0xFF17, 0xF0); // DAC on
+    bus.write_byte(0xFF19, 0x80); // trigger with length disabled
+    assert_ne!(bus.read_byte(0xFF26) & 0x02, 0x00);
+
+    tick_n(&mut bus, 4096);
+    bus.write_byte(0xFF04, 0x00); // frame sequencer step advances to 1 (non-length step next)
+    assert_eq!(bus.apu_frame_sequencer_step(), 1);
+
+    bus.write_byte(0xFF19, 0x40); // enable length without trigger
     assert_eq!(bus.read_byte(0xFF26) & 0x02, 0x00);
 }
 

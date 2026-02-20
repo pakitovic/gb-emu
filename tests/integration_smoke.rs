@@ -124,7 +124,7 @@ fn frame_pacer_audio_clock_feeds_realtime_audio_block() {
     pacer.consume_emulated_cycles(DMG_T_CYCLES_PER_SECOND / 10);
     let samples = mixer.drain_realtime_block(pacer.drain_audio_tcycles(), 5_000);
 
-    assert_eq!(samples.len(), 5_000);
+    assert_eq!(samples.len(), 10_000);
     assert!(samples.iter().all(|sample| *sample == 0.0));
     assert_eq!(mixer.pending_samples(), 0);
     assert_eq!(pacer.drain_audio_tcycles(), 0);
@@ -149,7 +149,7 @@ fn gameboy_exposes_apu_tcycle_stream_for_realtime_audio() {
     gb.bus.tick(255);
     gb.bus.tick(2);
     let samples = gb.drain_audio_tcycle_samples();
-    assert_eq!(samples.len(), 512);
+    assert_eq!(samples.len(), 1_024);
     assert!(samples.iter().any(|sample| *sample != 0.0));
     assert!(gb.drain_audio_tcycle_samples().is_empty());
 }

@@ -1,3 +1,5 @@
+const AUDIO_CHANNELS = 2;
+
 class GBAudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -35,13 +37,14 @@ class GBAudioProcessor extends AudioWorkletProcessor {
     }
   }
 
-  popSample() {
+  popFrame() {
     while (this.queue.length > 0) {
       const front = this.queue[0];
-      if (this.head < front.length) {
-        const value = front[this.head];
-        this.head += 1;
-        return value;
+      if ((front.length - this.head) >= AUDIO_CHANNELS) {
+        const left = front[this.head];
+        const right = front[this.head + 1];
+        this.head += AUDIO_CHANNELS;
+        return [left, right];
       }
       this.queue.shift();
       this.head = 0;
@@ -56,22 +59,29 @@ class GBAudioProcessor extends AudioWorkletProcessor {
       return true;
     }
 
-    const channel0 = output[0];
-    for (let i = 0; i < channel0.length; i += 1) {
-      const sample = this.popSample();
-      if (sample === null) {
-        channel0[i] = 0.0;
+    const leftChannel = output[0];
+    const rightChannel = output.length > 1 ? output[1] : null;
+    for (let i = 0; i < leftChannel.length; i += 1) {
+      const frame = this.popFrame();
+      if (frame === null) {
+        leftChannel[i] = 0.0;
+        if (rightChannel) {
+          rightChannel[i] = 0.0;
+        }
         this.underrunsSinceLastReport += 1;
       } else {
-        channel0[i] = sample;
+        leftChannel[i] = frame[0];
+        if (rightChannel) {
+          rightChannel[i] = frame[1];
+        }
       }
     }
 
-    for (let channel = 1; channel < output.length; channel += 1) {
-      output[channel].set(channel0);
+    for (let channel = 2; channel < output.length; channel += 1) {
+      output[channel].set(rightChannel ?? leftChannel);
     }
 
-    this.samplesSinceLastReport += channel0.length;
+    this.samplesSinceLastReport += leftChannel.length;
     if (this.samplesSinceLastReport >= 128) {
       this.port.postMessage({
         type: "consumed",

@@ -173,7 +173,7 @@ mod tests {
         web.run_frame().expect("a frame should be produced");
 
         let samples = web.drain_audio_samples_realtime(512);
-        assert_eq!(samples.len(), 512);
+        assert_eq!(samples.len(), 1_024);
     }
 
     #[test]
@@ -192,7 +192,7 @@ mod tests {
 
         web.run_frame().expect("a frame should be produced");
         let samples = web.drain_audio_samples_realtime(512);
-        assert_eq!(samples.len(), 512);
+        assert_eq!(samples.len(), 1_024);
         assert!(samples.iter().any(|sample| *sample != 0.0));
     }
 
