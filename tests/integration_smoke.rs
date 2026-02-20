@@ -76,6 +76,35 @@ fn unique_temp_file_path(name: &str, ext: &str) -> PathBuf {
     std::env::temp_dir().join(format!("gb_emu_integration_{name}_{pid}_{nanos}.{ext}"))
 }
 
+fn clock_apu_div_falling_edges(gb: &mut GameBoy, edges: usize) {
+    for _ in 0..edges {
+        tick_n_tcycles(gb, 4096);
+        gb.bus.write_byte(0xFF04, 0x00);
+    }
+}
+
+fn tick_n_tcycles(gb: &mut GameBoy, mut tcycles: usize) {
+    while tcycles > 0 {
+        let chunk = tcycles.min(u8::MAX as usize) as u8;
+        gb.bus.tick(chunk);
+        tcycles -= chunk as usize;
+    }
+}
+
+fn left_channel_rms(samples: &[f32], skip_frames: usize) -> f32 {
+    let mut sum_sq = 0.0f64;
+    let mut count = 0usize;
+    for frame in samples.chunks_exact(2).skip(skip_frames) {
+        let sample = frame[0] as f64;
+        sum_sq += sample * sample;
+        count += 1;
+    }
+    if count == 0 {
+        return 0.0;
+    }
+    (sum_sq / (count as f64)).sqrt() as f32
+}
+
 #[test]
 fn gameboy_step_executes_nop_and_advances_pc() {
     let mut rom = make_rom_32kb();
@@ -173,6 +202,103 @@ fn gameboy_audio_tcycle_stream_is_disabled_by_default() {
     gb.bus.tick(2);
 
     assert!(gb.drain_audio_tcycle_samples().is_empty());
+}
+
+#[test]
+fn apu_sweep_negate_clear_disables_channel_via_gameboy_bus() {
+    let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("valid ROM should load");
+    let mut gb = GameBoy::new(cartridge);
+
+    gb.bus.write_byte(0xFF26, 0x00);
+    gb.bus.write_byte(0xFF26, 0x80);
+    gb.bus.write_byte(0xFF10, 0x19); // period=1, negate, shift=1
+    gb.bus.write_byte(0xFF11, 0x80);
+    gb.bus.write_byte(0xFF12, 0xF0);
+    gb.bus.write_byte(0xFF13, 0xE8);
+    gb.bus.write_byte(0xFF14, 0x83); // trigger
+    assert_ne!(gb.bus.read_byte(0xFF26) & 0x01, 0x00);
+
+    clock_apu_div_falling_edges(&mut gb, 3); // execute sweep step at sequencer step 2
+    gb.bus.write_byte(0xFF10, 0x11); // clear negate after subtraction
+
+    assert_eq!(gb.bus.read_byte(0xFF26) & 0x01, 0x00);
+}
+
+#[test]
+fn apu_trigger_length_zero_expires_after_63_length_clocks_via_gameboy_bus() {
+    let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("valid ROM should load");
+    let mut gb = GameBoy::new(cartridge);
+
+    gb.bus.write_byte(0xFF26, 0x00);
+    gb.bus.write_byte(0xFF26, 0x80);
+    clock_apu_div_falling_edges(&mut gb, 1); // move to sequencer step 1 (non-length step)
+
+    gb.bus.write_byte(0xFF17, 0xF0); // DAC on
+    gb.bus.write_byte(0xFF19, 0xC0); // trigger + length enable with zero counter
+    assert_ne!(gb.bus.read_byte(0xFF26) & 0x02, 0x00);
+
+    clock_apu_div_falling_edges(&mut gb, 126); // 63 length clocks
+    assert_eq!(gb.bus.read_byte(0xFF26) & 0x02, 0x00);
+}
+
+#[test]
+fn apu_wave_retrigger_keeps_previous_buffer_first_sample_via_gameboy_bus() {
+    let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("valid ROM should load");
+    let mut gb = GameBoy::new(cartridge);
+    gb.set_audio_tcycle_stream_enabled(true);
+
+    gb.bus.write_byte(0xFF26, 0x00);
+    gb.bus.write_byte(0xFF26, 0x80);
+    gb.bus.write_byte(0xFF24, 0x77);
+    gb.bus.write_byte(0xFF25, 0x44); // CH3 to both sides
+    gb.bus.write_byte(0xFF30, 0x12); // first high nibble negative
+    gb.bus.write_byte(0xFF31, 0xE4); // second high nibble positive
+    gb.bus.write_byte(0xFF1A, 0x80);
+    gb.bus.write_byte(0xFF1C, 0x20);
+    gb.bus.write_byte(0xFF1D, 0xFF); // period=2
+    gb.bus.write_byte(0xFF1E, 0x87); // trigger
+
+    gb.bus.tick(4); // advance until sample buffer loaded from byte 1
+    let _ = gb.drain_audio_tcycle_samples();
+
+    gb.bus.write_byte(0xFF1E, 0x87); // retrigger while channel active
+    gb.bus.tick(1); // first sample uses preserved buffer high nibble
+    let samples = gb.drain_audio_tcycle_samples();
+    assert!(!samples.is_empty());
+    assert_eq!(samples.len() % 2, 0);
+    assert!(samples[0] > 0.0);
+}
+
+#[test]
+fn apu_noise_shift14_has_lower_tail_energy_than_shift0_via_gameboy_bus() {
+    fn run_noise(polynomial: u8) -> Vec<f32> {
+        let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("valid ROM should load");
+        let mut gb = GameBoy::new(cartridge);
+        gb.set_audio_tcycle_stream_enabled(true);
+
+        gb.bus.write_byte(0xFF26, 0x00);
+        gb.bus.write_byte(0xFF26, 0x80);
+        gb.bus.write_byte(0xFF24, 0x77);
+        gb.bus.write_byte(0xFF25, 0x88); // CH4 to both sides
+        gb.bus.write_byte(0xFF21, 0xF0); // DAC on
+        gb.bus.write_byte(0xFF22, polynomial);
+        gb.bus.write_byte(0xFF23, 0x80); // trigger
+        tick_n_tcycles(&mut gb, 80_000);
+        gb.drain_audio_tcycle_samples()
+    }
+
+    let shift0 = run_noise(0x00);
+    let shift14 = run_noise(0xE0);
+    assert!(!shift0.is_empty());
+    assert!(!shift14.is_empty());
+
+    let rms_shift0 = left_channel_rms(&shift0, 10_000);
+    let rms_shift14 = left_channel_rms(&shift14, 10_000);
+    assert!(rms_shift0 > 0.02);
+    assert!(
+        rms_shift0 > rms_shift14 * 1.5,
+        "expected shift0 tail RMS to exceed shift14 tail RMS (shift0={rms_shift0}, shift14={rms_shift14})"
+    );
 }
 
 #[test]

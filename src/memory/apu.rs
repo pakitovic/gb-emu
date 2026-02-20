@@ -58,9 +58,14 @@ impl EnvelopeState {
         self.increase = (value & 0x08) != 0;
     }
 
-    fn trigger(&mut self) {
+    fn trigger(&mut self, envelope_clocks_next: bool) {
         self.volume = self.initial_volume;
-        self.timer = if self.period == 0 { 8 } else { self.period };
+        let base_timer = if self.period == 0 { 8 } else { self.period };
+        self.timer = if envelope_clocks_next {
+            base_timer.saturating_add(1)
+        } else {
+            base_timer
+        };
     }
 
     fn clock(&mut self) {
@@ -94,19 +99,23 @@ struct SweepState {
     timer: u8,
     enabled: bool,
     shadow_frequency: u16,
+    subtraction_since_trigger: bool,
 }
 
 impl SweepState {
-    fn write_register(&mut self, value: u8) {
+    fn write_register(&mut self, value: u8) -> bool {
+        let old_negate = self.negate;
         self.period = (value >> 4) & 0x07;
         self.negate = (value & 0x08) != 0;
         self.shift = value & 0x07;
+        old_negate && !self.negate && self.subtraction_since_trigger
     }
 
     fn trigger(&mut self, frequency: u16) {
         self.shadow_frequency = frequency.min(MAX_FREQUENCY);
         self.timer = if self.period == 0 { 8 } else { self.period };
         self.enabled = self.period != 0 || self.shift != 0;
+        self.subtraction_since_trigger = false;
     }
 
     fn clock_timer_and_should_step(&mut self) -> bool {
@@ -127,6 +136,13 @@ impl SweepState {
         } else {
             self.shadow_frequency.checked_add(delta)
         }
+    }
+
+    fn calculate_next_frequency_tracking(&mut self) -> Option<u16> {
+        if self.negate {
+            self.subtraction_since_trigger = true;
+        }
+        self.calculate_next_frequency()
     }
 }
 
@@ -178,14 +194,19 @@ impl SquareChannel {
         self.frequency = (self.frequency & 0x0700) | (value as u16);
     }
 
-    fn write_frequency_high(&mut self, value: u8, length_clocks_next: bool) {
+    fn write_frequency_high(
+        &mut self,
+        value: u8,
+        length_clocks_next: bool,
+        envelope_clocks_next: bool,
+    ) {
         self.frequency = (self.frequency & 0x00FF) | (((value & 0x07) as u16) << 8);
         let old_length_enabled = self.length_enabled;
         self.length_enabled = (value & 0x40) != 0;
         let trigger_requested = (value & 0x80) != 0;
         self.apply_length_enable_edge(old_length_enabled, length_clocks_next, trigger_requested);
         if trigger_requested {
-            self.trigger();
+            self.trigger(length_clocks_next, envelope_clocks_next);
         }
     }
 
@@ -208,7 +229,7 @@ impl SquareChannel {
         }
     }
 
-    fn trigger(&mut self) {
+    fn trigger(&mut self, length_clocks_next: bool, envelope_clocks_next: bool) {
         if !self.dac_enabled {
             self.enabled = false;
             return;
@@ -217,16 +238,19 @@ impl SquareChannel {
         self.enabled = true;
         if self.length_counter == 0 {
             self.length_counter = MAX_SQUARE_LENGTH;
+            if self.length_enabled && !length_clocks_next {
+                self.length_counter = self.length_counter.saturating_sub(1);
+            }
         }
         self.frequency_timer = self.period_from_frequency();
         self.duty_position = 0;
-        self.envelope.trigger();
+        self.envelope.trigger(envelope_clocks_next);
         if self.has_sweep {
             self.sweep.trigger(self.frequency);
             if self.sweep.shift > 0
                 && self
                     .sweep
-                    .calculate_next_frequency()
+                    .calculate_next_frequency_tracking()
                     .is_none_or(|next| next > MAX_FREQUENCY)
             {
                 self.enabled = false;
@@ -272,7 +296,7 @@ impl SquareChannel {
             return;
         }
 
-        let Some(next_frequency) = self.sweep.calculate_next_frequency() else {
+        let Some(next_frequency) = self.sweep.calculate_next_frequency_tracking() else {
             self.enabled = false;
             return;
         };
@@ -286,7 +310,7 @@ impl SquareChannel {
 
         if self
             .sweep
-            .calculate_next_frequency()
+            .calculate_next_frequency_tracking()
             .is_none_or(|future| future > MAX_FREQUENCY)
         {
             self.enabled = false;
@@ -313,6 +337,7 @@ struct WaveChannel {
     frequency: u16,
     frequency_timer: u16,
     wave_position: u8,
+    sample_buffer: u8,
 }
 
 impl WaveChannel {
@@ -342,7 +367,7 @@ impl WaveChannel {
         let trigger_requested = (value & 0x80) != 0;
         self.apply_length_enable_edge(old_length_enabled, length_clocks_next, trigger_requested);
         if trigger_requested {
-            self.trigger();
+            self.trigger(length_clocks_next);
         }
     }
 
@@ -365,7 +390,7 @@ impl WaveChannel {
         }
     }
 
-    fn trigger(&mut self) {
+    fn trigger(&mut self, length_clocks_next: bool) {
         if !self.dac_enabled {
             self.enabled = false;
             return;
@@ -374,6 +399,9 @@ impl WaveChannel {
         self.enabled = true;
         if self.length_counter == 0 {
             self.length_counter = MAX_WAVE_LENGTH;
+            if self.length_enabled && !length_clocks_next {
+                self.length_counter = self.length_counter.saturating_sub(1);
+            }
         }
         self.frequency_timer = self.period_from_frequency();
         self.wave_position = 0;
@@ -385,10 +413,11 @@ impl WaveChannel {
         period.max(2)
     }
 
-    fn step_tcycle(&mut self) {
+    fn step_tcycle(&mut self, io: &[u8; 0x80]) {
         if self.frequency_timer <= 1 {
             self.frequency_timer = self.period_from_frequency();
             self.wave_position = (self.wave_position + 1) & 0x1F;
+            self.sample_buffer = io[WAVE_RAM_START_INDEX + (self.wave_position as usize / 2)];
         } else {
             self.frequency_timer -= 1;
         }
@@ -405,13 +434,12 @@ impl WaveChannel {
         }
     }
 
-    fn output_amplitude(&self, io: &[u8; 0x80]) -> i16 {
+    fn output_amplitude(&self, _io: &[u8; 0x80]) -> i16 {
         if !self.enabled || !self.dac_enabled {
             return 0;
         }
 
-        let byte_index = WAVE_RAM_START_INDEX + (self.wave_position as usize / 2);
-        let byte = io[byte_index];
+        let byte = self.sample_buffer;
         let nibble = if (self.wave_position & 1) == 0 {
             byte >> 4
         } else {
@@ -465,13 +493,13 @@ impl NoiseChannel {
         self.divisor_code = value & 0x07;
     }
 
-    fn write_control(&mut self, value: u8, length_clocks_next: bool) {
+    fn write_control(&mut self, value: u8, length_clocks_next: bool, envelope_clocks_next: bool) {
         let old_length_enabled = self.length_enabled;
         self.length_enabled = (value & 0x40) != 0;
         let trigger_requested = (value & 0x80) != 0;
         self.apply_length_enable_edge(old_length_enabled, length_clocks_next, trigger_requested);
         if trigger_requested {
-            self.trigger();
+            self.trigger(length_clocks_next, envelope_clocks_next);
         }
     }
 
@@ -494,7 +522,7 @@ impl NoiseChannel {
         }
     }
 
-    fn trigger(&mut self) {
+    fn trigger(&mut self, length_clocks_next: bool, envelope_clocks_next: bool) {
         if !self.dac_enabled {
             self.enabled = false;
             return;
@@ -503,10 +531,13 @@ impl NoiseChannel {
         self.enabled = true;
         if self.length_counter == 0 {
             self.length_counter = MAX_NOISE_LENGTH;
+            if self.length_enabled && !length_clocks_next {
+                self.length_counter = self.length_counter.saturating_sub(1);
+            }
         }
         self.frequency_timer = self.period_from_registers();
         self.lfsr = 0x7FFF;
-        self.envelope.trigger();
+        self.envelope.trigger(envelope_clocks_next);
     }
 
     fn period_from_registers(&self) -> u16 {
@@ -518,6 +549,9 @@ impl NoiseChannel {
     fn step_tcycle(&mut self) {
         if self.frequency_timer <= 1 {
             self.frequency_timer = self.period_from_registers();
+            if self.clock_shift >= 14 {
+                return;
+            }
             let xor_bit = ((self.lfsr & 0x0001) ^ ((self.lfsr >> 1) & 0x0001)) & 0x0001;
             self.lfsr = (self.lfsr >> 1) | (xor_bit << 14);
             if self.width_mode_7bit {
@@ -656,6 +690,10 @@ impl ApuState {
         (self.frame_sequencer_step & 0x01) == 0
     }
 
+    fn envelope_clocks_on_next_frame_step(&self) -> bool {
+        self.frame_sequencer_step == 7
+    }
+
     fn reset_after_power_toggle(&mut self, enabled: bool) {
         self.enabled = enabled;
         self.channel_on_mask = 0;
@@ -690,7 +728,7 @@ impl ApuState {
 
         self.square1.step_tcycle();
         self.square2.step_tcycle();
-        self.wave.step_tcycle();
+        self.wave.step_tcycle(io);
         self.noise.step_tcycle();
         self.refresh_channel_on_mask();
         let should_mix_sample = self.capture_tcycle_stream || cfg!(test);
@@ -834,22 +872,29 @@ impl Bus {
 
         self.io[index] = value;
         let length_clocks_next = self.apu.length_clocks_on_next_frame_step();
+        let envelope_clocks_next = self.apu.envelope_clocks_on_next_frame_step();
         match index {
-            NR10_INDEX => self.apu.square1.sweep.write_register(value),
+            NR10_INDEX => {
+                if self.apu.square1.sweep.write_register(value) {
+                    self.apu.square1.enabled = false;
+                }
+            }
             NR11_INDEX => self.apu.square1.write_duty_length(value),
             NR12_INDEX => self.apu.square1.write_envelope(value),
             NR13_INDEX => self.apu.square1.write_frequency_low(value),
-            NR14_INDEX => self
-                .apu
-                .square1
-                .write_frequency_high(value, length_clocks_next),
+            NR14_INDEX => self.apu.square1.write_frequency_high(
+                value,
+                length_clocks_next,
+                envelope_clocks_next,
+            ),
             NR21_INDEX => self.apu.square2.write_duty_length(value),
             NR22_INDEX => self.apu.square2.write_envelope(value),
             NR23_INDEX => self.apu.square2.write_frequency_low(value),
-            NR24_INDEX => self
-                .apu
-                .square2
-                .write_frequency_high(value, length_clocks_next),
+            NR24_INDEX => self.apu.square2.write_frequency_high(
+                value,
+                length_clocks_next,
+                envelope_clocks_next,
+            ),
             NR30_INDEX => self.apu.wave.write_dac_enable(value),
             NR31_INDEX => self.apu.wave.write_length(value),
             NR32_INDEX => self.apu.wave.write_output_level(value),
@@ -861,7 +906,11 @@ impl Bus {
             NR41_INDEX => self.apu.noise.write_length(value),
             NR42_INDEX => self.apu.noise.write_envelope(value),
             NR43_INDEX => self.apu.noise.write_polynomial(value),
-            NR44_INDEX => self.apu.noise.write_control(value, length_clocks_next),
+            NR44_INDEX => {
+                self.apu
+                    .noise
+                    .write_control(value, length_clocks_next, envelope_clocks_next)
+            }
             _ => {}
         }
         self.apu.refresh_channel_on_mask();
@@ -947,7 +996,42 @@ impl Bus {
     }
 
     #[cfg(test)]
+    pub(super) fn apu_square2_envelope_timer(&self) -> u8 {
+        self.apu.square2.envelope.timer
+    }
+
+    #[cfg(test)]
+    pub(super) fn apu_square2_length_counter(&self) -> u8 {
+        self.apu.square2.length_counter
+    }
+
+    #[cfg(test)]
     pub(super) fn apu_square1_frequency(&self) -> u16 {
         self.apu.square1.frequency
+    }
+
+    #[cfg(test)]
+    pub(super) fn apu_square1_enabled(&self) -> bool {
+        self.apu.square1.enabled
+    }
+
+    #[cfg(test)]
+    pub(super) fn apu_square2_enabled(&self) -> bool {
+        self.apu.square2.enabled
+    }
+
+    #[cfg(test)]
+    pub(super) fn apu_wave_position(&self) -> u8 {
+        self.apu.wave.wave_position
+    }
+
+    #[cfg(test)]
+    pub(super) fn apu_wave_sample_buffer(&self) -> u8 {
+        self.apu.wave.sample_buffer
+    }
+
+    #[cfg(test)]
+    pub(super) fn apu_noise_lfsr(&self) -> u16 {
+        self.apu.noise.lfsr
     }
 }
