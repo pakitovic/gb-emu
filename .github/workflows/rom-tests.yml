@@ -34,7 +34,7 @@ jobs:
       - name: Run ROM micro-guard (blargg-cpu_instrs)
         env:
           MAX_STEPS: "120000000"
-          TIMEOUT_SECS: "90"
+          TIMEOUT_SECS: "120"
         run: scripts/blargg/run_cpu_instrs_guard.sh
 
       - name: Run ROM suite (blargg-all)

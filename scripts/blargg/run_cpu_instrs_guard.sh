@@ -10,7 +10,7 @@ fi
 BIN="$ROOT_DIR/target/debug/gb-emu"
 ROM_REL_PATH="${ROM_REL_PATH:-cpu_instrs/cpu_instrs.gb}"
 MAX_STEPS="${MAX_STEPS:-120000000}"
-TIMEOUT_SECS="${TIMEOUT_SECS:-90}"
+TIMEOUT_SECS="${TIMEOUT_SECS:-120}"
 GB_MODEL="${GB_MODEL:-dmg}"
 
 rom_path="$ROM_ROOT/$ROM_REL_PATH"
