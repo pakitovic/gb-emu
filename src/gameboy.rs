@@ -1,5 +1,6 @@
 use crate::cartridge::Cartridge;
 use crate::cartridge::CartridgeError;
+use crate::cartridge::CartridgeMetadata;
 use crate::cpu::Cpu;
 use crate::hardware::HardwareModel;
 use crate::input::Button;
@@ -70,6 +71,10 @@ impl GameBoy {
 
     pub fn flush_battery_save(&mut self) -> Result<(), CartridgeError> {
         self.bus.flush_battery_save()
+    }
+
+    pub fn cartridge_metadata(&self) -> CartridgeMetadata {
+        self.bus.cartridge_metadata()
     }
 
     pub fn cartridge_has_rumble(&self) -> bool {

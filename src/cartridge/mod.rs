@@ -31,6 +31,35 @@ const ROM_ONLY_ROM_BANK_COUNT: usize = 2;
 const SAVE_FILE_EXTENSION: &str = "sav";
 const RTC_FILE_EXTENSION: &str = "rtc";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CartridgeMapper {
+    RomOnly,
+    Mbc1,
+    Mbc2,
+    Mbc3,
+    Mbc5,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CartridgeMetadata {
+    pub title: String,
+    pub cart_type_code: u8,
+    pub mapper: CartridgeMapper,
+    pub rom_size_code: u8,
+    pub ram_size_code: u8,
+    pub rom_size_bytes: usize,
+    pub rom_bank_count: usize,
+    pub declared_ram_size_bytes: usize,
+    pub effective_ram_size_bytes: usize,
+    pub ram_bank_count: usize,
+    pub compatibility_ram_mode: bool,
+    pub has_battery: bool,
+    pub has_timer: bool,
+    pub has_rumble: bool,
+    pub has_battery_save: bool,
+    pub rumble_active: bool,
+}
+
 trait RtcClock {
     fn now_epoch_secs(&self) -> u64;
 }
@@ -299,6 +328,11 @@ impl Mbc3Rtc {
 pub struct Cartridge {
     rom: Vec<u8>,
     title: String,
+    cart_type_code: u8,
+    rom_size_code: u8,
+    ram_size_code: u8,
+    declared_ram_size_bytes: usize,
+    compatibility_ram_mode: bool,
     mapper: MapperType,
     rom_bank_count: usize,
     ram: Vec<u8>,
@@ -431,6 +465,11 @@ impl Cartridge {
         Ok(Self {
             rom,
             title,
+            cart_type_code: cart_type,
+            rom_size_code,
+            ram_size_code,
+            declared_ram_size_bytes: ram_size_bytes,
+            compatibility_ram_mode: compatibility_ram,
             mapper: spec.mapper,
             rom_bank_count,
             ram,
@@ -649,6 +688,27 @@ impl Cartridge {
 
     pub fn has_battery_save(&self) -> bool {
         self.has_battery && (!self.ram.is_empty() || self.has_timer)
+    }
+
+    pub fn metadata(&self) -> CartridgeMetadata {
+        CartridgeMetadata {
+            title: self.title.clone(),
+            cart_type_code: self.cart_type_code,
+            mapper: public_mapper(self.mapper),
+            rom_size_code: self.rom_size_code,
+            ram_size_code: self.ram_size_code,
+            rom_size_bytes: self.rom.len(),
+            rom_bank_count: self.rom_bank_count,
+            declared_ram_size_bytes: self.declared_ram_size_bytes,
+            effective_ram_size_bytes: self.ram.len(),
+            ram_bank_count: self.ram_bank_count,
+            compatibility_ram_mode: self.compatibility_ram_mode,
+            has_battery: self.has_battery,
+            has_timer: self.has_timer,
+            has_rumble: self.has_rumble(),
+            has_battery_save: self.has_battery_save(),
+            rumble_active: self.rumble_active(),
+        }
     }
 
     pub fn has_rumble(&self) -> bool {
@@ -900,6 +960,16 @@ fn mapper_uses_ram_gate(mapper: MapperType) -> bool {
         mapper,
         MapperType::Mbc1 | MapperType::Mbc2 | MapperType::Mbc3 | MapperType::Mbc5
     )
+}
+
+fn public_mapper(mapper: MapperType) -> CartridgeMapper {
+    match mapper {
+        MapperType::RomOnly => CartridgeMapper::RomOnly,
+        MapperType::Mbc1 => CartridgeMapper::Mbc1,
+        MapperType::Mbc2 => CartridgeMapper::Mbc2,
+        MapperType::Mbc3 => CartridgeMapper::Mbc3,
+        MapperType::Mbc5 => CartridgeMapper::Mbc5,
+    }
 }
 
 fn is_mbc5_rumble_type(cart_type: u8) -> bool {
@@ -1365,6 +1435,48 @@ mod tests {
                 Ok(_) => panic!("{name} should reject non-zero RAM size code"),
             }
         }
+    }
+
+    #[test]
+    fn metadata_reports_capabilities_for_mbc3_timer_ram_battery() {
+        let rom = make_rom(64 * 1024, MBC3_TIMER_RAM_BATTERY, 0x01, 0x03);
+        let cart = Cartridge::from_bytes(rom).expect("valid MBC3 timer+RAM ROM should load");
+        let metadata = cart.metadata();
+
+        assert_eq!(metadata.cart_type_code, MBC3_TIMER_RAM_BATTERY);
+        assert_eq!(metadata.mapper, CartridgeMapper::Mbc3);
+        assert_eq!(metadata.rom_size_code, 0x01);
+        assert_eq!(metadata.ram_size_code, 0x03);
+        assert_eq!(metadata.rom_size_bytes, 64 * 1024);
+        assert_eq!(metadata.rom_bank_count, 4);
+        assert_eq!(metadata.declared_ram_size_bytes, 32 * 1024);
+        assert_eq!(metadata.effective_ram_size_bytes, 32 * 1024);
+        assert_eq!(metadata.ram_bank_count, 4);
+        assert!(!metadata.compatibility_ram_mode);
+        assert!(metadata.has_battery);
+        assert!(metadata.has_timer);
+        assert!(!metadata.has_rumble);
+        assert!(metadata.has_battery_save);
+        assert!(!metadata.rumble_active);
+    }
+
+    #[test]
+    fn metadata_marks_rom_only_compatibility_ram_mode() {
+        let rom = make_rom(32 * 1024, ROM_ONLY, 0x00, 0x00);
+        let cart = Cartridge::from_bytes(rom).expect("valid ROM-only ROM should load");
+        let metadata = cart.metadata();
+
+        assert_eq!(metadata.cart_type_code, ROM_ONLY);
+        assert_eq!(metadata.mapper, CartridgeMapper::RomOnly);
+        assert_eq!(metadata.declared_ram_size_bytes, 0);
+        assert_eq!(metadata.effective_ram_size_bytes, RAM_BANK_BYTES);
+        assert_eq!(metadata.ram_bank_count, 1);
+        assert!(metadata.compatibility_ram_mode);
+        assert!(!metadata.has_battery);
+        assert!(!metadata.has_timer);
+        assert!(!metadata.has_rumble);
+        assert!(!metadata.has_battery_save);
+        assert!(!metadata.rumble_active);
     }
 
     #[test]
