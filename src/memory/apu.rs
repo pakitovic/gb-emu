@@ -23,7 +23,7 @@ const NR51_INDEX: usize = 0x25;
 const NR52_INDEX: usize = 0x26;
 const WAVE_RAM_START_INDEX: usize = 0x30;
 const WAVE_RAM_END_INDEX: usize = 0x3F;
-const MAX_PENDING_AUDIO_TCYCLE_SAMPLES: usize = 262_144;
+const MAX_PENDING_AUDIO_TCYCLE_FRAMES: usize = 262_144;
 
 const DIV_APU_BIT: u16 = 1 << 12;
 const CHANNEL_COUNT: usize = 4;
@@ -178,11 +178,33 @@ impl SquareChannel {
         self.frequency = (self.frequency & 0x0700) | (value as u16);
     }
 
-    fn write_frequency_high(&mut self, value: u8) {
+    fn write_frequency_high(&mut self, value: u8, length_clocks_next: bool) {
         self.frequency = (self.frequency & 0x00FF) | (((value & 0x07) as u16) << 8);
+        let old_length_enabled = self.length_enabled;
         self.length_enabled = (value & 0x40) != 0;
-        if (value & 0x80) != 0 {
+        let trigger_requested = (value & 0x80) != 0;
+        self.apply_length_enable_edge(old_length_enabled, length_clocks_next, trigger_requested);
+        if trigger_requested {
             self.trigger();
+        }
+    }
+
+    fn apply_length_enable_edge(
+        &mut self,
+        old_length_enabled: bool,
+        length_clocks_next: bool,
+        trigger_requested: bool,
+    ) {
+        if old_length_enabled
+            || !self.length_enabled
+            || length_clocks_next
+            || self.length_counter == 0
+        {
+            return;
+        }
+        self.length_counter -= 1;
+        if self.length_counter == 0 && !trigger_requested {
+            self.enabled = false;
         }
     }
 
@@ -313,11 +335,33 @@ impl WaveChannel {
         self.frequency = (self.frequency & 0x0700) | (value as u16);
     }
 
-    fn write_frequency_high(&mut self, value: u8) {
+    fn write_frequency_high(&mut self, value: u8, length_clocks_next: bool) {
         self.frequency = (self.frequency & 0x00FF) | (((value & 0x07) as u16) << 8);
+        let old_length_enabled = self.length_enabled;
         self.length_enabled = (value & 0x40) != 0;
-        if (value & 0x80) != 0 {
+        let trigger_requested = (value & 0x80) != 0;
+        self.apply_length_enable_edge(old_length_enabled, length_clocks_next, trigger_requested);
+        if trigger_requested {
             self.trigger();
+        }
+    }
+
+    fn apply_length_enable_edge(
+        &mut self,
+        old_length_enabled: bool,
+        length_clocks_next: bool,
+        trigger_requested: bool,
+    ) {
+        if old_length_enabled
+            || !self.length_enabled
+            || length_clocks_next
+            || self.length_counter == 0
+        {
+            return;
+        }
+        self.length_counter -= 1;
+        if self.length_counter == 0 && !trigger_requested {
+            self.enabled = false;
         }
     }
 
@@ -421,10 +465,32 @@ impl NoiseChannel {
         self.divisor_code = value & 0x07;
     }
 
-    fn write_control(&mut self, value: u8) {
+    fn write_control(&mut self, value: u8, length_clocks_next: bool) {
+        let old_length_enabled = self.length_enabled;
         self.length_enabled = (value & 0x40) != 0;
-        if (value & 0x80) != 0 {
+        let trigger_requested = (value & 0x80) != 0;
+        self.apply_length_enable_edge(old_length_enabled, length_clocks_next, trigger_requested);
+        if trigger_requested {
             self.trigger();
+        }
+    }
+
+    fn apply_length_enable_edge(
+        &mut self,
+        old_length_enabled: bool,
+        length_clocks_next: bool,
+        trigger_requested: bool,
+    ) {
+        if old_length_enabled
+            || !self.length_enabled
+            || length_clocks_next
+            || self.length_counter == 0
+        {
+            return;
+        }
+        self.length_counter -= 1;
+        if self.length_counter == 0 && !trigger_requested {
+            self.enabled = false;
         }
     }
 
@@ -502,9 +568,13 @@ pub(super) struct ApuState {
     square2: SquareChannel,
     wave: WaveChannel,
     noise: NoiseChannel,
+    last_mixed_sample_left: f32,
+    last_mixed_sample_right: f32,
     last_mixed_sample: f32,
-    hpf_input_prev: f32,
-    hpf_output_prev: f32,
+    hpf_input_prev_left: f32,
+    hpf_output_prev_left: f32,
+    hpf_input_prev_right: f32,
+    hpf_output_prev_right: f32,
     pending_tcycle_samples: Vec<f32>,
     capture_tcycle_stream: bool,
 }
@@ -523,9 +593,13 @@ impl Default for ApuState {
             square2: SquareChannel::default(),
             wave: WaveChannel::default(),
             noise: NoiseChannel::default(),
+            last_mixed_sample_left: 0.0,
+            last_mixed_sample_right: 0.0,
             last_mixed_sample: 0.0,
-            hpf_input_prev: 0.0,
-            hpf_output_prev: 0.0,
+            hpf_input_prev_left: 0.0,
+            hpf_output_prev_left: 0.0,
+            hpf_input_prev_right: 0.0,
+            hpf_output_prev_right: 0.0,
             pending_tcycle_samples: Vec::new(),
             capture_tcycle_stream: false,
         }
@@ -578,6 +652,10 @@ impl ApuState {
         self.refresh_channel_on_mask();
     }
 
+    fn length_clocks_on_next_frame_step(&self) -> bool {
+        (self.frame_sequencer_step & 0x01) == 0
+    }
+
     fn reset_after_power_toggle(&mut self, enabled: bool) {
         self.enabled = enabled;
         self.channel_on_mask = 0;
@@ -590,16 +668,22 @@ impl ApuState {
         self.square2.reset(false);
         self.wave = WaveChannel::default();
         self.noise = NoiseChannel::default();
+        self.last_mixed_sample_left = 0.0;
+        self.last_mixed_sample_right = 0.0;
         self.last_mixed_sample = 0.0;
-        self.hpf_input_prev = 0.0;
-        self.hpf_output_prev = 0.0;
+        self.hpf_input_prev_left = 0.0;
+        self.hpf_output_prev_left = 0.0;
+        self.hpf_input_prev_right = 0.0;
+        self.hpf_output_prev_right = 0.0;
     }
 
     fn step_tcycle(&mut self, io: &[u8; 0x80]) {
         if !self.enabled {
+            self.last_mixed_sample_left = 0.0;
+            self.last_mixed_sample_right = 0.0;
             self.last_mixed_sample = 0.0;
             if self.capture_tcycle_stream {
-                self.push_tcycle_sample(0.0);
+                self.push_tcycle_sample(0.0, 0.0);
             }
             return;
         }
@@ -609,18 +693,27 @@ impl ApuState {
         self.wave.step_tcycle();
         self.noise.step_tcycle();
         self.refresh_channel_on_mask();
-        let mixed = self.mix_sample(io);
-        self.last_mixed_sample = self.apply_hpf(mixed).clamp(-1.0, 1.0);
+        let should_mix_sample = self.capture_tcycle_stream || cfg!(test);
+        if !should_mix_sample {
+            return;
+        }
+        let (mixed_left, mixed_right) = self.mix_sample(io);
+        let (filtered_left, filtered_right) = self.apply_hpf(mixed_left, mixed_right);
+        self.last_mixed_sample_left = filtered_left.clamp(-1.0, 1.0);
+        self.last_mixed_sample_right = filtered_right.clamp(-1.0, 1.0);
+        self.last_mixed_sample = (self.last_mixed_sample_left + self.last_mixed_sample_right) * 0.5;
         if self.capture_tcycle_stream {
-            self.push_tcycle_sample(self.last_mixed_sample);
+            self.push_tcycle_sample(self.last_mixed_sample_left, self.last_mixed_sample_right);
         }
     }
 
-    fn push_tcycle_sample(&mut self, sample: f32) {
-        if self.pending_tcycle_samples.len() >= MAX_PENDING_AUDIO_TCYCLE_SAMPLES {
+    fn push_tcycle_sample(&mut self, left: f32, right: f32) {
+        let max_scalars = MAX_PENDING_AUDIO_TCYCLE_FRAMES.saturating_mul(2);
+        if self.pending_tcycle_samples.len().saturating_add(2) > max_scalars {
             return;
         }
-        self.pending_tcycle_samples.push(sample);
+        self.pending_tcycle_samples.push(left);
+        self.pending_tcycle_samples.push(right);
     }
 
     fn refresh_channel_on_mask(&mut self) {
@@ -640,7 +733,7 @@ impl ApuState {
         self.channel_on_mask = mask;
     }
 
-    fn mix_sample(&self, io: &[u8; 0x80]) -> f32 {
+    fn mix_sample(&self, io: &[u8; 0x80]) -> (f32, f32) {
         let nr50 = io[NR50_INDEX];
         let nr51 = io[NR51_INDEX];
         let channel_output = [
@@ -666,14 +759,19 @@ impl ApuState {
         let left_volume = ((((nr50 >> 4) & 0x07) as f32) + 1.0) / 8.0;
         let right = (right / CHANNEL_COUNT as f32) * right_volume;
         let left = (left / CHANNEL_COUNT as f32) * left_volume;
-        ((left + right) * 0.5).clamp(-1.0, 1.0)
+        (left.clamp(-1.0, 1.0), right.clamp(-1.0, 1.0))
     }
 
-    fn apply_hpf(&mut self, input: f32) -> f32 {
-        let output = input - self.hpf_input_prev + self.hpf_output_prev * DMG_HPF_COEFF;
-        self.hpf_input_prev = input;
-        self.hpf_output_prev = output;
-        output
+    fn apply_hpf(&mut self, left_input: f32, right_input: f32) -> (f32, f32) {
+        let left_output =
+            left_input - self.hpf_input_prev_left + self.hpf_output_prev_left * DMG_HPF_COEFF;
+        let right_output =
+            right_input - self.hpf_input_prev_right + self.hpf_output_prev_right * DMG_HPF_COEFF;
+        self.hpf_input_prev_left = left_input;
+        self.hpf_output_prev_left = left_output;
+        self.hpf_input_prev_right = right_input;
+        self.hpf_output_prev_right = right_output;
+        (left_output, right_output)
     }
 }
 
@@ -735,25 +833,35 @@ impl Bus {
         }
 
         self.io[index] = value;
+        let length_clocks_next = self.apu.length_clocks_on_next_frame_step();
         match index {
             NR10_INDEX => self.apu.square1.sweep.write_register(value),
             NR11_INDEX => self.apu.square1.write_duty_length(value),
             NR12_INDEX => self.apu.square1.write_envelope(value),
             NR13_INDEX => self.apu.square1.write_frequency_low(value),
-            NR14_INDEX => self.apu.square1.write_frequency_high(value),
+            NR14_INDEX => self
+                .apu
+                .square1
+                .write_frequency_high(value, length_clocks_next),
             NR21_INDEX => self.apu.square2.write_duty_length(value),
             NR22_INDEX => self.apu.square2.write_envelope(value),
             NR23_INDEX => self.apu.square2.write_frequency_low(value),
-            NR24_INDEX => self.apu.square2.write_frequency_high(value),
+            NR24_INDEX => self
+                .apu
+                .square2
+                .write_frequency_high(value, length_clocks_next),
             NR30_INDEX => self.apu.wave.write_dac_enable(value),
             NR31_INDEX => self.apu.wave.write_length(value),
             NR32_INDEX => self.apu.wave.write_output_level(value),
             NR33_INDEX => self.apu.wave.write_frequency_low(value),
-            NR34_INDEX => self.apu.wave.write_frequency_high(value),
+            NR34_INDEX => self
+                .apu
+                .wave
+                .write_frequency_high(value, length_clocks_next),
             NR41_INDEX => self.apu.noise.write_length(value),
             NR42_INDEX => self.apu.noise.write_envelope(value),
             NR43_INDEX => self.apu.noise.write_polynomial(value),
-            NR44_INDEX => self.apu.noise.write_control(value),
+            NR44_INDEX => self.apu.noise.write_control(value, length_clocks_next),
             _ => {}
         }
         self.apu.refresh_channel_on_mask();
@@ -823,6 +931,14 @@ impl Bus {
     #[cfg(test)]
     pub(super) fn apu_last_mixed_sample(&self) -> f32 {
         self.apu.last_mixed_sample
+    }
+
+    #[cfg(test)]
+    pub(super) fn apu_last_mixed_sample_stereo(&self) -> (f32, f32) {
+        (
+            self.apu.last_mixed_sample_left,
+            self.apu.last_mixed_sample_right,
+        )
     }
 
     #[cfg(test)]

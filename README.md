@@ -18,6 +18,8 @@ Current scope:
 - Additional PPU/DMA timing edge cases: mode0 STAT source enabled during mode3 triggers on HBlank entry, and DMA restart keeps prior transfer running through the full restart-delay window.
 - APU core channel state-machine scaffolding: NR52 power control, NR50/NR51 mixer register gating, CH1/CH2/CH3/CH4 trigger/state progression, and DIV-driven frame sequencer stepping (length/sweep/envelope clocks).
 - APU output path now applies a DMG-style DC-blocking high-pass filter and linear t-cycle-to-PCM resampling for cleaner realtime frontend audio output.
+- APU frontend output now preserves stereo channel routing (NR50/NR51 left/right masks) end-to-end for SDL2 and WebAudio.
+- APU length-enable edge behavior now includes immediate length clocking on non-length frame-sequencer steps when enabling length mid-playback.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
@@ -110,7 +112,7 @@ Supported models for `--model`:
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 - Dot-stepped OBJ fetch contention now extends Mode 3 at runtime and takeover boundaries include FIFO-stall arbitration; some DMG fetcher bus-phase details (for example full hardware sleep/push micro-ops) are still approximated.
-- APU channel synthesis (CH1/CH2/CH3/CH4) is audible through SDL2/Web via the core t-cycle audio stream with DC-blocking HPF + linear resampling, but analog mixing/output characteristics are still simplified (mono-downmix, no full model-specific analog path).
+- APU channel synthesis (CH1/CH2/CH3/CH4) is audible through SDL2/Web via the core t-cycle audio stream with stereo routing, DC-blocking HPF, and linear resampling, but analog mixing/output characteristics are still simplified (no full model-specific analog path).
 
 ## Mapper Coverage Examples
 
@@ -238,7 +240,7 @@ Notes:
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
 - SDL2/Web pacing uses `timing::FramePacer` from the core to avoid frontend-specific timing drift.
-- SDL2 audio uses the core mixer clock bridge and queues PCM in real time.
+- SDL2 audio uses the core mixer clock bridge and queues stereo interleaved PCM in real time.
 - SDL2 queue refill is driven by emulated audio t-cycles; underruns are padded with silence (no synthetic emulated cycles).
 - SDL2 queue target is auto-tuned over time windows (same policy as web) using estimated underruns from elapsed playback vs queued samples.
 - `scripts/dev/run_sdl2_frontend.sh` is the recommended local command for clean SDL2 rebuilds and consistent macOS/Homebrew linker env setup.
@@ -247,8 +249,8 @@ Notes:
 - Web helpers:
   - `run_for_elapsed_micros(elapsed_micros)` to step as many emulated frames as host time allows.
   - `audio_clock_tcycles()` / `drain_audio_tcycles()` for raw emulated audio clock access.
-  - `set_audio_sample_rate(rate_hz)` and `drain_audio_samples(max_samples)` for WebAudio feeding.
-  - `drain_audio_samples_realtime(block_samples)` for callback-style fixed-size WebAudio blocks.
+  - `set_audio_sample_rate(rate_hz)` and `drain_audio_samples(max_samples)` for WebAudio feeding (`Vec<f32>` stereo interleaved: `L,R,L,R,...`).
+  - `drain_audio_samples_realtime(block_samples)` for callback-style fixed-size WebAudio blocks (`block_samples` = frames, returned buffer is stereo interleaved).
   - `set_audio_test_tone_enabled(enabled)` for pipeline/debug validation.
   - `cartridge_debug_report()` and `cartridge_warning_count()` for frontend cartridge diagnostics panels.
 - `web/minimal` is intentionally small and uses `AudioWorkletNode` for lower-latency callback-style audio.

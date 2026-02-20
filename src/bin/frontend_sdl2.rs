@@ -25,6 +25,7 @@ const AUDIO_QUEUE_TARGET_MAX_SAMPLES: usize = 16_384;
 const AUDIO_QUEUE_HARD_MAX_SAMPLES: usize = 32_768;
 const AUDIO_REFILL_BLOCK_SAMPLES: usize = 512;
 const AUDIO_REFILL_MAX_BLOCKS: usize = 32;
+const AUDIO_CHANNELS: usize = 2;
 
 fn main() {
     if let Err(err) = run() {
@@ -80,7 +81,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let desired_audio = AudioSpecDesired {
         freq: Some(48_000),
-        channels: Some(1),
+        channels: Some(AUDIO_CHANNELS as u8),
         samples: Some(1024),
     };
     let audio_queue = audio
@@ -230,6 +231,7 @@ fn refill_audio_queue(
     now: Instant,
 ) {
     mixer.push_tcycles(pending_tcycles);
+    let channel_count = usize::from(audio_queue.spec().channels.max(1));
 
     let mut queued_samples = queued_audio_samples(audio_queue);
 
@@ -252,7 +254,8 @@ fn refill_audio_queue(
         if audio_queue.queue_audio(&samples).is_err() {
             break;
         }
-        queued_samples = queued_samples.saturating_add(samples.len());
+        let enqueued_frames = samples.len() / channel_count;
+        queued_samples = queued_samples.saturating_add(enqueued_frames);
         guard += 1;
     }
 
@@ -261,7 +264,8 @@ fn refill_audio_queue(
 
 fn queued_audio_samples(audio_queue: &sdl2::audio::AudioQueue<f32>) -> usize {
     let sample_size_bytes = std::mem::size_of::<f32>();
-    (audio_queue.size() as usize) / sample_size_bytes
+    let channel_count = usize::from(audio_queue.spec().channels.max(1));
+    (audio_queue.size() as usize) / sample_size_bytes / channel_count
 }
 
 struct SdlAudioQueueState {

@@ -8,6 +8,7 @@ import {
 const SCREEN_WIDTH = 160;
 const SCREEN_HEIGHT = 144;
 const AUDIO_BLOCK_SAMPLES = 512;
+const AUDIO_CHANNELS = 2;
 const AUDIO_QUEUE_TARGET_INITIAL_SAMPLES = 4096;
 const AUDIO_REFILL_INTERVAL_MS = 8;
 const AUDIO_ADAPTIVE_QUEUE_OPTIONS = {
@@ -219,8 +220,8 @@ async function enableAudio() {
     audioNode = new AudioWorkletNode(ac, "gb-audio-processor", {
       numberOfInputs: 0,
       numberOfOutputs: 1,
-      outputChannelCount: [1],
-      channelCount: 1,
+      outputChannelCount: [AUDIO_CHANNELS],
+      channelCount: AUDIO_CHANNELS,
       channelCountMode: "explicit",
       channelInterpretation: "speakers",
     });
@@ -268,7 +269,8 @@ function refillAudioQueue() {
       break;
     }
     audioNode.port.postMessage({ type: "samples", samples });
-    queuedAudioSamples += samples.length;
+    const enqueuedFrames = Math.floor(samples.length / AUDIO_CHANNELS);
+    queuedAudioSamples += enqueuedFrames;
     guard += 1;
   }
 }

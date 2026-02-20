@@ -1,3 +1,5 @@
+const AUDIO_CHANNELS = 2;
+
 class GBAudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -5,6 +7,8 @@ class GBAudioProcessor extends AudioWorkletProcessor {
     this.head = 0;
     this.samplesSinceLastReport = 0;
     this.underrunsSinceLastReport = 0;
+    this.currentLeft = 0.0;
+    this.currentRight = 0.0;
 
     this.port.onmessage = (event) => {
       const data = event.data;
@@ -35,19 +39,20 @@ class GBAudioProcessor extends AudioWorkletProcessor {
     }
   }
 
-  popSample() {
+  popFrame() {
     while (this.queue.length > 0) {
       const front = this.queue[0];
-      if (this.head < front.length) {
-        const value = front[this.head];
-        this.head += 1;
-        return value;
+      if ((front.length - this.head) >= AUDIO_CHANNELS) {
+        this.currentLeft = front[this.head];
+        this.currentRight = front[this.head + 1];
+        this.head += AUDIO_CHANNELS;
+        return true;
       }
       this.queue.shift();
       this.head = 0;
     }
 
-    return null;
+    return false;
   }
 
   process(_inputs, outputs) {
@@ -56,22 +61,28 @@ class GBAudioProcessor extends AudioWorkletProcessor {
       return true;
     }
 
-    const channel0 = output[0];
-    for (let i = 0; i < channel0.length; i += 1) {
-      const sample = this.popSample();
-      if (sample === null) {
-        channel0[i] = 0.0;
+    const leftChannel = output[0];
+    const rightChannel = output.length > 1 ? output[1] : null;
+    for (let i = 0; i < leftChannel.length; i += 1) {
+      if (!this.popFrame()) {
+        leftChannel[i] = 0.0;
+        if (rightChannel) {
+          rightChannel[i] = 0.0;
+        }
         this.underrunsSinceLastReport += 1;
       } else {
-        channel0[i] = sample;
+        leftChannel[i] = this.currentLeft;
+        if (rightChannel) {
+          rightChannel[i] = this.currentRight;
+        }
       }
     }
 
-    for (let channel = 1; channel < output.length; channel += 1) {
-      output[channel].set(channel0);
+    for (let channel = 2; channel < output.length; channel += 1) {
+      output[channel].set(rightChannel ?? leftChannel);
     }
 
-    this.samplesSinceLastReport += channel0.length;
+    this.samplesSinceLastReport += leftChannel.length;
     if (this.samplesSinceLastReport >= 128) {
       this.port.postMessage({
         type: "consumed",
