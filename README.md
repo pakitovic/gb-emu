@@ -17,6 +17,7 @@ Current scope:
 - Core audio mixer clock bridge from emulated t-cycles to PCM samples.
 - Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
 - Minimal browser demo (`web/minimal`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
+- Minimal browser demo audio telemetry for queued audio depth and underrun tracking.
 
 ## Project Structure
 
@@ -190,6 +191,7 @@ Notes:
   - `drain_audio_samples_realtime(block_samples)` for callback-style fixed-size WebAudio blocks.
   - `set_audio_test_tone_enabled(enabled)` for pipeline/debug validation.
 - `web/minimal` is intentionally small and uses `AudioWorkletNode` for lower-latency callback-style audio.
+- `web/minimal` surfaces simple audio telemetry (`queued ms` and cumulative underrun samples/ms) to help tune refill target and callback block size.
 
 ## CI
 
