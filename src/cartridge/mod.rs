@@ -1062,6 +1062,311 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy)]
+    struct MapperConformanceCase {
+        name: &'static str,
+        cart_type: u8,
+        rom_size_code: u8,
+        ram_size_code: u8,
+        expected_mapper: MapperType,
+        expected_ram_bytes: usize,
+        has_battery: bool,
+        has_timer: bool,
+        has_rumble: bool,
+    }
+
+    fn mapper_conformance_cases() -> [MapperConformanceCase; 19] {
+        [
+            MapperConformanceCase {
+                name: "ROM_ONLY",
+                cart_type: ROM_ONLY,
+                rom_size_code: 0x00,
+                ram_size_code: 0x00,
+                expected_mapper: MapperType::RomOnly,
+                expected_ram_bytes: RAM_BANK_BYTES,
+                has_battery: false,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "ROM_RAM",
+                cart_type: ROM_RAM,
+                rom_size_code: 0x00,
+                ram_size_code: 0x02,
+                expected_mapper: MapperType::RomOnly,
+                expected_ram_bytes: 8 * 1024,
+                has_battery: false,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "ROM_RAM_BATTERY",
+                cart_type: ROM_RAM_BATTERY,
+                rom_size_code: 0x00,
+                ram_size_code: 0x03,
+                expected_mapper: MapperType::RomOnly,
+                expected_ram_bytes: 32 * 1024,
+                has_battery: true,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC1",
+                cart_type: MBC1,
+                rom_size_code: 0x01,
+                ram_size_code: 0x00,
+                expected_mapper: MapperType::Mbc1,
+                expected_ram_bytes: 0,
+                has_battery: false,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC1_RAM",
+                cart_type: MBC1_RAM,
+                rom_size_code: 0x01,
+                ram_size_code: 0x02,
+                expected_mapper: MapperType::Mbc1,
+                expected_ram_bytes: 8 * 1024,
+                has_battery: false,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC1_RAM_BATTERY",
+                cart_type: MBC1_RAM_BATTERY,
+                rom_size_code: 0x01,
+                ram_size_code: 0x03,
+                expected_mapper: MapperType::Mbc1,
+                expected_ram_bytes: 32 * 1024,
+                has_battery: true,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC2",
+                cart_type: MBC2,
+                rom_size_code: 0x01,
+                ram_size_code: 0x00,
+                expected_mapper: MapperType::Mbc2,
+                expected_ram_bytes: MBC2_RAM_BYTES,
+                has_battery: false,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC2_BATTERY",
+                cart_type: MBC2_BATTERY,
+                rom_size_code: 0x01,
+                ram_size_code: 0x00,
+                expected_mapper: MapperType::Mbc2,
+                expected_ram_bytes: MBC2_RAM_BYTES,
+                has_battery: true,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC3",
+                cart_type: MBC3,
+                rom_size_code: 0x01,
+                ram_size_code: 0x00,
+                expected_mapper: MapperType::Mbc3,
+                expected_ram_bytes: 0,
+                has_battery: false,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC3_RAM",
+                cart_type: MBC3_RAM,
+                rom_size_code: 0x01,
+                ram_size_code: 0x02,
+                expected_mapper: MapperType::Mbc3,
+                expected_ram_bytes: 8 * 1024,
+                has_battery: false,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC3_RAM_BATTERY",
+                cart_type: MBC3_RAM_BATTERY,
+                rom_size_code: 0x01,
+                ram_size_code: 0x03,
+                expected_mapper: MapperType::Mbc3,
+                expected_ram_bytes: 32 * 1024,
+                has_battery: true,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC3_TIMER_BATTERY",
+                cart_type: MBC3_TIMER_BATTERY,
+                rom_size_code: 0x01,
+                ram_size_code: 0x00,
+                expected_mapper: MapperType::Mbc3,
+                expected_ram_bytes: 0,
+                has_battery: true,
+                has_timer: true,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC3_TIMER_RAM_BATTERY",
+                cart_type: MBC3_TIMER_RAM_BATTERY,
+                rom_size_code: 0x01,
+                ram_size_code: 0x03,
+                expected_mapper: MapperType::Mbc3,
+                expected_ram_bytes: 32 * 1024,
+                has_battery: true,
+                has_timer: true,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC5",
+                cart_type: MBC5,
+                rom_size_code: 0x01,
+                ram_size_code: 0x00,
+                expected_mapper: MapperType::Mbc5,
+                expected_ram_bytes: 0,
+                has_battery: false,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC5_RAM",
+                cart_type: MBC5_RAM,
+                rom_size_code: 0x01,
+                ram_size_code: 0x02,
+                expected_mapper: MapperType::Mbc5,
+                expected_ram_bytes: 8 * 1024,
+                has_battery: false,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC5_RAM_BATTERY",
+                cart_type: MBC5_RAM_BATTERY,
+                rom_size_code: 0x01,
+                ram_size_code: 0x04,
+                expected_mapper: MapperType::Mbc5,
+                expected_ram_bytes: 128 * 1024,
+                has_battery: true,
+                has_timer: false,
+                has_rumble: false,
+            },
+            MapperConformanceCase {
+                name: "MBC5_RUMBLE",
+                cart_type: MBC5_RUMBLE,
+                rom_size_code: 0x01,
+                ram_size_code: 0x00,
+                expected_mapper: MapperType::Mbc5,
+                expected_ram_bytes: 0,
+                has_battery: false,
+                has_timer: false,
+                has_rumble: true,
+            },
+            MapperConformanceCase {
+                name: "MBC5_RUMBLE_RAM",
+                cart_type: MBC5_RUMBLE_RAM,
+                rom_size_code: 0x01,
+                ram_size_code: 0x02,
+                expected_mapper: MapperType::Mbc5,
+                expected_ram_bytes: 8 * 1024,
+                has_battery: false,
+                has_timer: false,
+                has_rumble: true,
+            },
+            MapperConformanceCase {
+                name: "MBC5_RUMBLE_RAM_BATTERY",
+                cart_type: MBC5_RUMBLE_RAM_BATTERY,
+                rom_size_code: 0x01,
+                ram_size_code: 0x03,
+                expected_mapper: MapperType::Mbc5,
+                expected_ram_bytes: 32 * 1024,
+                has_battery: true,
+                has_timer: false,
+                has_rumble: true,
+            },
+        ]
+    }
+
+    #[test]
+    fn supported_cartridge_type_matrix_matches_expected_capabilities() {
+        for case in mapper_conformance_cases() {
+            let rom_len = rom_size_bytes_from_code(case.rom_size_code)
+                .expect("all test cases use valid ROM size codes");
+            let rom = make_rom(
+                rom_len,
+                case.cart_type,
+                case.rom_size_code,
+                case.ram_size_code,
+            );
+            let cart = Cartridge::from_bytes(rom)
+                .unwrap_or_else(|err| panic!("{} should load successfully: {err}", case.name));
+
+            assert_eq!(cart.mapper, case.expected_mapper, "{} mapper", case.name);
+            assert_eq!(
+                cart.ram.len(),
+                case.expected_ram_bytes,
+                "{} RAM bytes",
+                case.name
+            );
+            assert_eq!(cart.has_battery, case.has_battery, "{} battery", case.name);
+            assert_eq!(cart.has_timer, case.has_timer, "{} timer", case.name);
+            assert_eq!(
+                cart.has_rumble(),
+                case.has_rumble,
+                "{} rumble flag",
+                case.name
+            );
+            assert!(
+                !cart.rumble_active(),
+                "{} rumble starts disabled",
+                case.name
+            );
+
+            let expected_battery_save =
+                case.has_battery && (case.expected_ram_bytes > 0 || case.has_timer);
+            assert_eq!(
+                cart.has_battery_save(),
+                expected_battery_save,
+                "{} battery save capability",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn mapper_matrix_rejects_invalid_ram_size_combinations() {
+        let invalid_cases = [
+            ("ROM_ONLY", ROM_ONLY, 0x00),
+            ("MBC1", MBC1, 0x01),
+            ("MBC2", MBC2, 0x01),
+            ("MBC3", MBC3, 0x01),
+            ("MBC3_TIMER_BATTERY", MBC3_TIMER_BATTERY, 0x01),
+            ("MBC5", MBC5, 0x01),
+            ("MBC5_RUMBLE", MBC5_RUMBLE, 0x01),
+        ];
+
+        for (name, cart_type, rom_size_code) in invalid_cases {
+            let rom_len = rom_size_bytes_from_code(rom_size_code)
+                .expect("invalid matrix cases use valid ROM size codes");
+            let rom = make_rom(rom_len, cart_type, rom_size_code, 0x02);
+            match Cartridge::from_bytes(rom) {
+                Err(CartridgeError::UnsupportedRamSizeForCartridge {
+                    cart_type: actual_type,
+                    ram_size_code,
+                }) => {
+                    assert_eq!(actual_type, cart_type, "{name} cart type mismatch");
+                    assert_eq!(ram_size_code, 0x02, "{name} RAM code mismatch");
+                }
+                Err(other) => {
+                    panic!("{name} should reject with RAM-size compatibility error: {other}")
+                }
+                Ok(_) => panic!("{name} should reject non-zero RAM size code"),
+            }
+        }
+    }
+
     #[test]
     fn accepts_rom_only_32kb() {
         let rom = make_rom(32 * 1024, ROM_ONLY, 0x00, 0x00);
