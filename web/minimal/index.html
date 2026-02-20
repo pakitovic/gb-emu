@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>gb-emu web demo</title>
+  <style>
+    :root {
+      --bg: #0e1316;
+      --panel: #171f24;
+      --text: #e6f2f7;
+      --muted: #9bb0be;
+      --accent: #57d5a8;
+      --border: #2a363e;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at top right, #1b252c, var(--bg));
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .app {
+      width: min(980px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button,
+    select,
+    input[type="file"] {
+      background: #0f171c;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    button:hover {
+      border-color: var(--accent);
+    }
+
+    label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    #screen {
+      width: min(100%, 640px);
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    #status {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    #serial {
+      white-space: pre-wrap;
+      margin: 0;
+      background: #10181d;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      color: #cde0eb;
+      min-height: 64px;
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <h1>gb-emu web demo</h1>
+    <section class="controls">
+      <input id="rom-file" type="file" accept=".gb,.gbc,.bin" />
+      <select id="model">
+        <option value="dmg" selected>dmg</option>
+        <option value="dmg0">dmg0</option>
+        <option value="mgb">mgb</option>
+        <option value="sgb">sgb</option>
+        <option value="sgb2">sgb2</option>
+      </select>
+      <button id="audio-enable">Enable audio</button>
+      <label>
+        <input id="test-tone" type="checkbox" />
+        Test tone
+      </label>
+    </section>
+    <canvas id="screen" width="160" height="144" aria-label="Game Boy screen"></canvas>
+    <div id="status">Load a ROM to start emulation.</div>
+    <pre id="serial" aria-label="Serial output"></pre>
+  </main>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

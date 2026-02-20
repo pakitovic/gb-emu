@@ -16,6 +16,7 @@ Current scope:
 - Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core audio mixer clock bridge from emulated t-cycles to PCM samples.
 - Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
+- Minimal browser demo (`web/minimal`) with ScriptProcessor-based WebAudio hook using realtime mixer blocks.
 
 ## Project Structure
 
@@ -48,6 +49,10 @@ scripts/
   pr/
     create_pr.sh
   setup-hooks.sh
+web/
+  minimal/
+    index.html
+    main.js
 ```
 
 ## Run
@@ -140,6 +145,14 @@ Web frontend bindings (wasm):
 wasm-pack build --target web --features frontend-web
 ```
 
+Minimal browser demo (ScriptProcessor + keyboard + ROM file loader):
+
+```bash
+wasm-pack build --target web --features frontend-web --out-dir web/minimal/pkg
+python3 -m http.server 8080
+# Open http://localhost:8080/web/minimal/
+```
+
 Notes:
 - The core remains frontend-agnostic and can be embedded by multiple frontends.
 - Current web entrypoint is `WebEmulator` in `src/web.rs`.
@@ -154,6 +167,7 @@ Notes:
   - `set_audio_sample_rate(rate_hz)` and `drain_audio_samples(max_samples)` for WebAudio feeding.
   - `drain_audio_samples_realtime(block_samples)` for callback-style fixed-size WebAudio blocks.
   - `set_audio_test_tone_enabled(enabled)` for pipeline/debug validation.
+- `web/minimal` is intentionally small and uses `ScriptProcessorNode` for broad compatibility/testing convenience.
 
 ## CI
 
