@@ -72,6 +72,14 @@ impl GameBoy {
         self.bus.flush_battery_save()
     }
 
+    pub fn cartridge_has_rumble(&self) -> bool {
+        self.bus.cartridge_has_rumble()
+    }
+
+    pub fn rumble_active(&self) -> bool {
+        self.bus.rumble_active()
+    }
+
     pub fn run_frame_with_limit(&mut self, trace: bool, max_steps: usize) -> Option<u64> {
         let start_frame = self.frame_counter();
         let mut total_cycles = 0u64;
