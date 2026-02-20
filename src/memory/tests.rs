@@ -863,6 +863,63 @@ fn framebuffer_scx_write_during_mode3_affects_remaining_pixels_same_line() {
 }
 
 #[test]
+fn framebuffer_scx_low_bits_write_during_mode3_does_not_truncate_line_output() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x07); // SCX low-bits penalty latched at mode3 start
+    bus.write_byte(0xFF47, 0xE4); // identity palette
+
+    // Fill first BG map row with black tile so rendered pixels are visibly non-white.
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+    bus.write_byte(0x8014, 0xFF);
+    bus.write_byte(0x8015, 0xFF);
+
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on
+
+    // Reach LY=2 mode 3 and change SCX low bits to reduce live penalty.
+    let mut reached_ly2_mode3 = false;
+    for _ in 0..(154 * 456 * 2) {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if ly == 2 && mode == 3 {
+            reached_ly2_mode3 = true;
+            break;
+        }
+        bus.tick(1);
+    }
+    assert!(reached_ly2_mode3);
+
+    bus.tick(20);
+    bus.write_byte(0xFF43, 0x00);
+    wait_for_next_frame(&mut bus);
+
+    let frame = bus.framebuffer();
+    let line2 = 2 * 160;
+    assert_eq!(frame[line2 + 159], 0x00);
+}
+
+#[test]
+fn framebuffer_bg_disabled_forces_white_backdrop_ignoring_bgp() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF47, 0xFF); // map all BG color IDs to shade 3 (black)
+
+    // LCD on with BG/window disabled (LCDC.0=0).
+    bus.write_byte(0xFF40, 0x90);
+    wait_for_next_frame(&mut bus);
+
+    let frame = bus.framebuffer();
+    assert_eq!(frame[0], 0xFF);
+}
+
+#[test]
 fn framebuffer_window_overrides_bg_where_visible() {
     let mut bus = make_test_bus();
 
