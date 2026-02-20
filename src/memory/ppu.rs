@@ -7,6 +7,26 @@ const STAT_MODE_TRANSFER: u8 = 3;
 const STARTUP_MODE0_DOTS: u16 = 80;
 const STARTUP_LINE_DOTS: u16 = 452;
 const DMG_SHADE_TO_LUMA: [u8; 4] = [0xFF, 0xAA, 0x55, 0x00];
+const MAX_SPRITES_PER_LINE: usize = 10;
+
+#[derive(Clone, Copy)]
+struct ObjCandidate {
+    x_raw: u8,
+    y_raw: u8,
+    tile: u8,
+    attr: u8,
+    oam_index: u8,
+}
+
+impl ObjCandidate {
+    const EMPTY: Self = Self {
+        x_raw: 0,
+        y_raw: 0,
+        tile: 0,
+        attr: 0,
+        oam_index: 0,
+    };
+}
 
 #[derive(Default)]
 pub(super) struct PpuState {
@@ -359,40 +379,185 @@ impl PpuState {
     }
 
     fn render_bg_frame(bus: &mut Bus) {
+        let mut bg_color_ids = [0u8; super::LCD_FRAME_PIXELS];
         let lcdc = bus.io[0x40];
+        Self::render_bg_and_window(bus, lcdc, &mut bg_color_ids);
+        Self::render_objects(bus, lcdc, &bg_color_ids);
+    }
+
+    fn render_bg_and_window(
+        bus: &mut Bus,
+        lcdc: u8,
+        bg_color_ids: &mut [u8; super::LCD_FRAME_PIXELS],
+    ) {
         if (lcdc & 0x01) == 0 {
             bus.framebuffer.fill(DMG_SHADE_TO_LUMA[0]);
+            bg_color_ids.fill(0);
             return;
         }
 
         let scx = bus.io[0x43];
         let scy = bus.io[0x42];
+        let wy = bus.io[0x4A];
+        let wx = bus.io[0x4B];
+        let wx_start = wx as i16 - 7;
         let bgp = bus.io[0x47];
+
         let bg_map_base = if (lcdc & 0x08) != 0 {
             0x1C00usize
         } else {
             0x1800usize
         };
+        let window_map_base = if (lcdc & 0x40) != 0 {
+            0x1C00usize
+        } else {
+            0x1800usize
+        };
+        let window_enabled = (lcdc & 0x20) != 0 && wy < 144 && wx <= 166;
 
         for y in 0..super::LCD_HEIGHT {
+            let window_active_line = window_enabled && y >= wy as usize;
             let bg_y = (y as u8).wrapping_add(scy);
-            let tile_row = (bg_y / 8) as usize;
-            let line_in_tile = (bg_y & 0x07) as usize;
+            let bg_tile_row = (bg_y / 8) as usize;
+            let bg_line_in_tile = (bg_y & 0x07) as usize;
 
             for x in 0..super::LCD_WIDTH {
-                let bg_x = (x as u8).wrapping_add(scx);
-                let tile_col = (bg_x / 8) as usize;
-                let tile_map_index = tile_row * 32 + tile_col;
-                let tile_index = bus.vram[bg_map_base + tile_map_index];
+                let use_window = window_active_line && (x as i16) >= wx_start;
+                let (tile_map_base, tile_col, tile_row, line_in_tile, bit_x) = if use_window {
+                    let window_x = (x as i16 - wx_start) as usize;
+                    let window_y = y - wy as usize;
+                    (
+                        window_map_base,
+                        window_x / 8,
+                        window_y / 8,
+                        window_y & 0x07,
+                        (window_x & 0x07) as u8,
+                    )
+                } else {
+                    let bg_x = (x as u8).wrapping_add(scx);
+                    (
+                        bg_map_base,
+                        (bg_x / 8) as usize,
+                        bg_tile_row,
+                        bg_line_in_tile,
+                        bg_x & 0x07,
+                    )
+                };
 
+                let tile_map_index = tile_row * 32 + tile_col;
+                let tile_index = bus.vram[tile_map_base + tile_map_index];
                 let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, line_in_tile);
                 let low = bus.vram[tile_line_addr];
                 let high = bus.vram[tile_line_addr + 1];
 
-                let bit = 7u8.wrapping_sub(bg_x & 0x07);
+                let bit = 7u8.wrapping_sub(bit_x);
                 let color_id = (((high >> bit) & 1) << 1) | ((low >> bit) & 1);
                 let shade_id = (bgp >> (color_id * 2)) & 0x03;
-                bus.framebuffer[y * super::LCD_WIDTH + x] = DMG_SHADE_TO_LUMA[shade_id as usize];
+
+                let index = y * super::LCD_WIDTH + x;
+                bg_color_ids[index] = color_id;
+                bus.framebuffer[index] = DMG_SHADE_TO_LUMA[shade_id as usize];
+            }
+        }
+    }
+
+    fn render_objects(bus: &mut Bus, lcdc: u8, bg_color_ids: &[u8; super::LCD_FRAME_PIXELS]) {
+        if (lcdc & 0x02) == 0 {
+            return;
+        }
+
+        let sprite_height: usize = if (lcdc & 0x04) != 0 { 16 } else { 8 };
+        let obp0 = bus.io[0x48];
+        let obp1 = bus.io[0x49];
+
+        for y in 0..super::LCD_HEIGHT {
+            let mut sprites = [ObjCandidate::EMPTY; MAX_SPRITES_PER_LINE];
+            let mut sprite_count = 0usize;
+
+            for oam_index in 0u8..40 {
+                let base = (oam_index as usize) * 4;
+                let y_raw = bus.oam[base];
+                let x_raw = bus.oam[base + 1];
+                let tile = bus.oam[base + 2];
+                let attr = bus.oam[base + 3];
+
+                // Hidden objects on DMG.
+                if x_raw == 0 || x_raw >= 168 {
+                    continue;
+                }
+
+                let top = y_raw as i16 - 16;
+                let y_i = y as i16;
+                if y_i < top || y_i >= top + sprite_height as i16 {
+                    continue;
+                }
+
+                sprites[sprite_count] = ObjCandidate {
+                    x_raw,
+                    y_raw,
+                    tile,
+                    attr,
+                    oam_index,
+                };
+                sprite_count += 1;
+                if sprite_count == MAX_SPRITES_PER_LINE {
+                    break;
+                }
+            }
+
+            sprites[..sprite_count].sort_unstable_by_key(|sprite| (sprite.x_raw, sprite.oam_index));
+
+            // Draw lowest-priority first, highest-priority last.
+            for sprite in sprites[..sprite_count].iter().rev() {
+                let x_left = sprite.x_raw as i16 - 8;
+                let y_top = sprite.y_raw as i16 - 16;
+
+                let mut y_in_sprite = (y as i16 - y_top) as usize;
+                if (sprite.attr & 0x40) != 0 {
+                    y_in_sprite = sprite_height - 1 - y_in_sprite;
+                }
+
+                let tile_line = if sprite_height == 16 {
+                    let base_tile = sprite.tile & 0xFE;
+                    base_tile.wrapping_add((y_in_sprite / 8) as u8)
+                } else {
+                    sprite.tile
+                };
+                let line_in_tile = y_in_sprite & 0x07;
+                let line_addr = (tile_line as usize) * 16 + line_in_tile * 2;
+                let low = bus.vram[line_addr];
+                let high = bus.vram[line_addr + 1];
+
+                for x_in_sprite in 0..8usize {
+                    let screen_x = x_left + x_in_sprite as i16;
+                    if !(0..super::LCD_WIDTH as i16).contains(&screen_x) {
+                        continue;
+                    }
+
+                    let bit = if (sprite.attr & 0x20) != 0 {
+                        x_in_sprite as u8
+                    } else {
+                        7u8.wrapping_sub(x_in_sprite as u8)
+                    };
+                    let color_id = (((high >> bit) & 1) << 1) | ((low >> bit) & 1);
+                    if color_id == 0 {
+                        continue;
+                    }
+
+                    let index = y * super::LCD_WIDTH + screen_x as usize;
+                    let obj_behind_bg = (sprite.attr & 0x80) != 0;
+                    if obj_behind_bg && bg_color_ids[index] != 0 {
+                        continue;
+                    }
+
+                    let palette = if (sprite.attr & 0x10) != 0 {
+                        obp1
+                    } else {
+                        obp0
+                    };
+                    let shade_id = (palette >> (color_id * 2)) & 0x03;
+                    bus.framebuffer[index] = DMG_SHADE_TO_LUMA[shade_id as usize];
+                }
             }
         }
     }

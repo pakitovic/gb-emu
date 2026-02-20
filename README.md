@@ -9,6 +9,7 @@ Current scope:
 - Blargg + Gekkio ROM test integration in local scripts and CI.
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
 - DMG background layer rendering to a grayscale framebuffer.
+- DMG window + sprite (OBJ) composition with priority/palette/flip handling.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 
 ## Project Structure
@@ -67,7 +68,7 @@ Supported models for `--model`:
 - Supported ROM size codes: 32KB (0x00) and 64KB (0x01).
 - ROM-only cartridges must be 32KB.
 - Unsupported cartridge/ROM size combinations fail fast when loading the ROM.
-- Framebuffer currently renders DMG background layer only (window/sprites/palette edge cases are pending).
+- Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 
 ## Local Requirements
 
