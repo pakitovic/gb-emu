@@ -4,6 +4,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(all(feature = "frontend-web", target_arch = "wasm32"))]
+use js_sys::Date;
+
 const HEADER_MIN_LEN: usize = 0x150;
 const ROM_ONLY: u8 = 0x00;
 const ROM_RAM: u8 = 0x08;
@@ -182,10 +185,20 @@ struct SystemRtcClock;
 
 impl RtcClock for SystemRtcClock {
     fn now_epoch_secs(&self) -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
+        #[cfg(all(feature = "frontend-web", target_arch = "wasm32"))]
+        {
+            // Browser/WebWorker-compatible wall-clock source for wasm32 web builds.
+            let millis = Date::now();
+            return (millis / 1000.0).max(0.0) as u64;
+        }
+
+        #[cfg(not(all(feature = "frontend-web", target_arch = "wasm32")))]
+        {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        }
     }
 }
 
