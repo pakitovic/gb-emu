@@ -10,8 +10,8 @@ Current scope:
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
 - DMG background layer rendering to a grayscale framebuffer.
 - DMG window + sprite (OBJ) composition with priority/palette/flip handling.
-- Mode 3 background/window pixel FIFO stepping per dot with a 6-dot BG fetch cadence (timing-sensitive SCX/window effects are line-progressive).
-- Mode 3 OBJ fetch stalls and sprite pixel mixing are stepped per dot with DMG priority/palette rules (mid-line register writes affect remaining pixels).
+- Mode 3 background/window pixel FIFO stepping per dot with a 6-dot BG fetch cadence and window trigger/restart timing (WX/WY mid-line writes affect only valid trigger windows).
+- Mode 3 OBJ fetch stalls and sprite pixel mixing are stepped per dot with DMG priority/palette rules; OBJ fetch start now waits for BG fetch boundaries for more stable dot arbitration.
 - Mode 3 line duration now grows from runtime OBJ fetch contention (including mid-line OBJ enable/disable effects), reducing reliance on static per-line penalty estimates.
 - Additional PPU/DMA timing edge cases: mode0 STAT source enabled during mode3 triggers on HBlank entry, and DMA restart keeps prior transfer running through the full restart-delay window.
 - APU core channel state-machine scaffolding: NR52 power control, NR50/NR51 mixer register gating, CH1/CH2/CH3/CH4 trigger/state progression, and DIV-driven frame sequencer stepping (length/sweep/envelope clocks).
@@ -106,7 +106,7 @@ Supported models for `--model`:
 - MBC3 RTC persistence currently uses a sidecar `.rtc` file; this is emulator-specific metadata and not a hardware cartridge dump format.
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
-- Dot-stepped OBJ fetch contention now extends Mode 3 at runtime, but full cycle-exact BG/OBJ fetch arbitration is still approximated.
+- Dot-stepped OBJ fetch contention now extends Mode 3 at runtime, and OBJ start arbitration is stricter, but full cycle-exact DMG fetcher bus-phase behavior is still approximated.
 - APU channel synthesis (CH1/CH2/CH3/CH4) is now audible through SDL2/Web via the core t-cycle audio stream, but output remains a first-pass mixer (mono-downmix + simple resampling) without DMG analog filtering/HPF details yet.
 
 ## Mapper Coverage Examples
