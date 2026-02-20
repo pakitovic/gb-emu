@@ -951,7 +951,7 @@ fn framebuffer_obp_write_during_mode3_affects_later_obj_pixels_only() {
     assert!(reached_ly2_mode3);
 
     // Render first sprite with original OBP0, then switch palette before second sprite.
-    bus.tick(22);
+    bus.tick(34);
     bus.write_byte(0xFF48, 0x00); // color 2 -> shade 0 (white)
     wait_for_next_frame(&mut bus);
 
@@ -959,6 +959,84 @@ fn framebuffer_obp_write_during_mode3_affects_later_obj_pixels_only() {
     let line2 = 2 * 160;
     assert_eq!(frame[line2], 0x55); // first sprite kept old OBP0 mapping
     assert_eq!(frame[line2 + 16], 0xFF); // second sprite used updated OBP0 mapping
+}
+
+#[test]
+fn mode3_obj_fetch_stall_delays_scx_write_effect_on_first_visible_pixel() {
+    fn render_line2_first_pixel_with_optional_hidden_obj_stall(
+        add_hidden_obj: bool,
+        ticks_before_scx_write: usize,
+    ) -> u8 {
+        let mut bus = make_test_bus();
+
+        bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+        bus.write_byte(0xFF42, 0x00); // SCY
+        bus.write_byte(0xFF43, 0x00); // SCX
+        bus.write_byte(0xFF47, 0xE4); // identity palette
+
+        // Tile 0 white, tile 1 black.
+        bus.write_byte(0x9800, 0x00);
+        bus.write_byte(0x9801, 0x01);
+        bus.write_byte(0x8000, 0x00);
+        bus.write_byte(0x8001, 0x00);
+        bus.write_byte(0x8004, 0x00);
+        bus.write_byte(0x8005, 0x00);
+        bus.write_byte(0x8010, 0xFF);
+        bus.write_byte(0x8011, 0xFF);
+        bus.write_byte(0x8014, 0xFF);
+        bus.write_byte(0x8015, 0xFF);
+
+        if add_hidden_obj {
+            // Hidden X=0 object on LY=2. It should still consume fetch dots in mode 3.
+            bus.write_byte(0xFE00, 18); // Y => top at LY=2
+            bus.write_byte(0xFE01, 0); // X hidden/off-screen on DMG
+            bus.write_byte(0xFE02, 0x00); // tile
+            bus.write_byte(0xFE03, 0x00); // attrs
+        }
+
+        bus.write_byte(0xFF40, 0x93); // LCD on + BG + OBJ
+
+        let mut reached_ly2_mode3 = false;
+        for _ in 0..(154 * 456 * 2) {
+            let ly = bus.read_byte(0xFF44);
+            let mode = bus.read_byte(0xFF41) & 0x03;
+            if ly == 2 && mode == 3 {
+                reached_ly2_mode3 = true;
+                break;
+            }
+            bus.tick(1);
+        }
+        assert!(reached_ly2_mode3);
+
+        // SCX write is early enough to race with first visible output.
+        bus.tick(ticks_before_scx_write as u8);
+        bus.write_byte(0xFF43, 0x08);
+        wait_for_next_frame(&mut bus);
+
+        bus.framebuffer()[2 * 160]
+    }
+
+    let mut observed_window = None;
+    for ticks in 0..48usize {
+        let no_obj_stall = render_line2_first_pixel_with_optional_hidden_obj_stall(false, ticks);
+        let hidden_obj_stall = render_line2_first_pixel_with_optional_hidden_obj_stall(true, ticks);
+        if no_obj_stall != hidden_obj_stall {
+            observed_window = Some((ticks, no_obj_stall, hidden_obj_stall));
+            break;
+        }
+    }
+
+    let (ticks, no_obj_stall, hidden_obj_stall) = observed_window
+        .expect("expected a timing window where OBJ fetch stall changes SCX write effect");
+
+    assert_eq!(
+        no_obj_stall, 0xFF,
+        "unexpected no-stall pixel at ticks={ticks}"
+    );
+    assert_eq!(
+        hidden_obj_stall, 0x00,
+        "unexpected stalled pixel at ticks={ticks}"
+    );
 }
 
 #[test]
