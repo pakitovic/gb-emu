@@ -20,6 +20,7 @@ const KEY_TO_BUTTON = {
 const romFileInput = document.getElementById("rom-file");
 const modelSelect = document.getElementById("model");
 const statusLabel = document.getElementById("status");
+const audioTelemetryLabel = document.getElementById("audio-telemetry");
 const serialPre = document.getElementById("serial");
 const testToneCheckbox = document.getElementById("test-tone");
 const audioEnableButton = document.getElementById("audio-enable");
@@ -39,6 +40,8 @@ let audioNode = null;
 let audioRefillTimerId = null;
 let queuedAudioSamples = 0;
 let audioWorkletLoaded = false;
+let audioConsumedSamplesTotal = 0;
+let audioUnderrunSamplesTotal = 0;
 
 function setStatus(message) {
   statusLabel.textContent = message;
@@ -61,8 +64,34 @@ function drawFrame() {
   ctx.putImageData(frameImage, 0, 0);
 }
 
+function resetAudioTelemetryState() {
+  queuedAudioSamples = 0;
+  audioConsumedSamplesTotal = 0;
+  audioUnderrunSamplesTotal = 0;
+}
+
+function updateAudioTelemetry() {
+  if (!audioTelemetryLabel) {
+    return;
+  }
+  if (!audioContext || !audioNode) {
+    audioTelemetryLabel.textContent = "Audio: disabled";
+    return;
+  }
+
+  const sampleRate = Math.max(1, audioContext.sampleRate || 48_000);
+  const queuedMs = (queuedAudioSamples * 1000) / sampleRate;
+  const targetMs = (AUDIO_QUEUE_TARGET_SAMPLES * 1000) / sampleRate;
+  const underrunMs = (audioUnderrunSamplesTotal * 1000) / sampleRate;
+  const playedSeconds = audioConsumedSamplesTotal / sampleRate;
+  audioTelemetryLabel.textContent =
+    `Audio: ${audioContext.state} | queued ${queuedMs.toFixed(1)}ms / target ${targetMs.toFixed(1)}ms | ` +
+    `underruns ${audioUnderrunSamplesTotal} samples (${underrunMs.toFixed(2)}ms) | played ${playedSeconds.toFixed(1)}s`;
+}
+
 function stepFrame(nowMs) {
   if (!emulator) {
+    updateAudioTelemetry();
     rafId = requestAnimationFrame(stepFrame);
     return;
   }
@@ -80,6 +109,7 @@ function stepFrame(nowMs) {
     setStatus(`Runtime error: ${error}`);
   }
 
+  updateAudioTelemetry();
   rafId = requestAnimationFrame(stepFrame);
 }
 
@@ -105,7 +135,8 @@ function disconnectAudioBackend() {
     audioNode.disconnect();
     audioNode = null;
   }
-  queuedAudioSamples = 0;
+  resetAudioTelemetryState();
+  updateAudioTelemetry();
 }
 
 async function ensureAudioContext() {
@@ -160,7 +191,11 @@ async function enableAudio() {
       if (!data || data.type !== "consumed") {
         return;
       }
-      queuedAudioSamples = Math.max(0, queuedAudioSamples - (data.samples | 0));
+      const consumedSamples = data.samples | 0;
+      const underrunSamples = data.underruns | 0;
+      queuedAudioSamples = Math.max(0, queuedAudioSamples - consumedSamples);
+      audioConsumedSamplesTotal += consumedSamples;
+      audioUnderrunSamplesTotal += underrunSamples;
     };
     audioNode.connect(ac.destination);
 
@@ -173,9 +208,11 @@ async function enableAudio() {
     }, AUDIO_REFILL_INTERVAL_MS);
 
     setStatus(`AudioWorklet enabled (${ac.sampleRate} Hz, block ${AUDIO_BLOCK_SAMPLES}).`);
+    updateAudioTelemetry();
   } catch (error) {
     console.error(error);
     setStatus(`Audio setup error: ${error}`);
+    updateAudioTelemetry();
   }
 }
 
@@ -215,11 +252,12 @@ async function loadRom(file) {
   }
   if (audioNode) {
     audioNode.port.postMessage({ type: "reset" });
-    queuedAudioSamples = 0;
+    resetAudioTelemetryState();
     refillAudioQueue();
   }
 
   drawFrame();
+  updateAudioTelemetry();
   serialPre.textContent = "";
   setStatus(`Loaded ${file.name} (${emulator.rom_title()}) on model ${model}.`);
 }
@@ -254,6 +292,7 @@ async function bootstrap() {
   await initWasm();
   wasmReady = true;
   setStatus("WASM ready. Load a ROM to start.");
+  updateAudioTelemetry();
 
   if (rafId === 0) {
     rafId = requestAnimationFrame(stepFrame);

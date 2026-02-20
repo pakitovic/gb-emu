@@ -4,6 +4,7 @@ class GBAudioProcessor extends AudioWorkletProcessor {
     this.queue = [];
     this.head = 0;
     this.samplesSinceLastReport = 0;
+    this.underrunsSinceLastReport = 0;
 
     this.port.onmessage = (event) => {
       const data = event.data;
@@ -17,6 +18,7 @@ class GBAudioProcessor extends AudioWorkletProcessor {
         this.queue.length = 0;
         this.head = 0;
         this.samplesSinceLastReport = 0;
+        this.underrunsSinceLastReport = 0;
       }
     };
   }
@@ -45,7 +47,7 @@ class GBAudioProcessor extends AudioWorkletProcessor {
       this.head = 0;
     }
 
-    return 0.0;
+    return null;
   }
 
   process(_inputs, outputs) {
@@ -56,7 +58,13 @@ class GBAudioProcessor extends AudioWorkletProcessor {
 
     const channel0 = output[0];
     for (let i = 0; i < channel0.length; i += 1) {
-      channel0[i] = this.popSample();
+      const sample = this.popSample();
+      if (sample === null) {
+        channel0[i] = 0.0;
+        this.underrunsSinceLastReport += 1;
+      } else {
+        channel0[i] = sample;
+      }
     }
 
     for (let channel = 1; channel < output.length; channel += 1) {
@@ -68,8 +76,10 @@ class GBAudioProcessor extends AudioWorkletProcessor {
       this.port.postMessage({
         type: "consumed",
         samples: this.samplesSinceLastReport,
+        underruns: this.underrunsSinceLastReport,
       });
       this.samplesSinceLastReport = 0;
+      this.underrunsSinceLastReport = 0;
     }
 
     return true;
