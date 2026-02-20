@@ -10,6 +10,7 @@ Current scope:
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
 - DMG background layer rendering to a grayscale framebuffer.
 - DMG window + sprite (OBJ) composition with priority/palette/flip handling.
+- Mode 3 background/window pixel FIFO stepping per dot (timing-sensitive SCX/window effects are now line-progressive).
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core audio mixer clock bridge from emulated t-cycles to PCM samples.
