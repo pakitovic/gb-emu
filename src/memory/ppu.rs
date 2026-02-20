@@ -492,7 +492,7 @@ impl PpuState {
     }
 
     fn mode3_length_tcycles(bus: &Bus, ly: u8, startup_line: bool) -> u16 {
-        let extra = Self::mode3_extra_tcycles(bus, ly);
+        let extra = Self::mode3_extra_tcycles(bus);
         let base = 172u16.saturating_add(extra);
         let line_len = Self::line_length_tcycles(bus, ly);
         if startup_line {
@@ -504,82 +504,8 @@ impl PpuState {
         }
     }
 
-    fn mode3_extra_tcycles(bus: &Bus, ly: u8) -> u16 {
-        let scx_penalty = (bus.io[0x43] & 0x07) as u16;
-        scx_penalty.saturating_add(Self::mode3_obj_penalty_tcycles(bus, ly))
-    }
-
-    fn mode3_obj_penalty_tcycles(bus: &Bus, ly: u8) -> u16 {
-        // Objects disabled.
-        if (bus.io[0x40] & 0x02) == 0 {
-            return 0;
-        }
-
-        let sprite_height = if (bus.io[0x40] & 0x04) != 0 {
-            16i16
-        } else {
-            8i16
-        };
-
-        // DMG pipeline considers up to 10 sprites per scanline.
-        let mut sprites: [(u8, u8); 10] = [(0, 0); 10]; // (x, oam_index)
-        let mut sprite_count = 0usize;
-        for oam_index in 0u8..40u8 {
-            let base = (oam_index as usize) * 4;
-            let y = bus.oam[base] as i16 - 16;
-            let x = bus.oam[base + 1];
-
-            // Drawn sprites are X=0 special case or X in 1..=167.
-            if x != 0 && x >= 168 {
-                continue;
-            }
-
-            let ly_i = ly as i16;
-            if ly_i < y || ly_i >= y + sprite_height {
-                continue;
-            }
-
-            if sprite_count < sprites.len() {
-                sprites[sprite_count] = (x, oam_index);
-                sprite_count += 1;
-            }
-        }
-
-        // Penalty order is left-to-right; ties broken by OAM index.
-        sprites[..sprite_count].sort_unstable();
-
-        let mut penalty = 0u16;
-        let mut i = 0usize;
-        while i < sprite_count {
-            let mut j = i;
-            while j + 1 < sprite_count {
-                let x = sprites[j].0;
-                let next_x = sprites[j + 1].0;
-                if next_x.wrapping_sub(x) < 8 {
-                    j += 1;
-                } else {
-                    break;
-                }
-            }
-
-            let first_x_mod = sprites[i].0 & 0x07;
-            let startup_adjust = Self::obj_session_startup_adjust(first_x_mod);
-            let first_penalty = (OBJ_FETCH_BASE_DOTS as i16 + startup_adjust).max(1) as u16;
-            penalty = penalty.saturating_add(first_penalty);
-
-            let additional_sprites = (j - i) as u16;
-            penalty = penalty
-                .saturating_add(additional_sprites.saturating_mul(OBJ_FETCH_BASE_DOTS as u16));
-
-            if j + 1 < sprite_count {
-                let last_x_mod = sprites[j].0 & 0x07;
-                penalty = penalty.saturating_add(Self::obj_session_shutdown_penalty(last_x_mod));
-            }
-
-            i = j + 1;
-        }
-
-        penalty
+    fn mode3_extra_tcycles(bus: &Bus) -> u16 {
+        (bus.io[0x43] & 0x07) as u16
     }
 
     fn obj_session_startup_adjust(x_mod: u8) -> i16 {
@@ -628,6 +554,7 @@ impl PpuState {
 
         let screen_x = Self::mode3_current_screen_x(bus);
         if Self::mode3_step_obj_fetch(bus, screen_x) {
+            Self::extend_mode3_for_obj_contention(bus, ly, startup_line);
             return;
         }
 
@@ -680,6 +607,15 @@ impl PpuState {
 
     fn mode3_current_screen_x(bus: &Bus) -> i16 {
         bus.ppu.mode3_fifo.output_x as i16 - bus.ppu.mode3_fifo.discard_pixels as i16
+    }
+
+    fn extend_mode3_for_obj_contention(bus: &mut Bus, ly: u8, startup_line: bool) {
+        let line_len = Self::line_length_tcycles(bus, ly);
+        let mode3_start = Self::mode3_start_tcycle(bus, startup_line);
+        let mode3_max_dots = line_len.saturating_sub(mode3_start);
+        if bus.ppu.mode3_dots_latched < mode3_max_dots {
+            bus.ppu.mode3_dots_latched = bus.ppu.mode3_dots_latched.saturating_add(1);
+        }
     }
 
     fn bg_window_color_id_for_screen_x(bus: &Bus, lcdc: u8, y: usize, screen_x: i16) -> u8 {

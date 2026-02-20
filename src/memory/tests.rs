@@ -1039,6 +1039,85 @@ fn mode3_obj_fetch_stall_delays_scx_write_effect_on_first_visible_pixel() {
     );
 }
 
+fn line2_hblank_delay_with_obj_toggle(
+    obj_enabled_at_mode3_start: bool,
+    toggle_after_mode3_ticks: Option<(usize, bool)>,
+) -> u16 {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity palette
+
+    // Keep BG output deterministic.
+    bus.write_byte(0x9800, 0x00);
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+
+    // Hidden X=0 sprite on LY=2 still consumes OBJ fetch dots.
+    bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    bus.write_byte(0xFE01, 0); // X hidden/off-screen
+    bus.write_byte(0xFE02, 0x00); // tile
+    bus.write_byte(0xFE03, 0x00); // attrs
+
+    let mut lcdc = 0x91u8; // LCD on + BG on
+    if obj_enabled_at_mode3_start {
+        lcdc |= 0x02;
+    }
+    bus.write_byte(0xFF40, lcdc);
+
+    let mut reached_ly2_mode3 = false;
+    for _ in 0..(154 * 456 * 2) {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if ly == 2 && mode == 3 {
+            reached_ly2_mode3 = true;
+            break;
+        }
+        bus.tick(1);
+    }
+    assert!(reached_ly2_mode3);
+
+    if let Some((ticks, enable_obj)) = toggle_after_mode3_ticks {
+        if ticks > 0 {
+            bus.tick(ticks as u8);
+        }
+        let mut next_lcdc = bus.read_byte(0xFF40);
+        if enable_obj {
+            next_lcdc |= 0x02;
+        } else {
+            next_lcdc &= !0x02;
+        }
+        bus.write_byte(0xFF40, next_lcdc);
+    }
+
+    wait_for_transition(&mut bus, 2, 3, 0);
+    measure_hblank_until_ly_increment(&mut bus, 2)
+}
+
+#[test]
+fn mode3_enabling_obj_mid_line_shortens_hblank_via_runtime_contention() {
+    let delay_no_obj = line2_hblank_delay_with_obj_toggle(false, None);
+    let delay_enable_midline = line2_hblank_delay_with_obj_toggle(false, Some((4, true)));
+
+    assert!(
+        delay_enable_midline < delay_no_obj,
+        "expected OBJ enable mid-line to consume mode3 dots (no_obj={delay_no_obj}, enable_midline={delay_enable_midline})"
+    );
+}
+
+#[test]
+fn mode3_disabling_obj_mid_line_restores_hblank_budget() {
+    let delay_obj_full_line = line2_hblank_delay_with_obj_toggle(true, None);
+    let delay_disable_midline = line2_hblank_delay_with_obj_toggle(true, Some((0, false)));
+
+    assert!(
+        delay_disable_midline > delay_obj_full_line,
+        "expected OBJ disable mid-line to recover mode3 dots (full_obj={delay_obj_full_line}, disable_midline={delay_disable_midline})"
+    );
+}
+
 #[test]
 fn framebuffer_bg_disabled_forces_white_backdrop_ignoring_bgp() {
     let mut bus = make_test_bus();
