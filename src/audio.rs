@@ -1,12 +1,184 @@
 use crate::timing::DMG_T_CYCLES_PER_SECOND;
+use std::time::Duration;
 
 const TEST_TONE_HZ: f32 = 440.0;
 const TEST_TONE_AMPLITUDE: f32 = 0.05;
+const NANOSECONDS_PER_SECOND: u128 = 1_000_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MixerSource {
     Silence,
     TestTone,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AdaptiveQueueOptions {
+    pub window_ms: u64,
+    pub min_target_samples: usize,
+    pub max_target_samples: usize,
+    pub increase_step_samples: usize,
+    pub decrease_step_samples: usize,
+    pub decrease_stable_windows: u32,
+    pub decrease_queue_headroom_samples: usize,
+}
+
+impl Default for AdaptiveQueueOptions {
+    fn default() -> Self {
+        Self {
+            window_ms: 500,
+            min_target_samples: 2_048,
+            max_target_samples: 16_384,
+            increase_step_samples: 1_024,
+            decrease_step_samples: 512,
+            decrease_stable_windows: 6,
+            decrease_queue_headroom_samples: 1_024,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AdaptiveQueueUpdate {
+    pub target_samples: usize,
+    pub changed: bool,
+    pub window_underrun_samples: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct AdaptiveQueueController {
+    options: AdaptiveQueueOptions,
+    target_samples: usize,
+    last_window_ms: u64,
+    last_underrun_samples: u64,
+    stable_window_count: u32,
+}
+
+impl AdaptiveQueueController {
+    pub fn new(
+        initial_target_samples: usize,
+        now_ms: u64,
+        total_underrun_samples: u64,
+        options: AdaptiveQueueOptions,
+    ) -> Self {
+        let normalized_options = normalize_adaptive_queue_options(options);
+        let initial_target = clamp_target_samples(initial_target_samples, &normalized_options);
+        Self {
+            options: normalized_options,
+            target_samples: initial_target,
+            last_window_ms: now_ms,
+            last_underrun_samples: total_underrun_samples,
+            stable_window_count: 0,
+        }
+    }
+
+    pub fn options(&self) -> AdaptiveQueueOptions {
+        self.options
+    }
+
+    pub fn target_samples(&self) -> usize {
+        self.target_samples
+    }
+
+    pub fn reset(&mut self, now_ms: u64, total_underrun_samples: u64) {
+        self.last_window_ms = now_ms;
+        self.last_underrun_samples = total_underrun_samples;
+        self.stable_window_count = 0;
+    }
+
+    pub fn update(
+        &mut self,
+        now_ms: u64,
+        queued_samples: usize,
+        total_underrun_samples: u64,
+        block_samples: usize,
+    ) -> AdaptiveQueueUpdate {
+        let current_target = clamp_target_samples(self.target_samples, &self.options);
+        let elapsed_ms = now_ms.saturating_sub(self.last_window_ms);
+        if elapsed_ms < self.options.window_ms {
+            self.target_samples = current_target;
+            return AdaptiveQueueUpdate {
+                target_samples: current_target,
+                changed: false,
+                window_underrun_samples: 0,
+            };
+        }
+
+        let window_underrun_samples =
+            total_underrun_samples.saturating_sub(self.last_underrun_samples);
+        let mut next_target = current_target;
+
+        if window_underrun_samples > 0 {
+            let severe_underrun = window_underrun_samples >= block_samples.max(1) as u64;
+            let increase_step = if severe_underrun {
+                self.options.increase_step_samples.saturating_mul(2)
+            } else {
+                self.options.increase_step_samples
+            };
+            next_target =
+                clamp_target_samples(current_target.saturating_add(increase_step), &self.options);
+            self.stable_window_count = 0;
+        } else {
+            let queue_headroom_samples = queued_samples.saturating_sub(current_target);
+            if queue_headroom_samples >= self.options.decrease_queue_headroom_samples {
+                self.stable_window_count = self.stable_window_count.saturating_add(1);
+            } else {
+                self.stable_window_count = 0;
+            }
+
+            if self.stable_window_count >= self.options.decrease_stable_windows {
+                next_target = clamp_target_samples(
+                    current_target.saturating_sub(self.options.decrease_step_samples),
+                    &self.options,
+                );
+                self.stable_window_count = 0;
+            }
+        }
+
+        self.last_window_ms = now_ms;
+        self.last_underrun_samples = total_underrun_samples;
+        self.target_samples = next_target;
+        AdaptiveQueueUpdate {
+            target_samples: next_target,
+            changed: next_target != current_target,
+            window_underrun_samples,
+        }
+    }
+}
+
+pub fn estimate_playback_underrun_samples(
+    queued_samples_before_playback: usize,
+    elapsed: Duration,
+    sample_rate_hz: u32,
+) -> u64 {
+    if elapsed.is_zero() {
+        return 0;
+    }
+
+    let sample_rate = sample_rate_hz.max(1) as u128;
+    let expected_consumed = elapsed.as_nanos().saturating_mul(sample_rate) / NANOSECONDS_PER_SECOND;
+    let queued = queued_samples_before_playback as u128;
+    let underrun = expected_consumed.saturating_sub(queued);
+    u64::try_from(underrun).unwrap_or(u64::MAX)
+}
+
+fn normalize_adaptive_queue_options(options: AdaptiveQueueOptions) -> AdaptiveQueueOptions {
+    let min_target_samples = options.min_target_samples.max(1);
+    let max_target_samples = options.max_target_samples.max(min_target_samples);
+
+    AdaptiveQueueOptions {
+        window_ms: options.window_ms.max(1),
+        min_target_samples,
+        max_target_samples,
+        increase_step_samples: options.increase_step_samples.max(1),
+        decrease_step_samples: options.decrease_step_samples.max(1),
+        decrease_stable_windows: options.decrease_stable_windows.max(1),
+        decrease_queue_headroom_samples: options.decrease_queue_headroom_samples,
+    }
+}
+
+fn clamp_target_samples(target_samples: usize, options: &AdaptiveQueueOptions) -> usize {
+    target_samples
+        .max(options.min_target_samples)
+        .min(options.max_target_samples)
 }
 
 pub struct AudioMixer {
@@ -179,5 +351,92 @@ mod tests {
         let samples = mixer.drain_realtime_block(DMG_T_CYCLES_PER_SECOND, 0);
         assert!(samples.is_empty());
         assert_eq!(mixer.pending_samples(), 0);
+    }
+
+    #[test]
+    fn playback_underrun_estimate_is_zero_when_queue_covers_elapsed_playback() {
+        let underrun = estimate_playback_underrun_samples(480, Duration::from_millis(5), 48_000);
+        assert_eq!(underrun, 0);
+    }
+
+    #[test]
+    fn playback_underrun_estimate_is_positive_when_elapsed_consumption_exceeds_queue() {
+        let underrun = estimate_playback_underrun_samples(100, Duration::from_millis(5), 48_000);
+        assert_eq!(underrun, 140);
+    }
+
+    #[test]
+    fn adaptive_queue_increases_target_when_underruns_appear() {
+        let mut controller =
+            AdaptiveQueueController::new(4_096, 0, 0, AdaptiveQueueOptions::default());
+        let update = controller.update(500, 2_000, 10, 512);
+
+        assert!(update.changed);
+        assert_eq!(update.target_samples, 5_120);
+        assert_eq!(update.window_underrun_samples, 10);
+    }
+
+    #[test]
+    fn adaptive_queue_severe_underrun_uses_larger_increase_step() {
+        let mut controller =
+            AdaptiveQueueController::new(4_096, 0, 0, AdaptiveQueueOptions::default());
+        let update = controller.update(500, 1_000, 800, 512);
+
+        assert!(update.changed);
+        assert_eq!(update.target_samples, 6_144);
+        assert_eq!(update.window_underrun_samples, 800);
+    }
+
+    #[test]
+    fn adaptive_queue_decreases_target_after_stable_windows() {
+        let options = AdaptiveQueueOptions {
+            window_ms: 100,
+            min_target_samples: 2_048,
+            max_target_samples: 16_384,
+            increase_step_samples: 256,
+            decrease_step_samples: 128,
+            decrease_stable_windows: 2,
+            decrease_queue_headroom_samples: 256,
+        };
+        let mut controller = AdaptiveQueueController::new(4_096, 0, 0, options);
+
+        let first = controller.update(100, 4_600, 0, 512);
+        assert!(!first.changed);
+        assert_eq!(first.target_samples, 4_096);
+
+        let second = controller.update(200, 4_600, 0, 512);
+        assert!(second.changed);
+        assert_eq!(second.target_samples, 3_968);
+
+        let third = controller.update(300, 4_400, 0, 512);
+        assert!(!third.changed);
+        assert_eq!(third.target_samples, 3_968);
+
+        let fourth = controller.update(400, 4_400, 0, 512);
+        assert!(fourth.changed);
+        assert_eq!(fourth.target_samples, 3_840);
+    }
+
+    #[test]
+    fn adaptive_queue_respects_min_and_max_limits() {
+        let options = AdaptiveQueueOptions {
+            window_ms: 100,
+            min_target_samples: 1_024,
+            max_target_samples: 2_048,
+            increase_step_samples: 400,
+            decrease_step_samples: 800,
+            decrease_stable_windows: 1,
+            decrease_queue_headroom_samples: 1,
+        };
+        let mut controller = AdaptiveQueueController::new(1_900, 0, 0, options);
+
+        let increased = controller.update(100, 100, 2_000, 512);
+        assert_eq!(increased.target_samples, 2_048);
+
+        let decreased = controller.update(200, 5_000, 2_000, 512);
+        assert_eq!(decreased.target_samples, 1_248);
+
+        let clamped = controller.update(300, 5_000, 2_000, 512);
+        assert_eq!(clamped.target_samples, 1_024);
     }
 }

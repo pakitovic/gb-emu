@@ -1,4 +1,7 @@
-use gb_emu::audio::{AudioMixer, MixerSource};
+use gb_emu::audio::{
+    AdaptiveQueueController, AdaptiveQueueOptions, AudioMixer, MixerSource,
+    estimate_playback_underrun_samples,
+};
 use gb_emu::cartridge::Cartridge;
 use gb_emu::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
 use gb_emu::hardware::HardwareModel;
@@ -15,9 +18,12 @@ use std::time::{Duration, Instant};
 
 const SCALE: u32 = 4;
 const FRAME_STEP_LIMIT: usize = 250_000;
-const AUDIO_QUEUE_LOW_WATER_SAMPLES: usize = 2048;
-const AUDIO_QUEUE_TARGET_SAMPLES: usize = 4096;
-const AUDIO_QUEUE_MAX_SAMPLES: usize = 16384;
+const AUDIO_QUEUE_TARGET_INITIAL_SAMPLES: usize = 4_096;
+const AUDIO_QUEUE_TARGET_MIN_SAMPLES: usize = 2_048;
+const AUDIO_QUEUE_TARGET_MAX_SAMPLES: usize = 16_384;
+const AUDIO_QUEUE_HARD_MAX_SAMPLES: usize = 32_768;
+const AUDIO_REFILL_BLOCK_SAMPLES: usize = 512;
+const AUDIO_REFILL_MAX_BLOCKS: usize = 32;
 
 fn main() {
     if let Err(err) = run() {
@@ -82,6 +88,8 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut event_pump = sdl.event_pump().map_err(io::Error::other)?;
     let mut pacer = FramePacer::default();
     let mut last_host_tick = Instant::now();
+    let mut audio_queue_state =
+        SdlAudioQueueState::new(audio_mixer.sample_rate_hz(), last_host_tick);
 
     'main_loop: loop {
         let now = Instant::now();
@@ -130,7 +138,13 @@ fn run() -> Result<(), Box<dyn Error>> {
             produced_frame = true;
         }
 
-        refill_audio_queue(&audio_queue, &mut audio_mixer, pacer.drain_audio_tcycles());
+        refill_audio_queue(
+            &audio_queue,
+            &mut audio_mixer,
+            &mut audio_queue_state,
+            pacer.drain_audio_tcycles(),
+            now,
+        );
 
         if !produced_frame {
             let sleep_for = pacer.duration_until_next_frame();
@@ -182,26 +196,102 @@ fn map_key_to_button(code: Keycode) -> Option<Button> {
 fn refill_audio_queue(
     audio_queue: &sdl2::audio::AudioQueue<f32>,
     mixer: &mut AudioMixer,
+    queue_state: &mut SdlAudioQueueState,
     pending_tcycles: u64,
+    now: Instant,
 ) {
     mixer.push_tcycles(pending_tcycles);
 
-    let sample_size_bytes = std::mem::size_of::<f32>();
-    let mut queued_samples = (audio_queue.size() as usize) / sample_size_bytes;
+    let mut queued_samples = queued_audio_samples(audio_queue);
 
-    if queued_samples > AUDIO_QUEUE_MAX_SAMPLES {
+    if queued_samples > AUDIO_QUEUE_HARD_MAX_SAMPLES {
         audio_queue.clear();
         queued_samples = 0;
     }
 
-    if queued_samples >= AUDIO_QUEUE_LOW_WATER_SAMPLES {
-        return;
+    let target_samples = queue_state.observe_and_update_target(now, queued_samples);
+
+    let mut guard = 0;
+    while queued_samples < target_samples && guard < AUDIO_REFILL_MAX_BLOCKS {
+        let wanted = target_samples
+            .saturating_sub(queued_samples)
+            .min(AUDIO_REFILL_BLOCK_SAMPLES);
+        let samples = mixer.drain_realtime_block(0, wanted);
+        if samples.is_empty() {
+            break;
+        }
+        if audio_queue.queue_audio(&samples).is_err() {
+            break;
+        }
+        queued_samples = queued_samples.saturating_add(samples.len());
+        guard += 1;
     }
 
-    let wanted = AUDIO_QUEUE_TARGET_SAMPLES.saturating_sub(queued_samples);
-    let samples = mixer.drain_realtime_block(0, wanted);
-    if wanted > 0 {
-        let _ = audio_queue.queue_audio(&samples);
+    queue_state.commit_refill(now, queued_samples);
+}
+
+fn queued_audio_samples(audio_queue: &sdl2::audio::AudioQueue<f32>) -> usize {
+    let sample_size_bytes = std::mem::size_of::<f32>();
+    (audio_queue.size() as usize) / sample_size_bytes
+}
+
+struct SdlAudioQueueState {
+    sample_rate_hz: u32,
+    start_instant: Instant,
+    last_refill_instant: Instant,
+    last_queue_after_refill_samples: usize,
+    total_underrun_samples: u64,
+    adaptive_target: AdaptiveQueueController,
+}
+
+impl SdlAudioQueueState {
+    fn new(sample_rate_hz: u32, now: Instant) -> Self {
+        let options = AdaptiveQueueOptions {
+            min_target_samples: AUDIO_QUEUE_TARGET_MIN_SAMPLES,
+            max_target_samples: AUDIO_QUEUE_TARGET_MAX_SAMPLES,
+            ..AdaptiveQueueOptions::default()
+        };
+        let adaptive_target =
+            AdaptiveQueueController::new(AUDIO_QUEUE_TARGET_INITIAL_SAMPLES, 0, 0, options);
+        Self {
+            sample_rate_hz: sample_rate_hz.max(1),
+            start_instant: now,
+            last_refill_instant: now,
+            last_queue_after_refill_samples: 0,
+            total_underrun_samples: 0,
+            adaptive_target,
+        }
+    }
+
+    fn observe_and_update_target(
+        &mut self,
+        now: Instant,
+        queued_samples_before_refill: usize,
+    ) -> usize {
+        let elapsed = now.saturating_duration_since(self.last_refill_instant);
+        let underrun_delta = estimate_playback_underrun_samples(
+            self.last_queue_after_refill_samples,
+            elapsed,
+            self.sample_rate_hz,
+        );
+        self.total_underrun_samples = self.total_underrun_samples.saturating_add(underrun_delta);
+        let now_ms = u64::try_from(
+            now.saturating_duration_since(self.start_instant)
+                .as_millis(),
+        )
+        .unwrap_or(u64::MAX);
+        let update = self.adaptive_target.update(
+            now_ms,
+            queued_samples_before_refill,
+            self.total_underrun_samples,
+            AUDIO_REFILL_BLOCK_SAMPLES,
+        );
+        update.target_samples
+    }
+
+    fn commit_refill(&mut self, now: Instant, queued_samples_after_refill: usize) {
+        self.last_refill_instant = now;
+        self.last_queue_after_refill_samples = queued_samples_after_refill;
     }
 }
 
