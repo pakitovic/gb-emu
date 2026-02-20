@@ -3,7 +3,7 @@ use gb_emu::cartridge::Cartridge;
 use gb_emu::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
 use gb_emu::hardware::HardwareModel;
 use gb_emu::input::Button;
-use gb_emu::timing::{DMG_T_CYCLES_PER_SECOND, FramePacer};
+use gb_emu::timing::FramePacer;
 use sdl2::audio::AudioSpecDesired;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -127,11 +127,10 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .into());
             };
             pacer.consume_emulated_cycles(cycles);
-            audio_mixer.push_tcycles(pacer.drain_audio_tcycles());
             produced_frame = true;
         }
 
-        refill_audio_queue(&audio_queue, &mut audio_mixer);
+        refill_audio_queue(&audio_queue, &mut audio_mixer, pacer.drain_audio_tcycles());
 
         if !produced_frame {
             let sleep_for = pacer.duration_until_next_frame();
@@ -180,12 +179,19 @@ fn map_key_to_button(code: Keycode) -> Option<Button> {
     }
 }
 
-fn refill_audio_queue(audio_queue: &sdl2::audio::AudioQueue<f32>, mixer: &mut AudioMixer) {
+fn refill_audio_queue(
+    audio_queue: &sdl2::audio::AudioQueue<f32>,
+    mixer: &mut AudioMixer,
+    pending_tcycles: u64,
+) {
+    mixer.push_tcycles(pending_tcycles);
+
     let sample_size_bytes = std::mem::size_of::<f32>();
-    let queued_samples = (audio_queue.size() as usize) / sample_size_bytes;
+    let mut queued_samples = (audio_queue.size() as usize) / sample_size_bytes;
 
     if queued_samples > AUDIO_QUEUE_MAX_SAMPLES {
         audio_queue.clear();
+        queued_samples = 0;
     }
 
     if queued_samples >= AUDIO_QUEUE_LOW_WATER_SAMPLES {
@@ -193,16 +199,9 @@ fn refill_audio_queue(audio_queue: &sdl2::audio::AudioQueue<f32>, mixer: &mut Au
     }
 
     let wanted = AUDIO_QUEUE_TARGET_SAMPLES.saturating_sub(queued_samples);
-    let samples = mixer.drain_samples(wanted);
-    if !samples.is_empty() {
+    let samples = mixer.drain_realtime_block(0, wanted);
+    if wanted > 0 {
         let _ = audio_queue.queue_audio(&samples);
-    } else if mixer.sample_rate_hz() > 0 {
-        // Keep the queue active when no emulated cycles arrived yet.
-        let keep_alive_tcycles =
-            (DMG_T_CYCLES_PER_SECOND / (mixer.sample_rate_hz() as u64)).saturating_mul(64);
-        mixer.push_tcycles(keep_alive_tcycles);
-        let keep_alive_samples = mixer.drain_samples(64);
-        let _ = audio_queue.queue_audio(&keep_alive_samples);
     }
 }
 

@@ -107,8 +107,14 @@ impl WebEmulator {
 
     pub fn drain_audio_samples(&mut self, max_samples: u32) -> Vec<f32> {
         let pending_tcycles = self.pacer.drain_audio_tcycles();
-        self.audio_mixer.push_tcycles(pending_tcycles);
-        self.audio_mixer.drain_samples(max_samples as usize)
+        self.audio_mixer
+            .drain_synced_samples(pending_tcycles, max_samples as usize)
+    }
+
+    pub fn drain_audio_samples_realtime(&mut self, block_samples: u32) -> Vec<f32> {
+        let pending_tcycles = self.pacer.drain_audio_tcycles();
+        self.audio_mixer
+            .drain_realtime_block(pending_tcycles, block_samples as usize)
     }
 
     pub fn grayscale_frame(&self) -> Vec<u8> {

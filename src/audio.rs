@@ -82,6 +82,23 @@ impl AudioMixer {
         samples
     }
 
+    pub fn drain_synced_samples(&mut self, pending_tcycles: u64, max_samples: usize) -> Vec<f32> {
+        self.push_tcycles(pending_tcycles);
+        self.drain_samples(max_samples)
+    }
+
+    pub fn drain_realtime_block(&mut self, pending_tcycles: u64, block_samples: usize) -> Vec<f32> {
+        if block_samples == 0 {
+            return Vec::new();
+        }
+
+        let mut samples = self.drain_synced_samples(pending_tcycles, block_samples);
+        if samples.len() < block_samples {
+            samples.resize(block_samples, 0.0);
+        }
+        samples
+    }
+
     pub fn drain_all_samples(&mut self) -> Vec<f32> {
         let max_samples = if self.pending_samples > usize::MAX as u64 {
             usize::MAX
@@ -128,5 +145,39 @@ mod tests {
         let samples = mixer.drain_all_samples();
         assert!(!samples.is_empty());
         assert!(samples.iter().any(|sample| *sample != 0.0));
+    }
+
+    #[test]
+    fn drain_synced_samples_pushes_tcycles_before_draining() {
+        let mut mixer = AudioMixer::new(48_000);
+        let tcycles = DMG_T_CYCLES_PER_SECOND / 100;
+        let expected =
+            ((tcycles as u128) * 48_000u128 / (DMG_T_CYCLES_PER_SECOND as u128)) as usize;
+        let samples = mixer.drain_synced_samples(tcycles, 10_000);
+        assert_eq!(samples.len(), expected);
+        assert_eq!(mixer.pending_samples(), 0);
+    }
+
+    #[test]
+    fn drain_realtime_block_pads_with_silence_when_budget_is_short() {
+        let mut mixer = AudioMixer::new(48_000);
+        mixer.set_source(MixerSource::TestTone);
+
+        let tcycles = DMG_T_CYCLES_PER_SECOND / 100;
+        let produced =
+            ((tcycles as u128) * 48_000u128 / (DMG_T_CYCLES_PER_SECOND as u128)) as usize;
+        let samples = mixer.drain_realtime_block(tcycles, 600);
+        assert_eq!(samples.len(), 600);
+        assert!(samples[..produced].iter().any(|sample| *sample != 0.0));
+        assert!(samples[produced..].iter().all(|sample| *sample == 0.0));
+        assert_eq!(mixer.pending_samples(), 0);
+    }
+
+    #[test]
+    fn drain_realtime_block_returns_empty_for_zero_request() {
+        let mut mixer = AudioMixer::new(48_000);
+        let samples = mixer.drain_realtime_block(DMG_T_CYCLES_PER_SECOND, 0);
+        assert!(samples.is_empty());
+        assert_eq!(mixer.pending_samples(), 0);
     }
 }

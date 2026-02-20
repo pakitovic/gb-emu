@@ -51,7 +51,9 @@ For every behavior change:
 
 For refactors:
 - Keep refactors small.
+- Do not unnecessarily constrain functional feature/bug work to tiny diffs; choose the scope needed to complete the requested behavior end-to-end.
 - Add characterization/regression tests before changing behavior-sensitive code whenever practical.
+- Before refactoring behavior-sensitive paths, verify existing tests cover the target behavior; if coverage is missing, add tests first.
 - Verify refactor safety by keeping tests green before and after.
 
 ## Required Validation After Changes
