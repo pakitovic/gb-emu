@@ -42,6 +42,7 @@ scripts/
   dev/
     bootstrap.sh
     create_pr.sh
+    run_sdl2_frontend.sh
     run_web_demo.sh
     setup-hooks.sh
   blargg/
@@ -172,6 +173,19 @@ SDL2 desktop frontend (macOS / Windows / Linux):
 cargo run --features frontend-sdl2 --bin frontend-sdl2 -- <path_to_rom.gb> [dmg0|dmg|mgb|sgb|sgb2]
 ```
 
+SDL2 build/run helper (locks deps, prepares Homebrew SDL2 env on macOS, and clean-rebuilds by default):
+
+```bash
+# Build only (clean + locked SDL2 build)
+scripts/dev/run_sdl2_frontend.sh --no-run
+
+# Build and run
+scripts/dev/run_sdl2_frontend.sh -- <path_to_rom.gb> [dmg0|dmg|mgb|sgb|sgb2]
+
+# Faster iteration without clean
+scripts/dev/run_sdl2_frontend.sh --no-clean -- <path_to_rom.gb>
+```
+
 Web frontend bindings (wasm):
 
 ```bash
@@ -193,6 +207,7 @@ Notes:
 - SDL2 audio uses the core mixer clock bridge and queues PCM in real time.
 - SDL2 queue refill is driven by emulated audio t-cycles; underruns are padded with silence (no synthetic emulated cycles).
 - SDL2 queue target is auto-tuned over time windows (same policy as web) using estimated underruns from elapsed playback vs queued samples.
+- `scripts/dev/run_sdl2_frontend.sh` is the recommended local command for clean SDL2 rebuilds and consistent macOS/Homebrew linker env setup.
 - Optional SDL2 debug tone: set `GB_AUDIO_TEST_TONE=1`.
 - Web helpers:
   - `run_for_elapsed_micros(elapsed_micros)` to step as many emulated frames as host time allows.
