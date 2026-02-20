@@ -11,9 +11,20 @@ const MAX_SPRITES_PER_LINE: usize = 10;
 const MODE3_BG_WARMUP_DOTS: u8 = 12;
 const BG_FIFO_CAPACITY: usize = 16;
 const BG_FETCH_TILE_DOTS: u8 = 6;
+const BG_FETCH_PHASE_DOTS: u8 = 2;
 const MODE3_WINDOW_RESTART_DOTS: u16 = BG_FETCH_TILE_DOTS as u16;
 const OBJ_FETCH_BASE_DOTS: u8 = 6;
 const OBJ_SESSION_SHUTDOWN_PENALTY: [u8; 8] = [3, 2, 3, 2, 3, 2, 2, 2];
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[repr(u8)]
+enum BgFetchPhase {
+    #[default]
+    TileIndex = 0,
+    TileDataLow = 1,
+    TileDataHigh = 2,
+    Push = 3,
+}
 
 #[derive(Clone, Copy)]
 struct ObjCandidate {
@@ -80,7 +91,12 @@ struct Mode3FifoState {
     head: usize,
     len: usize,
     pixels: [u8; BG_FIFO_CAPACITY],
+    bg_fetch_phase: BgFetchPhase,
     bg_fetch_dots_remaining: u8,
+    bg_fetch_tile_index: u8,
+    bg_fetch_tile_line_addr: usize,
+    bg_fetch_low: u8,
+    bg_fetch_high: u8,
     obj_head: usize,
     obj_len: usize,
     obj_pixels: [ObjFifoPixel; BG_FIFO_CAPACITY],
@@ -103,7 +119,12 @@ impl Mode3FifoState {
         self.window_start_x = 0;
         self.head = 0;
         self.len = 0;
-        self.bg_fetch_dots_remaining = BG_FETCH_TILE_DOTS;
+        self.bg_fetch_phase = BgFetchPhase::TileIndex;
+        self.bg_fetch_dots_remaining = BG_FETCH_PHASE_DOTS;
+        self.bg_fetch_tile_index = 0;
+        self.bg_fetch_tile_line_addr = 0;
+        self.bg_fetch_low = 0;
+        self.bg_fetch_high = 0;
         self.obj_head = 0;
         self.obj_len = 0;
         self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
@@ -125,7 +146,12 @@ impl Mode3FifoState {
         self.window_start_x = 0;
         self.head = 0;
         self.len = 0;
+        self.bg_fetch_phase = BgFetchPhase::TileIndex;
         self.bg_fetch_dots_remaining = 0;
+        self.bg_fetch_tile_index = 0;
+        self.bg_fetch_tile_line_addr = 0;
+        self.bg_fetch_low = 0;
+        self.bg_fetch_high = 0;
         self.obj_head = 0;
         self.obj_len = 0;
         self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
@@ -147,7 +173,12 @@ impl Mode3FifoState {
         self.fetch_screen_x = trigger_x.max(0);
         self.head = 0;
         self.len = 0;
-        self.bg_fetch_dots_remaining = BG_FETCH_TILE_DOTS;
+        self.bg_fetch_phase = BgFetchPhase::TileIndex;
+        self.bg_fetch_dots_remaining = BG_FETCH_PHASE_DOTS;
+        self.bg_fetch_tile_index = 0;
+        self.bg_fetch_tile_line_addr = 0;
+        self.bg_fetch_low = 0;
+        self.bg_fetch_high = 0;
     }
 
     fn push(&mut self, color_id: u8) {
@@ -661,28 +692,91 @@ impl PpuState {
     }
 
     fn mode3_step_bg_fetch(bus: &mut Bus, lcdc: u8, y: usize) {
-        if bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0 {
-            if !bus.ppu.mode3_fifo.can_push_8() {
-                return;
+        match bus.ppu.mode3_fifo.bg_fetch_phase {
+            BgFetchPhase::TileIndex | BgFetchPhase::TileDataLow | BgFetchPhase::TileDataHigh => {
+                if bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::TileIndex
+                    && bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0
+                {
+                    if !bus.ppu.mode3_fifo.can_push_8() {
+                        return;
+                    }
+                    bus.ppu.mode3_fifo.bg_fetch_dots_remaining = BG_FETCH_PHASE_DOTS;
+                }
+
+                if bus.ppu.mode3_fifo.bg_fetch_dots_remaining > 0 {
+                    bus.ppu.mode3_fifo.bg_fetch_dots_remaining -= 1;
+                }
+                if bus.ppu.mode3_fifo.bg_fetch_dots_remaining != 0 {
+                    return;
+                }
+
+                match bus.ppu.mode3_fifo.bg_fetch_phase {
+                    BgFetchPhase::TileIndex => {
+                        let (tile_index, tile_line_addr) =
+                            Self::mode3_fetch_tile_index_and_line_addr(
+                                bus,
+                                lcdc,
+                                y,
+                                bus.ppu.mode3_fifo.fetch_screen_x,
+                            );
+                        bus.ppu.mode3_fifo.bg_fetch_tile_index = tile_index;
+                        bus.ppu.mode3_fifo.bg_fetch_tile_line_addr = tile_line_addr;
+                        bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::TileDataLow;
+                        bus.ppu.mode3_fifo.bg_fetch_dots_remaining = BG_FETCH_PHASE_DOTS;
+                        return;
+                    }
+                    BgFetchPhase::TileDataLow => {
+                        bus.ppu.mode3_fifo.bg_fetch_low =
+                            bus.vram[bus.ppu.mode3_fifo.bg_fetch_tile_line_addr];
+                        bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::TileDataHigh;
+                        bus.ppu.mode3_fifo.bg_fetch_dots_remaining = BG_FETCH_PHASE_DOTS;
+                        return;
+                    }
+                    BgFetchPhase::TileDataHigh => {
+                        bus.ppu.mode3_fifo.bg_fetch_high =
+                            bus.vram[bus.ppu.mode3_fifo.bg_fetch_tile_line_addr + 1];
+                        bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::Push;
+                    }
+                    BgFetchPhase::Push => {}
+                }
             }
-            bus.ppu.mode3_fifo.bg_fetch_dots_remaining = BG_FETCH_TILE_DOTS;
+            BgFetchPhase::Push => {}
         }
 
-        bus.ppu.mode3_fifo.bg_fetch_dots_remaining -= 1;
-        if bus.ppu.mode3_fifo.bg_fetch_dots_remaining != 0 {
+        if bus.ppu.mode3_fifo.bg_fetch_phase != BgFetchPhase::Push {
+            return;
+        }
+        if !bus.ppu.mode3_fifo.can_push_8() {
             return;
         }
 
         let fetch_screen_x = bus.ppu.mode3_fifo.fetch_screen_x;
-        let mut fetched_pixels = [0u8; 8];
-        for (lane, pixel) in fetched_pixels.iter_mut().enumerate() {
-            *pixel =
-                Self::mode3_bg_color_id_for_screen_x(bus, lcdc, y, fetch_screen_x + lane as i16);
+        let bit_x_start = Self::mode3_fetch_bit_x_start(bus, fetch_screen_x);
+        if bit_x_start == 0 {
+            for lane in 0..8u8 {
+                let bit = 7u8.wrapping_sub(lane);
+                let color_id = (((bus.ppu.mode3_fifo.bg_fetch_high >> bit) & 1) << 1)
+                    | ((bus.ppu.mode3_fifo.bg_fetch_low >> bit) & 1);
+                bus.ppu.mode3_fifo.push(color_id);
+            }
+        } else {
+            let mut fetched_pixels = [0u8; 8];
+            for (lane, pixel) in fetched_pixels.iter_mut().enumerate() {
+                *pixel = Self::mode3_bg_color_id_for_screen_x(
+                    bus,
+                    lcdc,
+                    y,
+                    fetch_screen_x + lane as i16,
+                );
+            }
+            for color_id in fetched_pixels {
+                bus.ppu.mode3_fifo.push(color_id);
+            }
         }
-        for color_id in fetched_pixels {
-            bus.ppu.mode3_fifo.push(color_id);
-        }
+
         bus.ppu.mode3_fifo.fetch_screen_x += 8;
+        bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::TileIndex;
+        bus.ppu.mode3_fifo.bg_fetch_dots_remaining = 0;
     }
 
     fn extend_mode3_dots(bus: &mut Bus, ly: u8, startup_line: bool, dots: u16) {
@@ -712,6 +806,54 @@ impl PpuState {
         }
 
         Self::background_color_id_for_screen_x(bus, lcdc, y, screen_x)
+    }
+
+    fn mode3_fetch_tile_index_and_line_addr(
+        bus: &Bus,
+        lcdc: u8,
+        y: usize,
+        screen_x: i16,
+    ) -> (u8, usize) {
+        if bus.ppu.mode3_fifo.window_active {
+            let window_map_base = if (lcdc & 0x40) != 0 {
+                0x1C00usize
+            } else {
+                0x1800usize
+            };
+            let window_x = (screen_x - bus.ppu.mode3_fifo.window_start_x).max(0) as usize;
+            let window_y = bus.ppu.window_line_counter as usize;
+            let tile_map_index = (window_y / 8) * 32 + (window_x / 8);
+            let tile_index = bus.vram[window_map_base + tile_map_index];
+            let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, window_y & 0x07);
+            return (tile_index, tile_line_addr);
+        }
+
+        let scx = bus.io[0x43];
+        let scy = bus.io[0x42];
+        let bg_map_base = if (lcdc & 0x08) != 0 {
+            0x1C00usize
+        } else {
+            0x1800usize
+        };
+        let bg_y = (y as u8).wrapping_add(scy);
+        let bg_x = (screen_x as i32 + scx as i32).rem_euclid(256) as u8;
+        let tile_col = (bg_x / 8) as usize;
+        let tile_row = (bg_y / 8) as usize;
+        let tile_map_index = tile_row * 32 + tile_col;
+        let tile_index = bus.vram[bg_map_base + tile_map_index];
+        let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, (bg_y & 0x07) as usize);
+        (tile_index, tile_line_addr)
+    }
+
+    fn mode3_fetch_bit_x_start(bus: &Bus, screen_x: i16) -> u8 {
+        if bus.ppu.mode3_fifo.window_active {
+            let window_x = (screen_x - bus.ppu.mode3_fifo.window_start_x).max(0) as usize;
+            return (window_x & 0x07) as u8;
+        }
+
+        let scx = bus.io[0x43];
+        let bg_x = (screen_x as i32 + scx as i32).rem_euclid(256) as usize;
+        (bg_x & 0x07) as u8
     }
 
     fn window_color_id_for_screen_x(bus: &Bus, lcdc: u8, screen_x: i16) -> u8 {
@@ -1089,6 +1231,11 @@ impl Bus {
     #[cfg(test)]
     pub(super) fn mode3_bg_fetch_dots_remaining(&self) -> u8 {
         self.ppu.mode3_fifo.bg_fetch_dots_remaining
+    }
+
+    #[cfg(test)]
+    pub(super) fn mode3_bg_fetch_phase(&self) -> u8 {
+        self.ppu.mode3_fifo.bg_fetch_phase as u8
     }
 
     #[cfg(test)]
