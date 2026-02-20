@@ -1,3 +1,4 @@
+mod apu;
 mod bus_access;
 mod bus_router;
 mod cpu_context;
@@ -15,6 +16,7 @@ mod serial;
 mod timer;
 
 use crate::cartridge::Cartridge;
+use apu::ApuState;
 use dma::DmaState;
 use joypad::JoypadState;
 use ppu::PpuState;
@@ -36,6 +38,7 @@ pub struct Bus {
     timer: TimerState,
     ppu: PpuState,
     dma: DmaState,
+    apu: ApuState,
     serial: SerialState,
     joypad: JoypadState,
     framebuffer: [u8; LCD_FRAME_PIXELS],

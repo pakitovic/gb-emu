@@ -14,6 +14,7 @@ Current scope:
 - Mode 3 OBJ fetch stalls and sprite pixel mixing are stepped per dot with DMG priority/palette rules (mid-line register writes affect remaining pixels).
 - Mode 3 line duration now grows from runtime OBJ fetch contention (including mid-line OBJ enable/disable effects), reducing reliance on static per-line penalty estimates.
 - Additional PPU/DMA timing edge cases: mode0 STAT source enabled during mode3 triggers on HBlank entry, and DMA restart keeps prior transfer running through the full restart-delay window.
+- APU base timing/control scaffolding: NR52 power control, NR50/NR51 mixer register gating, and DIV-driven frame sequencer stepping (length/sweep/envelope clocks).
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core audio mixer clock bridge from emulated t-cycles to PCM samples.
@@ -106,7 +107,7 @@ Supported models for `--model`:
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 - Dot-stepped OBJ fetch contention now extends Mode 3 at runtime, but full cycle-exact BG/OBJ fetch arbitration is still approximated.
-- APU emulation is not implemented yet; current audio path is timing-synchronized PCM generation (silence by default, optional test tone).
+- APU channel synthesis is not implemented yet; current audio output remains timing-synchronized PCM generation (silence by default, optional test tone), with NR52/NR50/NR51 control-state and frame-sequencer timing now modeled in core.
 
 ## Mapper Coverage Examples
 

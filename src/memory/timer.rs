@@ -14,9 +14,11 @@ impl TimerState {
 
     pub(super) fn write_div(bus: &mut Bus, value: u8) {
         let _ = value;
+        let old_div = bus.timer.div_counter;
         let old_input = bus.timer_input_high();
         bus.timer.div_counter = 0;
         let new_input = bus.timer_input_high();
+        bus.step_apu_frame_sequencer_from_divider(old_div, bus.timer.div_counter);
         if old_input && !new_input {
             bus.increment_tima();
         }
