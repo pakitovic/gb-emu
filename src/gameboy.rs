@@ -1,3 +1,4 @@
+use crate::audio::AnalogCalibrationProfile;
 use crate::cartridge::Cartridge;
 use crate::cartridge::CartridgeError;
 use crate::cartridge::CartridgeMetadata;
@@ -91,6 +92,10 @@ impl GameBoy {
 
     pub fn set_audio_tcycle_stream_enabled(&mut self, enabled: bool) {
         self.bus.set_audio_tcycle_stream_enabled(enabled);
+    }
+
+    pub fn set_audio_analog_calibration(&mut self, calibration: AnalogCalibrationProfile) {
+        self.bus.set_apu_analog_calibration(calibration);
     }
 
     pub fn run_frame_with_limit(&mut self, trace: bool, max_steps: usize) -> Option<u64> {

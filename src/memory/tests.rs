@@ -1,4 +1,5 @@
 use super::*;
+use crate::audio::AnalogCalibrationProfile;
 use crate::hardware::HardwareModel;
 use crate::input::Button;
 
@@ -1300,6 +1301,58 @@ fn apu_analog_profile_is_model_specific() {
     );
     assert!(
         (mgb.apu_analog_soft_clip_drive() - sgb.apu_analog_soft_clip_drive()).abs() > f32::EPSILON
+    );
+}
+
+#[test]
+fn apu_custom_calibration_profile_can_mute_channel_output() {
+    let mut bus = make_test_bus_with_model(HardwareModel::Dmg);
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+
+    let mut calibration = AnalogCalibrationProfile::for_model(HardwareModel::Dmg);
+    calibration.channel_gain = [0.0; 4];
+    calibration.routing_left = [0.0; 4];
+    calibration.routing_right = [0.0; 4];
+    bus.set_apu_analog_calibration(calibration);
+
+    bus.write_byte(0xFF24, 0x77);
+    bus.write_byte(0xFF25, 0x11); // CH1 to both sides
+    bus.write_byte(0xFF11, 0x80);
+    bus.write_byte(0xFF12, 0xF0);
+    bus.write_byte(0xFF13, 0xFC);
+    bus.write_byte(0xFF14, 0x87); // trigger
+    tick_n(&mut bus, 256);
+
+    assert!(
+        bus.apu_last_mixed_sample().abs() < 0.000_01,
+        "expected near-silence with zeroed calibration gain"
+    );
+}
+
+#[test]
+fn apu_custom_calibration_crossfeed_can_inject_right_into_left() {
+    let mut bus = make_test_bus_with_model(HardwareModel::Dmg);
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+    bus.write_byte(0xFF24, 0x77);
+    bus.write_byte(0xFF25, 0x01); // CH1 to right only
+
+    let mut calibration = AnalogCalibrationProfile::for_model(HardwareModel::Dmg);
+    calibration.crossfeed = 0.2;
+    bus.set_apu_analog_calibration(calibration);
+
+    bus.write_byte(0xFF11, 0x80);
+    bus.write_byte(0xFF12, 0xF0);
+    bus.write_byte(0xFF13, 0xFC);
+    bus.write_byte(0xFF14, 0x87); // trigger
+    tick_n(&mut bus, 512);
+
+    let (left, right) = bus.apu_last_mixed_sample_stereo();
+    assert!(right.abs() > 0.01);
+    assert!(
+        left.abs() > 0.001,
+        "expected crossfeed to produce non-zero left output"
     );
 }
 

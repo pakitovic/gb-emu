@@ -1,4 +1,5 @@
 use super::Bus;
+use crate::audio::AnalogCalibrationProfile;
 use crate::hardware::HardwareModel;
 
 const NR10_INDEX: usize = 0x10;
@@ -41,69 +42,6 @@ const DUTY_PATTERNS: [[u8; 8]; 4] = [
 ];
 
 const NOISE_DIVISORS: [u16; 8] = [8, 16, 32, 48, 64, 80, 96, 112];
-
-#[derive(Clone, Copy)]
-struct ApuAnalogProfile {
-    hpf_coeff: f32,
-    low_pass_alpha: f32,
-    channel_gain: f32,
-    left_gain: f32,
-    right_gain: f32,
-    soft_clip_drive: f32,
-    dac_nonlinearity: f32,
-}
-
-impl ApuAnalogProfile {
-    fn for_model(model: HardwareModel) -> Self {
-        match model {
-            HardwareModel::Dmg0 => Self {
-                hpf_coeff: 0.999_958,
-                low_pass_alpha: 0.004_1,
-                channel_gain: 0.265,
-                left_gain: 1.0,
-                right_gain: 1.0,
-                soft_clip_drive: 1.7,
-                dac_nonlinearity: 0.15,
-            },
-            HardwareModel::Dmg => Self {
-                hpf_coeff: 0.999_958,
-                low_pass_alpha: 0.004_6,
-                channel_gain: 0.255,
-                left_gain: 1.0,
-                right_gain: 1.0,
-                soft_clip_drive: 1.6,
-                dac_nonlinearity: 0.12,
-            },
-            HardwareModel::Mgb => Self {
-                hpf_coeff: 0.999_935,
-                low_pass_alpha: 0.006_4,
-                channel_gain: 0.245,
-                left_gain: 0.98,
-                right_gain: 0.98,
-                soft_clip_drive: 1.45,
-                dac_nonlinearity: 0.08,
-            },
-            HardwareModel::Sgb => Self {
-                hpf_coeff: 0.999_910,
-                low_pass_alpha: 0.007_8,
-                channel_gain: 0.235,
-                left_gain: 0.95,
-                right_gain: 0.95,
-                soft_clip_drive: 1.35,
-                dac_nonlinearity: 0.06,
-            },
-            HardwareModel::Sgb2 => Self {
-                hpf_coeff: 0.999_915,
-                low_pass_alpha: 0.007_5,
-                channel_gain: 0.24,
-                left_gain: 0.96,
-                right_gain: 0.96,
-                soft_clip_drive: 1.3,
-                dac_nonlinearity: 0.06,
-            },
-        }
-    }
-}
 
 #[derive(Clone, Copy, Default)]
 struct EnvelopeState {
@@ -654,7 +592,7 @@ impl NoiseChannel {
 }
 
 pub(super) struct ApuState {
-    analog_profile: ApuAnalogProfile,
+    analog_profile: AnalogCalibrationProfile,
     enabled: bool,
     channel_on_mask: u8,
     frame_sequencer_step: u8,
@@ -682,7 +620,7 @@ pub(super) struct ApuState {
 impl Default for ApuState {
     fn default() -> Self {
         Self {
-            analog_profile: ApuAnalogProfile::for_model(HardwareModel::Dmg),
+            analog_profile: AnalogCalibrationProfile::for_model(HardwareModel::Dmg).normalized(),
             enabled: false,
             channel_on_mask: 0,
             frame_sequencer_step: 0,
@@ -713,7 +651,7 @@ impl ApuState {
     fn from_boot_registers(io: &[u8; 0x80], model: HardwareModel) -> Self {
         let nr52 = io[NR52_INDEX];
         let mut state = Self {
-            analog_profile: ApuAnalogProfile::for_model(model),
+            analog_profile: AnalogCalibrationProfile::for_model(model).normalized(),
             enabled: (nr52 & 0x80) != 0,
             channel_on_mask: nr52 & 0x0F,
             ..Self::default()
@@ -779,6 +717,10 @@ impl ApuState {
         self.last_mixed_sample_left = 0.0;
         self.last_mixed_sample_right = 0.0;
         self.last_mixed_sample = 0.0;
+        self.reset_analog_filter_state();
+    }
+
+    fn reset_analog_filter_state(&mut self) {
         self.lpf_output_prev_left = 0.0;
         self.lpf_output_prev_right = 0.0;
         self.hpf_input_prev_left = 0.0;
@@ -856,27 +798,36 @@ impl ApuState {
         let mut right = 0.0f32;
         let mut left = 0.0f32;
         for (index, amplitude) in channel_output.iter().enumerate().take(CHANNEL_COUNT) {
-            let normalized = self.shape_channel_dac(*amplitude);
+            let normalized = self.shape_channel_dac(index, *amplitude);
             if (nr51 & (1 << index)) != 0 {
-                right += normalized;
+                right += normalized * self.analog_profile.routing_right[index];
             }
             if (nr51 & (1 << (index + 4))) != 0 {
-                left += normalized;
+                left += normalized * self.analog_profile.routing_left[index];
             }
         }
 
         let right_volume = (((nr50 & 0x07) as f32) + 1.0) / 8.0;
         let left_volume = ((((nr50 >> 4) & 0x07) as f32) + 1.0) / 8.0;
-        let right = self.apply_soft_clip(right * right_volume * self.analog_profile.right_gain);
-        let left = self.apply_soft_clip(left * left_volume * self.analog_profile.left_gain);
+        let post_volume_right = right * right_volume;
+        let post_volume_left = left * left_volume;
+        let mixed_left = post_volume_left
+            + post_volume_right * self.analog_profile.crossfeed
+            + self.analog_profile.output_bias_left;
+        let mixed_right = post_volume_right
+            + post_volume_left * self.analog_profile.crossfeed
+            + self.analog_profile.output_bias_right;
+        let right = self.apply_soft_clip(mixed_right * self.analog_profile.right_gain);
+        let left = self.apply_soft_clip(mixed_left * self.analog_profile.left_gain);
         (left, right)
     }
 
-    fn shape_channel_dac(&self, amplitude: i16) -> f32 {
+    fn shape_channel_dac(&self, channel_index: usize, amplitude: i16) -> f32 {
         let normalized = (amplitude as f32) / 15.0;
         let cubic = normalized * normalized * normalized;
-        (normalized - self.analog_profile.dac_nonlinearity * cubic)
-            * self.analog_profile.channel_gain
+        (normalized - self.analog_profile.channel_nonlinearity[channel_index] * cubic)
+            * self.analog_profile.channel_gain[channel_index]
+            + self.analog_profile.channel_bias[channel_index]
     }
 
     fn apply_soft_clip(&self, sample: f32) -> f32 {
@@ -912,6 +863,11 @@ impl ApuState {
 impl Bus {
     pub(super) fn sync_apu_boot_state(&mut self, model: HardwareModel) {
         self.apu = ApuState::from_boot_registers(&self.io, model);
+    }
+
+    pub fn set_apu_analog_calibration(&mut self, calibration: AnalogCalibrationProfile) {
+        self.apu.analog_profile = calibration.normalized();
+        self.apu.reset_analog_filter_state();
     }
 
     pub(super) fn read_nr52(&self) -> u8 {

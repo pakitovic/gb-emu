@@ -1,4 +1,4 @@
-use gb_emu::audio::AudioMixer;
+use gb_emu::audio::{AnalogCalibrationProfile, AudioMixer};
 use gb_emu::cartridge::{Cartridge, CartridgeError, CartridgeMapper};
 use gb_emu::gameboy::GameBoy;
 use gb_emu::hardware::HardwareModel;
@@ -354,6 +354,42 @@ fn apu_model_specific_analog_profiles_produce_distinct_levels_via_gameboy_bus() 
         (dmg_rms - mgb_rms).abs() > 0.005,
         "expected model-specific analog profiles to produce distinct RMS (dmg={dmg_rms}, mgb={mgb_rms})"
     );
+}
+
+#[test]
+fn apu_custom_calibration_profile_changes_output_level_via_gameboy_api() {
+    fn run_with_calibration(calibration: AnalogCalibrationProfile) -> f32 {
+        let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("valid ROM should load");
+        let mut gb = GameBoy::new_with_model(cartridge, HardwareModel::Dmg);
+        gb.set_audio_tcycle_stream_enabled(true);
+        gb.set_audio_analog_calibration(calibration);
+
+        gb.bus.write_byte(0xFF26, 0x00);
+        gb.bus.write_byte(0xFF26, 0x80);
+        gb.bus.write_byte(0xFF24, 0x77);
+        gb.bus.write_byte(0xFF25, 0x22); // CH2 to both sides
+        gb.bus.write_byte(0xFF16, 0x80);
+        gb.bus.write_byte(0xFF17, 0xF0);
+        gb.bus.write_byte(0xFF18, 0xFC);
+        gb.bus.write_byte(0xFF19, 0x87); // trigger
+
+        tick_n_tcycles(&mut gb, 24_000);
+        let samples = gb.drain_audio_tcycle_samples();
+        assert!(!samples.is_empty());
+        left_channel_rms(&samples, 4_000)
+    }
+
+    let default_profile = AnalogCalibrationProfile::for_model(HardwareModel::Dmg);
+    let mut boosted_profile = default_profile;
+    for gain in &mut boosted_profile.channel_gain {
+        *gain *= 1.8;
+    }
+    boosted_profile.soft_clip_drive = 2.0;
+
+    let default_rms = run_with_calibration(default_profile);
+    let boosted_rms = run_with_calibration(boosted_profile);
+    assert!(default_rms > 0.0);
+    assert!(boosted_rms > default_rms * 1.2);
 }
 
 #[test]
