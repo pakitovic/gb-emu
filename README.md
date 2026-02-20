@@ -16,7 +16,7 @@ Current scope:
 - Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core audio mixer clock bridge from emulated t-cycles to PCM samples.
 - Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
-- Cartridge header ROM size decoding across standard size codes, mapper-specific RAM enable/banking behavior, and battery-backed persistence (`.sav`, plus `.rtc` for MBC3 timer cartridges).
+- Cartridge header ROM size decoding across standard size codes, mapper-specific RAM enable/banking behavior (including MBC5 rumble register semantics), and battery-backed persistence (`.sav`, plus `.rtc` for MBC3 timer cartridges).
 - SDL2 frontend adaptive audio queue targeting with underrun estimation from queue depth and host time.
 - Minimal browser demo (`web/minimal`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
 - Minimal browser demo audio telemetry plus adaptive queue targeting for underrun recovery and latency tuning.
@@ -90,7 +90,7 @@ Supported models for `--model`:
   - MBC1 family (0x01/0x02/0x03) with RAM enable and RAM banking mode support.
   - MBC2 family (0x05/0x06) with 512x4-bit internal RAM behavior.
   - MBC3 family (0x0F/0x10/0x11/0x12/0x13) with ROM/RAM banking and RTC register/latch support.
-  - MBC5 family including rumble variants (0x19..0x1E), with ROM/RAM banking support (rumble signal itself is currently ignored).
+  - MBC5 family including rumble variants (0x19..0x1E), with ROM/RAM banking support and rumble control-bit tracking.
 - Supported ROM size codes: 0x00..0x08 and 0x52/0x53/0x54 (validated against exact file length).
 - Supported RAM size codes: 0x00..0x05 for supported cartridge families.
 - For compatibility with legacy test ROM conventions, RAM-capable cartridge types declaring RAM size code `0x00` get a transient 8KB external RAM window.
@@ -218,6 +218,7 @@ scripts/dev/run_web_demo.sh
 
 Notes:
 - The core remains frontend-agnostic and can be embedded by multiple frontends.
+- MBC5 rumble status is exposed from core (`GameBoy::cartridge_has_rumble()`, `GameBoy::rumble_active()`), but no host haptics backend is wired yet.
 - Current web entrypoint is `WebEmulator` in `src/web.rs`.
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2/Web pacing uses `timing::FramePacer` from the core to avoid frontend-specific timing drift.

@@ -21,4 +21,12 @@ impl Bus {
     pub fn flush_battery_save(&mut self) -> Result<(), CartridgeError> {
         self.cartridge.flush_save()
     }
+
+    pub fn cartridge_has_rumble(&self) -> bool {
+        self.cartridge.has_rumble()
+    }
+
+    pub fn rumble_active(&self) -> bool {
+        self.cartridge.rumble_active()
+    }
 }

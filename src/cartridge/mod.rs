@@ -289,6 +289,8 @@ pub struct Cartridge {
     ram_bank_count: usize,
     has_battery: bool,
     has_timer: bool,
+    has_rumble: bool,
+    rumble_active: bool,
     save_path: Option<PathBuf>,
     rtc_path: Option<PathBuf>,
     save_dirty: bool,
@@ -323,6 +325,7 @@ impl Cartridge {
         let Some(spec) = cartridge_spec(cart_type) else {
             return Err(CartridgeError::UnsupportedCartridgeType(cart_type));
         };
+        let has_rumble = is_mbc5_rumble_type(cart_type);
 
         let rom_size_code = rom[0x0148];
         let Some(expected_len) = rom_size_bytes_from_code(rom_size_code) else {
@@ -402,6 +405,8 @@ impl Cartridge {
             ram_bank_count,
             has_battery: spec.has_battery,
             has_timer: spec.has_timer,
+            has_rumble,
+            rumble_active: false,
             save_path: None,
             rtc_path: None,
             save_dirty: false,
@@ -483,7 +488,12 @@ impl Cartridge {
                         (self.mbc5_rom_bank & 0x00FF) | (((value & 0x01) as u16) << 8);
                 }
                 0x4000..=0x5FFF => {
-                    self.mbc5_ram_bank = value & 0x0F;
+                    if self.has_rumble {
+                        self.rumble_active = (value & 0x08) != 0;
+                        self.mbc5_ram_bank = value & 0x07;
+                    } else {
+                        self.mbc5_ram_bank = value & 0x0F;
+                    }
                 }
                 _ => {}
             },
@@ -603,6 +613,14 @@ impl Cartridge {
 
     pub fn has_battery_save(&self) -> bool {
         self.has_battery && (!self.ram.is_empty() || self.has_timer)
+    }
+
+    pub fn has_rumble(&self) -> bool {
+        self.has_rumble
+    }
+
+    pub fn rumble_active(&self) -> bool {
+        self.has_rumble && self.rumble_active
     }
 
     fn attach_save_from_rom_path(&mut self, rom_path: &Path) -> Result<(), CartridgeError> {
@@ -848,6 +866,13 @@ fn mapper_uses_ram_gate(mapper: MapperType) -> bool {
     )
 }
 
+fn is_mbc5_rumble_type(cart_type: u8) -> bool {
+    matches!(
+        cart_type,
+        MBC5_RUMBLE | MBC5_RUMBLE_RAM | MBC5_RUMBLE_RAM_BATTERY
+    )
+}
+
 fn rom_size_bytes_from_code(code: u8) -> Option<usize> {
     let bytes = match code {
         0x00 => 2 * ROM_BANK_BYTES,
@@ -1054,6 +1079,55 @@ mod tests {
         assert_eq!(cart.read_ram_byte(0xA000), 0x11);
         cart.write_rom_control(0x4000, 0x01);
         assert_eq!(cart.read_ram_byte(0xA000), 0x22);
+    }
+
+    #[test]
+    fn mbc5_non_rumble_uses_full_4bit_ram_bank_register() {
+        let rom = make_rom(64 * 1024, MBC5_RAM, 0x01, 0x04);
+        let mut cart = Cartridge::from_bytes(rom).expect("valid MBC5 ROM should load");
+        cart.write_rom_control(0x0000, 0x0A);
+
+        cart.write_rom_control(0x4000, 0x00);
+        cart.write_ram_byte(0xA000, 0x11);
+
+        cart.write_rom_control(0x4000, 0x08);
+        cart.write_ram_byte(0xA000, 0x88);
+
+        cart.write_rom_control(0x4000, 0x00);
+        assert_eq!(cart.read_ram_byte(0xA000), 0x11);
+        cart.write_rom_control(0x4000, 0x08);
+        assert_eq!(cart.read_ram_byte(0xA000), 0x88);
+        assert!(!cart.has_rumble());
+        assert!(!cart.rumble_active());
+    }
+
+    #[test]
+    fn mbc5_rumble_masks_ram_bank_bit3_and_tracks_motor_state() {
+        let rom = make_rom(64 * 1024, MBC5_RUMBLE_RAM_BATTERY, 0x01, 0x04);
+        let mut cart = Cartridge::from_bytes(rom).expect("valid MBC5 RUMBLE ROM should load");
+        cart.write_rom_control(0x0000, 0x0A);
+
+        cart.write_rom_control(0x4000, 0x00);
+        cart.write_ram_byte(0xA000, 0x11);
+
+        cart.write_rom_control(0x4000, 0x08);
+        assert!(cart.rumble_active());
+        cart.write_ram_byte(0xA000, 0x22);
+
+        cart.write_rom_control(0x4000, 0x00);
+        assert!(!cart.rumble_active());
+        assert_eq!(cart.read_ram_byte(0xA000), 0x22);
+
+        cart.write_rom_control(0x4000, 0x01);
+        cart.write_ram_byte(0xA000, 0x33);
+
+        cart.write_rom_control(0x4000, 0x09);
+        assert!(cart.rumble_active());
+        assert_eq!(cart.read_ram_byte(0xA000), 0x33);
+
+        cart.write_rom_control(0x4000, 0x00);
+        assert_eq!(cart.read_ram_byte(0xA000), 0x22);
+        assert!(cart.has_rumble());
     }
 
     #[test]

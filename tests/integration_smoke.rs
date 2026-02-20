@@ -38,6 +38,14 @@ fn make_mbc3_timer_rom_32kb() -> Vec<u8> {
     rom
 }
 
+fn make_mbc5_rumble_ram_battery_rom_64kb() -> Vec<u8> {
+    let mut rom = vec![0; 64 * 1024];
+    rom[0x0147] = 0x1E; // MBC5+RUMBLE+RAM+BATTERY
+    rom[0x0148] = 0x01; // 64KB
+    rom[0x0149] = 0x04; // 128KB RAM to validate bank bit masking
+    rom
+}
+
 fn unique_temp_file_path(name: &str, ext: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -152,4 +160,36 @@ fn mbc3_rtc_registers_are_accessible_via_gameboy_bus() {
     gb.bus.write_byte(0x6000, 0x00); // latch step 1
     gb.bus.write_byte(0x6000, 0x01); // latch step 2
     assert_eq!(gb.bus.read_byte(0xA000), 42);
+}
+
+#[test]
+fn mbc5_rumble_uses_low3_ram_bank_bits_via_gameboy_bus() {
+    let cartridge = Cartridge::from_bytes(make_mbc5_rumble_ram_battery_rom_64kb())
+        .expect("cartridge should load");
+    let mut gb = GameBoy::new(cartridge);
+
+    assert!(gb.cartridge_has_rumble());
+    assert!(!gb.rumble_active());
+
+    gb.bus.write_byte(0x0000, 0x0A); // RAM enable
+    gb.bus.write_byte(0x4000, 0x00); // bank 0, rumble off
+    gb.bus.write_byte(0xA000, 0x11);
+
+    gb.bus.write_byte(0x4000, 0x08); // bank 0, rumble on
+    assert!(gb.rumble_active());
+    gb.bus.write_byte(0xA000, 0x22);
+
+    gb.bus.write_byte(0x4000, 0x00); // bank 0, rumble off
+    assert!(!gb.rumble_active());
+    assert_eq!(gb.bus.read_byte(0xA000), 0x22);
+
+    gb.bus.write_byte(0x4000, 0x01); // bank 1, rumble off
+    gb.bus.write_byte(0xA000, 0x33);
+
+    gb.bus.write_byte(0x4000, 0x09); // bank 1, rumble on
+    assert!(gb.rumble_active());
+    assert_eq!(gb.bus.read_byte(0xA000), 0x33);
+
+    gb.bus.write_byte(0x4000, 0x00); // bank 0
+    assert_eq!(gb.bus.read_byte(0xA000), 0x22);
 }
