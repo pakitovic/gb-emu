@@ -17,6 +17,7 @@ impl HardwareScheduler {
         bus.step_oam_dma();
 
         let divider_step = bus.step_timer_divider();
+        bus.step_apu_frame_sequencer_from_divider(divider_step.old_div, divider_step.new_div);
         bus.step_serial(divider_step.old_div, divider_step.new_div);
         bus.step_timer_falling_edge(divider_step);
 

@@ -19,11 +19,13 @@ impl Bus {
             timer: Default::default(),
             ppu: Default::default(),
             dma: Default::default(),
+            apu: Default::default(),
             serial: Default::default(),
             joypad: Default::default(),
             framebuffer: [0xFF; super::LCD_FRAME_PIXELS],
         };
         bus.apply_boot_defaults(model);
+        bus.sync_apu_boot_state();
         bus.ppu.stat_irq_line = bus.stat_irq_source_active();
         bus
     }
