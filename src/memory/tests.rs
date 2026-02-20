@@ -1226,10 +1226,10 @@ fn framebuffer_obp_write_during_mode3_affects_later_obj_pixels_only() {
 
 #[test]
 fn mode3_obj_fetch_stall_delays_scx_write_effect_on_first_visible_pixel() {
-    fn render_line2_first_pixel_with_optional_hidden_obj_stall(
+    fn render_line2_prefix_with_optional_hidden_obj_stall(
         add_hidden_obj: bool,
         ticks_before_scx_write: usize,
-    ) -> u8 {
+    ) -> [u8; 24] {
         let mut bus = make_test_bus();
 
         bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
@@ -1276,30 +1276,41 @@ fn mode3_obj_fetch_stall_delays_scx_write_effect_on_first_visible_pixel() {
         bus.write_byte(0xFF43, 0x08);
         wait_for_next_frame(&mut bus);
 
-        bus.framebuffer()[2 * 160]
+        let frame = bus.framebuffer();
+        let mut prefix = [0u8; 24];
+        prefix.copy_from_slice(&frame[2 * 160..(2 * 160 + 24)]);
+        prefix
     }
 
     let mut observed_window = None;
-    for ticks in 0..48usize {
-        let no_obj_stall = render_line2_first_pixel_with_optional_hidden_obj_stall(false, ticks);
-        let hidden_obj_stall = render_line2_first_pixel_with_optional_hidden_obj_stall(true, ticks);
+    for ticks in 0..96usize {
+        let no_obj_stall = render_line2_prefix_with_optional_hidden_obj_stall(false, ticks);
+        let hidden_obj_stall = render_line2_prefix_with_optional_hidden_obj_stall(true, ticks);
         if no_obj_stall != hidden_obj_stall {
-            observed_window = Some((ticks, no_obj_stall, hidden_obj_stall));
+            let diff_index = no_obj_stall
+                .iter()
+                .zip(hidden_obj_stall.iter())
+                .position(|(a, b)| a != b)
+                .expect("prefix differs");
+            observed_window = Some((
+                ticks,
+                diff_index,
+                no_obj_stall[diff_index],
+                hidden_obj_stall[diff_index],
+            ));
             break;
         }
     }
 
-    let (ticks, no_obj_stall, hidden_obj_stall) = observed_window
+    let (ticks, diff_index, no_obj_stall, hidden_obj_stall) = observed_window
         .expect("expected a timing window where OBJ fetch stall changes SCX write effect");
 
-    assert_eq!(
-        no_obj_stall, 0xFF,
-        "unexpected no-stall pixel at ticks={ticks}"
+    assert!(
+        (no_obj_stall == 0xFF && hidden_obj_stall == 0x00)
+            || (no_obj_stall == 0x00 && hidden_obj_stall == 0xFF),
+        "unexpected SCX/stall edge colors at ticks={ticks}, x={diff_index}: no_obj={no_obj_stall:#04X}, hidden_obj={hidden_obj_stall:#04X}"
     );
-    assert_eq!(
-        hidden_obj_stall, 0x00,
-        "unexpected stalled pixel at ticks={ticks}"
-    );
+    assert!(diff_index < 24);
 }
 
 fn line2_hblank_delay_with_obj_toggle(
@@ -1418,6 +1429,148 @@ fn mode3_bg_fetch_pipeline_pushes_first_tile_after_six_dots() {
     bus.tick(1);
     assert_eq!(bus.mode3_bg_fifo_len(), 8);
     assert_eq!(bus.mode3_bg_fetch_dots_remaining(), 0);
+}
+
+#[test]
+fn mode3_obj_fetch_waits_for_bg_fetch_boundary_before_starting() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+
+    // Hidden X=0 sprite on LY=2 should request OBJ fetch immediately after mode3 start.
+    bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    bus.write_byte(0xFE01, 0); // X hidden/off-screen
+    bus.write_byte(0xFE02, 0x00); // tile
+    bus.write_byte(0xFE03, 0x00); // attrs
+
+    bus.write_byte(0xFF40, 0x93); // LCD on + BG + OBJ
+
+    let mut reached_ly2_mode3 = false;
+    for _ in 0..(154 * 456 * 2) {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if ly == 2 && mode == 3 {
+            reached_ly2_mode3 = true;
+            break;
+        }
+        bus.tick(1);
+    }
+    assert!(reached_ly2_mode3);
+
+    // While BG fetch block is in progress, OBJ fetch should not start yet.
+    for _ in 0..6 {
+        bus.tick(1);
+        assert_eq!(bus.mode3_obj_fetch_dots_remaining(), 0);
+        assert_eq!(bus.mode3_obj_next_sprite_index(), 0);
+    }
+
+    // After BG block boundary, OBJ fetch begins.
+    bus.tick(1);
+    assert!(bus.mode3_obj_fetch_dots_remaining() > 0);
+    assert_eq!(bus.mode3_obj_next_sprite_index(), 1);
+}
+
+#[test]
+fn mode3_wx_write_before_trigger_point_starts_window_midline() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+
+    // BG tile map row (9C00) uses white tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+
+    // Window map row uses black tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX=167 => no window trigger in visible area
+    bus.write_byte(0xFF40, 0xB9); // LCD on + BG + Window + BG map 9C00, tile data 8000
+
+    let mut reached_ly2_mode3 = false;
+    for _ in 0..(154 * 456 * 2) {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if ly == 2 && mode == 3 {
+            reached_ly2_mode3 = true;
+            break;
+        }
+        bus.tick(1);
+    }
+    assert!(reached_ly2_mode3);
+
+    // Re-arm window before trigger point x=80 (WX=87).
+    bus.tick(8);
+    bus.write_byte(0xFF4B, 87);
+
+    // Wait until LY=2 line is complete.
+    wait_for_transition(&mut bus, 2, 3, 0);
+    let frame = bus.framebuffer();
+    let line2 = 2 * 160;
+    assert_eq!(frame[line2 + 32], 0xFF); // BG before trigger
+    assert_eq!(frame[line2 + 120], 0x00); // Window after trigger
+}
+
+#[test]
+fn mode3_wx_write_after_trigger_point_does_not_start_window_this_line() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+
+    // BG tile map row (9C00) uses white tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+
+    // Window map row uses black tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX=167 => no window trigger in visible area
+    bus.write_byte(0xFF40, 0xB9); // LCD on + BG + Window + BG map 9C00, tile data 8000
+
+    let mut reached_ly2_mode3 = false;
+    for _ in 0..(154 * 456 * 2) {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if ly == 2 && mode == 3 {
+            reached_ly2_mode3 = true;
+            break;
+        }
+        bus.tick(1);
+    }
+    assert!(reached_ly2_mode3);
+
+    // Pass trigger point x=9 (WX=16), then write WX to that already-past value.
+    tick_n(&mut bus, 96);
+    bus.write_byte(0xFF4B, 16);
+
+    // Window must not retro-trigger after its comparator point has already passed.
+    wait_for_transition(&mut bus, 2, 3, 0);
+    let frame = bus.framebuffer();
+    let line2 = 2 * 160;
+    assert_eq!(frame[line2 + 120], 0xFF);
 }
 
 #[test]

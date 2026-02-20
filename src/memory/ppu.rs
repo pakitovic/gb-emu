@@ -11,6 +11,7 @@ const MAX_SPRITES_PER_LINE: usize = 10;
 const MODE3_BG_WARMUP_DOTS: u8 = 12;
 const BG_FIFO_CAPACITY: usize = 16;
 const BG_FETCH_TILE_DOTS: u8 = 6;
+const MODE3_WINDOW_RESTART_DOTS: u16 = BG_FETCH_TILE_DOTS as u16;
 const OBJ_FETCH_BASE_DOTS: u8 = 6;
 const OBJ_SESSION_SHUTDOWN_PENALTY: [u8; 8] = [3, 2, 3, 2, 3, 2, 2, 2];
 
@@ -74,6 +75,8 @@ struct Mode3FifoState {
     discard_pixels: u8,
     output_x: u8,
     fetch_screen_x: i16,
+    window_active: bool,
+    window_start_x: i16,
     head: usize,
     len: usize,
     pixels: [u8; BG_FIFO_CAPACITY],
@@ -96,9 +99,11 @@ impl Mode3FifoState {
         self.discard_pixels = discard_pixels;
         self.output_x = 0;
         self.fetch_screen_x = -(discard_pixels as i16);
+        self.window_active = false;
+        self.window_start_x = 0;
         self.head = 0;
         self.len = 0;
-        self.bg_fetch_dots_remaining = 0;
+        self.bg_fetch_dots_remaining = BG_FETCH_TILE_DOTS;
         self.obj_head = 0;
         self.obj_len = 0;
         self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
@@ -116,6 +121,8 @@ impl Mode3FifoState {
         self.discard_pixels = 0;
         self.output_x = 0;
         self.fetch_screen_x = 0;
+        self.window_active = false;
+        self.window_start_x = 0;
         self.head = 0;
         self.len = 0;
         self.bg_fetch_dots_remaining = 0;
@@ -132,6 +139,15 @@ impl Mode3FifoState {
 
     fn can_push_8(&self) -> bool {
         self.len <= 8
+    }
+
+    fn restart_for_window(&mut self, trigger_x: i16) {
+        self.window_active = true;
+        self.window_start_x = trigger_x;
+        self.fetch_screen_x = trigger_x.max(0);
+        self.head = 0;
+        self.len = 0;
+        self.bg_fetch_dots_remaining = BG_FETCH_TILE_DOTS;
     }
 
     fn push(&mut self, color_id: u8) {
@@ -213,6 +229,8 @@ pub(super) struct PpuState {
     pub(super) stat_irq_line: bool,
     pub(super) stat_mode0_enabled_this_line: bool,
     pub(super) frame_counter: u64,
+    window_line_counter: u8,
+    window_triggered_this_line: bool,
     mode3_dots_latched: u16,
     mode3_fifo: Mode3FifoState,
     bg_color_ids_line: [u8; super::LCD_WIDTH],
@@ -228,6 +246,8 @@ impl Default for PpuState {
             stat_irq_line: false,
             stat_mode0_enabled_this_line: false,
             frame_counter: 0,
+            window_line_counter: 0,
+            window_triggered_this_line: false,
             mode3_dots_latched: 0,
             mode3_fifo: Mode3FifoState::default(),
             bg_color_ids_line: [0; super::LCD_WIDTH],
@@ -249,6 +269,8 @@ impl PpuState {
                 bus.ppu.post_enable_phase = 0;
                 bus.ppu.enable_delay = 0;
                 bus.ppu.stat_mode0_enabled_this_line = false;
+                bus.ppu.window_line_counter = 0;
+                bus.ppu.window_triggered_this_line = false;
                 bus.ppu.mode3_dots_latched = 0;
                 bus.ppu.mode3_fifo.reset();
                 bus.ppu.bg_color_ids_line.fill(0);
@@ -263,6 +285,8 @@ impl PpuState {
                 bus.ppu.post_enable_phase = 0;
                 bus.ppu.enable_delay = 0;
                 bus.ppu.stat_mode0_enabled_this_line = false;
+                bus.ppu.window_line_counter = 0;
+                bus.ppu.window_triggered_this_line = false;
                 bus.ppu.mode3_dots_latched = 0;
                 bus.ppu.mode3_fifo.reset();
                 bus.ppu.bg_color_ids_line.fill(0);
@@ -303,6 +327,8 @@ impl PpuState {
         bus.ppu.post_enable_phase = 0;
         bus.ppu.enable_delay = 0;
         bus.ppu.stat_mode0_enabled_this_line = false;
+        bus.ppu.window_line_counter = 0;
+        bus.ppu.window_triggered_this_line = false;
         bus.ppu.mode3_dots_latched = 0;
         bus.ppu.mode3_fifo.reset();
         bus.ppu.bg_color_ids_line.fill(0);
@@ -329,6 +355,7 @@ impl PpuState {
         if ly < 144 && bus.ppu.ly_counter == 0 {
             let startup_line = bus.ppu.startup_line && ly == 0;
             bus.ppu.mode3_dots_latched = Self::mode3_length_tcycles(bus, ly, startup_line);
+            bus.ppu.window_triggered_this_line = false;
         }
 
         if ly < 144 {
@@ -341,11 +368,15 @@ impl PpuState {
         if bus.ppu.ly_counter >= line_length {
             bus.ppu.ly_counter = 0;
             if ly < 144 {
+                if bus.ppu.window_triggered_this_line {
+                    bus.ppu.window_line_counter = bus.ppu.window_line_counter.wrapping_add(1);
+                }
                 bus.ppu.mode3_fifo.reset();
             }
             let next_ly = if ly >= 153 { 0 } else { ly.wrapping_add(1) };
             bus.io[0x44] = next_ly;
             bus.ppu.stat_mode0_enabled_this_line = false;
+            bus.ppu.window_triggered_this_line = false;
 
             if bus.ppu.startup_line && ly == 0 {
                 bus.ppu.startup_line = false;
@@ -357,6 +388,8 @@ impl PpuState {
                 let iflags = bus.interrupt_flags() | (1 << 0);
                 bus.set_interrupt_flags(iflags);
                 bus.ppu.frame_counter = bus.ppu.frame_counter.wrapping_add(1);
+            } else if next_ly == 0 {
+                bus.ppu.window_line_counter = 0;
             }
         }
 
@@ -556,6 +589,8 @@ impl PpuState {
             return;
         }
 
+        Self::mode3_maybe_trigger_window(bus, ly, startup_line);
+
         let screen_x = Self::mode3_current_screen_x(bus);
         if Self::mode3_step_obj_fetch(bus, screen_x) {
             Self::extend_mode3_for_obj_contention(bus, ly, startup_line);
@@ -597,6 +632,34 @@ impl PpuState {
         bus.ppu.mode3_fifo.output_x as i16 - bus.ppu.mode3_fifo.discard_pixels as i16
     }
 
+    fn mode3_window_enabled_on_line(bus: &Bus, ly: u8) -> bool {
+        let lcdc = bus.io[0x40];
+        let wy = bus.io[0x4A];
+        let wx = bus.io[0x4B];
+        (lcdc & 0x20) != 0 && wy < 144 && wx <= 166 && ly >= wy
+    }
+
+    fn mode3_window_trigger_screen_x(bus: &Bus) -> i16 {
+        bus.io[0x4B] as i16 - 7
+    }
+
+    fn mode3_maybe_trigger_window(bus: &mut Bus, ly: u8, startup_line: bool) {
+        if bus.ppu.window_triggered_this_line || !Self::mode3_window_enabled_on_line(bus, ly) {
+            return;
+        }
+
+        let trigger_x = Self::mode3_window_trigger_screen_x(bus);
+        let output_x = bus.ppu.mode3_fifo.output_x as i16;
+        let reached_trigger = output_x == trigger_x || (trigger_x <= 0 && output_x == 0);
+        if !reached_trigger {
+            return;
+        }
+
+        bus.ppu.window_triggered_this_line = true;
+        bus.ppu.mode3_fifo.restart_for_window(trigger_x);
+        Self::extend_mode3_dots(bus, ly, startup_line, MODE3_WINDOW_RESTART_DOTS);
+    }
+
     fn mode3_step_bg_fetch(bus: &mut Bus, lcdc: u8, y: usize) {
         if bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0 {
             if !bus.ppu.mode3_fifo.can_push_8() {
@@ -614,7 +677,7 @@ impl PpuState {
         let mut fetched_pixels = [0u8; 8];
         for (lane, pixel) in fetched_pixels.iter_mut().enumerate() {
             *pixel =
-                Self::bg_window_color_id_for_screen_x(bus, lcdc, y, fetch_screen_x + lane as i16);
+                Self::mode3_bg_color_id_for_screen_x(bus, lcdc, y, fetch_screen_x + lane as i16);
         }
         for color_id in fetched_pixels {
             bus.ppu.mode3_fifo.push(color_id);
@@ -622,64 +685,76 @@ impl PpuState {
         bus.ppu.mode3_fifo.fetch_screen_x += 8;
     }
 
-    fn extend_mode3_for_obj_contention(bus: &mut Bus, ly: u8, startup_line: bool) {
+    fn extend_mode3_dots(bus: &mut Bus, ly: u8, startup_line: bool, dots: u16) {
         let line_len = Self::line_length_tcycles(bus, ly);
         let mode3_start = Self::mode3_start_tcycle(bus, startup_line);
         let mode3_max_dots = line_len.saturating_sub(mode3_start);
-        if bus.ppu.mode3_dots_latched < mode3_max_dots {
-            bus.ppu.mode3_dots_latched = bus.ppu.mode3_dots_latched.saturating_add(1);
+        if bus.ppu.mode3_dots_latched >= mode3_max_dots {
+            return;
         }
+
+        let remaining = mode3_max_dots - bus.ppu.mode3_dots_latched;
+        let extend = remaining.min(dots);
+        bus.ppu.mode3_dots_latched = bus.ppu.mode3_dots_latched.saturating_add(extend);
     }
 
-    fn bg_window_color_id_for_screen_x(bus: &Bus, lcdc: u8, y: usize, screen_x: i16) -> u8 {
+    fn extend_mode3_for_obj_contention(bus: &mut Bus, ly: u8, startup_line: bool) {
+        Self::extend_mode3_dots(bus, ly, startup_line, 1);
+    }
+
+    fn mode3_bg_color_id_for_screen_x(bus: &Bus, lcdc: u8, y: usize, screen_x: i16) -> u8 {
         if (lcdc & 0x01) == 0 {
             return 0;
         }
 
+        if bus.ppu.mode3_fifo.window_active {
+            return Self::window_color_id_for_screen_x(bus, lcdc, screen_x);
+        }
+
+        Self::background_color_id_for_screen_x(bus, lcdc, y, screen_x)
+    }
+
+    fn window_color_id_for_screen_x(bus: &Bus, lcdc: u8, screen_x: i16) -> u8 {
+        let window_map_base = if (lcdc & 0x40) != 0 {
+            0x1C00usize
+        } else {
+            0x1800usize
+        };
+
+        let window_x = screen_x - bus.ppu.mode3_fifo.window_start_x;
+        if window_x < 0 {
+            return 0;
+        }
+        let window_x = window_x as usize;
+        let window_y = bus.ppu.window_line_counter as usize;
+
+        let tile_map_index = (window_y / 8) * 32 + (window_x / 8);
+        let tile_index = bus.vram[window_map_base + tile_map_index];
+        let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, window_y & 0x07);
+        let low = bus.vram[tile_line_addr];
+        let high = bus.vram[tile_line_addr + 1];
+        let bit = 7u8.wrapping_sub((window_x & 0x07) as u8);
+        (((high >> bit) & 1) << 1) | ((low >> bit) & 1)
+    }
+
+    fn background_color_id_for_screen_x(bus: &Bus, lcdc: u8, y: usize, screen_x: i16) -> u8 {
         let scx = bus.io[0x43];
         let scy = bus.io[0x42];
-        let wy = bus.io[0x4A];
-        let wx = bus.io[0x4B];
-        let wx_start = wx as i16 - 7;
 
         let bg_map_base = if (lcdc & 0x08) != 0 {
             0x1C00usize
         } else {
             0x1800usize
         };
-        let window_map_base = if (lcdc & 0x40) != 0 {
-            0x1C00usize
-        } else {
-            0x1800usize
-        };
-        let window_enabled = (lcdc & 0x20) != 0 && wy < 144 && wx <= 166;
-        let window_active_line = window_enabled && y >= wy as usize;
-        let use_window = window_active_line && screen_x >= wx_start;
-
-        let (tile_map_base, tile_col, tile_row, line_in_tile, bit_x) = if use_window {
-            let window_x = (screen_x - wx_start) as usize;
-            let window_y = y - wy as usize;
-            (
-                window_map_base,
-                window_x / 8,
-                window_y / 8,
-                window_y & 0x07,
-                (window_x & 0x07) as u8,
-            )
-        } else {
-            let bg_y = (y as u8).wrapping_add(scy);
-            let bg_x = (screen_x as i32 + scx as i32).rem_euclid(256) as u8;
-            (
-                bg_map_base,
-                (bg_x / 8) as usize,
-                (bg_y / 8) as usize,
-                (bg_y & 0x07) as usize,
-                bg_x & 0x07,
-            )
-        };
+        let bg_y = (y as u8).wrapping_add(scy);
+        let bg_x = (screen_x as i32 + scx as i32).rem_euclid(256) as u8;
+        let tile_col = (bg_x / 8) as usize;
+        let tile_row = (bg_y / 8) as usize;
+        let line_in_tile = (bg_y & 0x07) as usize;
+        let bit_x = bg_x & 0x07;
 
         let tile_map_index = tile_row * 32 + tile_col;
-        let tile_index = bus.vram[tile_map_base + tile_map_index];
+        let tile_index = bus.vram[bg_map_base + tile_map_index];
         let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, line_in_tile);
         let low = bus.vram[tile_line_addr];
         let high = bus.vram[tile_line_addr + 1];
@@ -805,6 +880,10 @@ impl PpuState {
         if bus.ppu.mode3_fifo.obj_shutdown_dots_remaining > 0 {
             bus.ppu.mode3_fifo.obj_shutdown_dots_remaining -= 1;
             return true;
+        }
+
+        if bus.ppu.mode3_fifo.bg_fetch_dots_remaining > 0 {
+            return false;
         }
 
         if bus.ppu.mode3_fifo.obj_next_sprite < bus.ppu.mode3_fifo.obj_sprite_count {
@@ -1010,5 +1089,15 @@ impl Bus {
     #[cfg(test)]
     pub(super) fn mode3_bg_fetch_dots_remaining(&self) -> u8 {
         self.ppu.mode3_fifo.bg_fetch_dots_remaining
+    }
+
+    #[cfg(test)]
+    pub(super) fn mode3_obj_fetch_dots_remaining(&self) -> u8 {
+        self.ppu.mode3_fifo.obj_fetch_dots_remaining
+    }
+
+    #[cfg(test)]
+    pub(super) fn mode3_obj_next_sprite_index(&self) -> usize {
+        self.ppu.mode3_fifo.obj_next_sprite
     }
 }
