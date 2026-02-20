@@ -12,6 +12,7 @@ Current scope:
 - DMG window + sprite (OBJ) composition with priority/palette/flip handling.
 - Mode 3 background/window pixel FIFO stepping per dot (timing-sensitive SCX/window effects are now line-progressive).
 - Mode 3 OBJ fetch stalls and sprite pixel mixing are stepped per dot with DMG priority/palette rules (mid-line register writes affect remaining pixels).
+- Mode 3 line duration now grows from runtime OBJ fetch contention (including mid-line OBJ enable/disable effects), reducing reliance on static per-line penalty estimates.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core audio mixer clock bridge from emulated t-cycles to PCM samples.
@@ -103,7 +104,7 @@ Supported models for `--model`:
 - MBC3 RTC persistence currently uses a sidecar `.rtc` file; this is emulator-specific metadata and not a hardware cartridge dump format.
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
-- Dot-stepped OBJ fetch stalls are modeled, but full cycle-exact BG/OBJ fetch contention is still approximated.
+- Dot-stepped OBJ fetch contention now extends Mode 3 at runtime, but full cycle-exact BG/OBJ fetch arbitration is still approximated.
 - APU emulation is not implemented yet; current audio path is timing-synchronized PCM generation (silence by default, optional test tone).
 
 ## Mapper Coverage Examples
