@@ -983,6 +983,40 @@ fn apu_wave_and_noise_channels_set_status_bits_on_trigger() {
 }
 
 #[test]
+fn apu_hpf_reduces_dc_offset_for_constant_wave_output() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+    bus.write_byte(0xFF24, 0x77); // max volume
+    bus.write_byte(0xFF25, 0x44); // CH3 to both sides
+
+    // Constant max wave sample -> DC-like input before HPF.
+    for addr in 0xFF30..=0xFF3F {
+        bus.write_byte(addr, 0xFF);
+    }
+
+    bus.write_byte(0xFF1A, 0x80); // CH3 DAC on
+    bus.write_byte(0xFF1C, 0x20); // 100% output level
+    bus.write_byte(0xFF1D, 0x00); // frequency low
+    bus.write_byte(0xFF1E, 0x80); // trigger
+
+    let mut early_peak = 0.0f32;
+    for _ in 0..128 {
+        bus.tick(1);
+        early_peak = early_peak.max(bus.apu_last_mixed_sample().abs());
+    }
+
+    tick_n(&mut bus, 80_000);
+    let late_abs = bus.apu_last_mixed_sample().abs();
+
+    assert!(early_peak > 0.1);
+    assert!(
+        late_abs < early_peak * 0.25,
+        "expected HPF to reduce DC offset over time (early={early_peak}, late={late_abs})"
+    );
+}
+
+#[test]
 fn apu_boot_nr52_channel_status_bit_is_stable_after_first_tick() {
     let mut bus = make_test_bus_with_model(HardwareModel::Dmg);
     assert_eq!(bus.read_byte(0xFF26) & 0x0F, 0x01);

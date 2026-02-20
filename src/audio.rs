@@ -191,9 +191,7 @@ pub struct AudioMixer {
     pending_samples: u64,
     tone_phase: f32,
     core_tcycle_samples: VecDeque<f32>,
-    core_sample_numerator: u128,
-    core_sample_sum: f32,
-    core_sample_count: u32,
+    core_resample_position: f64,
 }
 
 impl AudioMixer {
@@ -205,9 +203,7 @@ impl AudioMixer {
             pending_samples: 0,
             tone_phase: 0.0,
             core_tcycle_samples: VecDeque::new(),
-            core_sample_numerator: 0,
-            core_sample_sum: 0.0,
-            core_sample_count: 0,
+            core_resample_position: 0.0,
         }
     }
 
@@ -225,9 +221,7 @@ impl AudioMixer {
             self.tone_phase = 0.0;
         } else {
             self.core_tcycle_samples.clear();
-            self.core_sample_numerator = 0;
-            self.core_sample_sum = 0.0;
-            self.core_sample_count = 0;
+            self.core_resample_position = 0.0;
         }
         self.source = source;
     }
@@ -258,6 +252,7 @@ impl AudioMixer {
         for sample in tcycle_samples {
             if self.core_tcycle_samples.len() >= MAX_PENDING_CORE_TCYCLE_SAMPLES {
                 self.core_tcycle_samples.pop_front();
+                self.core_resample_position = (self.core_resample_position - 1.0).max(0.0);
             }
             self.core_tcycle_samples.push_back(*sample);
         }
@@ -265,11 +260,16 @@ impl AudioMixer {
 
     pub fn pending_samples(&self) -> u64 {
         if self.source == MixerSource::CoreApu {
-            let pending_numerator = self.core_sample_numerator.saturating_add(
-                (self.core_tcycle_samples.len() as u128)
-                    .saturating_mul(self.sample_rate_hz as u128),
-            );
-            let pending = pending_numerator / (DMG_T_CYCLES_PER_SECOND as u128);
+            if self.core_tcycle_samples.len() < 2 {
+                return 0;
+            }
+            let step = (DMG_T_CYCLES_PER_SECOND as f64) / (self.sample_rate_hz.max(1) as f64);
+            let available =
+                (self.core_tcycle_samples.len() - 1) as f64 - self.core_resample_position;
+            if available < 0.0 {
+                return 0;
+            }
+            let pending = (available / step).floor() as u128 + 1;
             return u64::try_from(pending).unwrap_or(u64::MAX);
         }
         self.pending_samples
@@ -310,29 +310,34 @@ impl AudioMixer {
 
     fn drain_core_apu_samples(&mut self, max_samples: usize) -> Vec<f32> {
         let mut samples = Vec::with_capacity(max_samples);
+        if self.core_tcycle_samples.len() < 2 {
+            return samples;
+        }
 
+        let step = (DMG_T_CYCLES_PER_SECOND as f64) / (self.sample_rate_hz.max(1) as f64);
         while samples.len() < max_samples {
-            let Some(tcycle_sample) = self.core_tcycle_samples.pop_front() else {
+            let base_index = self.core_resample_position.floor() as usize;
+            if base_index + 1 >= self.core_tcycle_samples.len() {
+                break;
+            }
+
+            let frac = (self.core_resample_position - base_index as f64) as f32;
+            let Some(&s0) = self.core_tcycle_samples.get(base_index) else {
                 break;
             };
+            let Some(&s1) = self.core_tcycle_samples.get(base_index + 1) else {
+                break;
+            };
+            let interpolated = s0 + (s1 - s0) * frac;
+            samples.push(interpolated.clamp(-1.0, 1.0));
+            self.core_resample_position += step;
+        }
 
-            self.core_sample_numerator = self
-                .core_sample_numerator
-                .saturating_add(self.sample_rate_hz as u128);
-            self.core_sample_sum += tcycle_sample;
-            self.core_sample_count = self.core_sample_count.saturating_add(1);
-
-            if self.core_sample_numerator >= (DMG_T_CYCLES_PER_SECOND as u128) {
-                self.core_sample_numerator -= DMG_T_CYCLES_PER_SECOND as u128;
-                let averaged = if self.core_sample_count == 0 {
-                    0.0
-                } else {
-                    self.core_sample_sum / (self.core_sample_count as f32)
-                };
-                samples.push(averaged.clamp(-1.0, 1.0));
-                self.core_sample_sum = 0.0;
-                self.core_sample_count = 0;
-            }
+        let consumed = self.core_resample_position.floor().max(0.0) as usize;
+        if consumed > 0 {
+            let remove = consumed.min(self.core_tcycle_samples.len());
+            self.core_tcycle_samples.drain(..remove);
+            self.core_resample_position -= remove as f64;
         }
 
         samples
@@ -444,10 +449,9 @@ mod tests {
 
         let tcycles = (DMG_T_CYCLES_PER_SECOND / 100) as usize;
         mixer.push_core_tcycle_samples(&vec![0.5; tcycles]);
+        let expected = mixer.pending_samples() as usize;
 
         let samples = mixer.drain_samples(10_000);
-        let expected =
-            ((tcycles as u128) * 48_000u128 / (DMG_T_CYCLES_PER_SECOND as u128)) as usize;
         assert_eq!(samples.len(), expected);
         assert!(samples.iter().all(|sample| (*sample - 0.5).abs() < 0.001));
     }

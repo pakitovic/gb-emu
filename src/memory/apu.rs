@@ -27,6 +27,7 @@ const MAX_PENDING_AUDIO_TCYCLE_SAMPLES: usize = 262_144;
 
 const DIV_APU_BIT: u16 = 1 << 12;
 const CHANNEL_COUNT: usize = 4;
+const DMG_HPF_COEFF: f32 = 0.999_958;
 const MAX_SQUARE_LENGTH: u8 = 64;
 const MAX_NOISE_LENGTH: u8 = 64;
 const MAX_WAVE_LENGTH: u16 = 256;
@@ -502,6 +503,8 @@ pub(super) struct ApuState {
     wave: WaveChannel,
     noise: NoiseChannel,
     last_mixed_sample: f32,
+    hpf_input_prev: f32,
+    hpf_output_prev: f32,
     pending_tcycle_samples: Vec<f32>,
     capture_tcycle_stream: bool,
 }
@@ -521,6 +524,8 @@ impl Default for ApuState {
             wave: WaveChannel::default(),
             noise: NoiseChannel::default(),
             last_mixed_sample: 0.0,
+            hpf_input_prev: 0.0,
+            hpf_output_prev: 0.0,
             pending_tcycle_samples: Vec::new(),
             capture_tcycle_stream: false,
         }
@@ -586,6 +591,8 @@ impl ApuState {
         self.wave = WaveChannel::default();
         self.noise = NoiseChannel::default();
         self.last_mixed_sample = 0.0;
+        self.hpf_input_prev = 0.0;
+        self.hpf_output_prev = 0.0;
     }
 
     fn step_tcycle(&mut self, io: &[u8; 0x80]) {
@@ -604,7 +611,8 @@ impl ApuState {
         self.refresh_channel_on_mask();
         let should_mix_sample = self.capture_tcycle_stream || cfg!(test);
         if should_mix_sample {
-            self.last_mixed_sample = self.mix_sample(io);
+            let mixed = self.mix_sample(io);
+            self.last_mixed_sample = self.apply_hpf(mixed).clamp(-1.0, 1.0);
             if self.capture_tcycle_stream {
                 self.push_tcycle_sample(self.last_mixed_sample);
             }
@@ -664,6 +672,13 @@ impl ApuState {
         let right = (right / CHANNEL_COUNT as f32) * right_volume;
         let left = (left / CHANNEL_COUNT as f32) * left_volume;
         ((left + right) * 0.5).clamp(-1.0, 1.0)
+    }
+
+    fn apply_hpf(&mut self, input: f32) -> f32 {
+        let output = input - self.hpf_input_prev + self.hpf_output_prev * DMG_HPF_COEFF;
+        self.hpf_input_prev = input;
+        self.hpf_output_prev = output;
+        output
     }
 }
 

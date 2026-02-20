@@ -17,6 +17,7 @@ Current scope:
 - Mode 3 line duration now grows from runtime OBJ fetch contention (including mid-line OBJ enable/disable effects), reducing reliance on static per-line penalty estimates.
 - Additional PPU/DMA timing edge cases: mode0 STAT source enabled during mode3 triggers on HBlank entry, and DMA restart keeps prior transfer running through the full restart-delay window.
 - APU core channel state-machine scaffolding: NR52 power control, NR50/NR51 mixer register gating, CH1/CH2/CH3/CH4 trigger/state progression, and DIV-driven frame sequencer stepping (length/sweep/envelope clocks).
+- APU output path now applies a DMG-style DC-blocking high-pass filter and linear t-cycle-to-PCM resampling for cleaner realtime frontend audio output.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
@@ -109,7 +110,7 @@ Supported models for `--model`:
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 - Dot-stepped OBJ fetch contention now extends Mode 3 at runtime and takeover boundaries include FIFO-stall arbitration; some DMG fetcher bus-phase details (for example full hardware sleep/push micro-ops) are still approximated.
-- APU channel synthesis (CH1/CH2/CH3/CH4) is now audible through SDL2/Web via the core t-cycle audio stream, but output remains a first-pass mixer (mono-downmix + simple resampling) without DMG analog filtering/HPF details yet.
+- APU channel synthesis (CH1/CH2/CH3/CH4) is audible through SDL2/Web via the core t-cycle audio stream with DC-blocking HPF + linear resampling, but analog mixing/output characteristics are still simplified (mono-downmix, no full model-specific analog path).
 
 ## Mapper Coverage Examples
 
