@@ -1482,6 +1482,75 @@ fn mode3_obj_fetch_waits_for_bg_fetch_boundary_before_starting() {
 }
 
 #[test]
+fn mode3_window_trigger_queues_until_bg_takeover_boundary_when_fifo_is_full() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+
+    // BG tile map row (9C00) uses white tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+
+    // Window map row uses black tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 8); // WX => trigger at x=1
+    bus.write_byte(0xFF40, 0xB9); // LCD on + BG + Window + BG map 9C00, tile data 8000
+
+    let mut reached_ly2_mode3 = false;
+    for _ in 0..(154 * 456 * 2) {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if ly == 2 && mode == 3 {
+            reached_ly2_mode3 = true;
+            break;
+        }
+        bus.tick(1);
+    }
+    assert!(reached_ly2_mode3);
+
+    let mut saw_pending_without_boundary = false;
+    for _ in 0..64 {
+        bus.tick(1);
+        if bus.mode3_window_trigger_pending()
+            && !bus.mode3_window_triggered_this_line()
+            && !bus.mode3_window_takeover_boundary()
+        {
+            saw_pending_without_boundary = true;
+            break;
+        }
+    }
+    assert!(
+        saw_pending_without_boundary,
+        "expected window trigger to queue while waiting for a valid BG takeover boundary"
+    );
+
+    let mut triggered = false;
+    for _ in 0..64 {
+        bus.tick(1);
+        if bus.mode3_window_triggered_this_line() {
+            triggered = true;
+            break;
+        }
+    }
+    assert!(
+        triggered,
+        "expected queued window trigger to fire on a later boundary"
+    );
+}
+
+#[test]
 fn mode3_wx_write_before_trigger_point_starts_window_midline() {
     let mut bus = make_test_bus();
 
