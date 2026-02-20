@@ -176,6 +176,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         canvas.present();
     }
 
+    gb.flush_battery_save().map_err(io::Error::other)?;
+
     Ok(())
 }
 

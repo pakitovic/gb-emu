@@ -11,7 +11,6 @@ impl Bus {
         let mut bus = Self {
             cartridge,
             vram: [0; 0x2000],
-            eram: [0; 0x2000],
             wram: [0; 0x2000],
             oam: [0; 0x00A0],
             io: [0; 0x0080],

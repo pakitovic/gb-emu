@@ -34,7 +34,7 @@ impl Bus {
         match main_region(addr) {
             MainRegion::Rom => self.cartridge.read_rom_byte(addr),
             MainRegion::Vram => self.vram[(addr - 0x8000) as usize],
-            MainRegion::Eram => self.eram[(addr - 0xA000) as usize],
+            MainRegion::Eram => self.cartridge.read_ram_byte(addr),
             MainRegion::Wram => self.wram[(addr - 0xC000) as usize],
             MainRegion::Echo => self.wram[(addr - 0xE000) as usize],
             MainRegion::Oam => self.oam[(addr - 0xFE00) as usize],
@@ -57,7 +57,7 @@ impl Bus {
         match region {
             MainRegion::Rom => self.cartridge.write_rom_control(addr, value),
             MainRegion::Vram => self.vram[(addr - 0x8000) as usize] = value,
-            MainRegion::Eram => self.eram[(addr - 0xA000) as usize] = value,
+            MainRegion::Eram => self.cartridge.write_ram_byte(addr, value),
             MainRegion::Wram => self.wram[(addr - 0xC000) as usize] = value,
             MainRegion::Echo => self.wram[(addr - 0xE000) as usize] = value,
             MainRegion::Oam => self.oam[(addr - 0xFE00) as usize] = value,

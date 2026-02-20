@@ -1,4 +1,5 @@
 use crate::cartridge::Cartridge;
+use crate::cartridge::CartridgeError;
 use crate::cpu::Cpu;
 use crate::hardware::HardwareModel;
 use crate::input::Button;
@@ -65,6 +66,10 @@ impl GameBoy {
 
     pub fn framebuffer(&self) -> &[u8; SCREEN_WIDTH * SCREEN_HEIGHT] {
         self.bus.framebuffer()
+    }
+
+    pub fn flush_battery_save(&mut self) -> Result<(), CartridgeError> {
+        self.bus.flush_battery_save()
     }
 
     pub fn run_frame_with_limit(&mut self, trace: bool, max_steps: usize) -> Option<u64> {
