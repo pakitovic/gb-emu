@@ -23,6 +23,7 @@ const NR51_INDEX: usize = 0x25;
 const NR52_INDEX: usize = 0x26;
 const WAVE_RAM_START_INDEX: usize = 0x30;
 const WAVE_RAM_END_INDEX: usize = 0x3F;
+const MAX_PENDING_AUDIO_TCYCLE_SAMPLES: usize = 262_144;
 
 const DIV_APU_BIT: u16 = 1 << 12;
 const CHANNEL_COUNT: usize = 4;
@@ -501,6 +502,7 @@ pub(super) struct ApuState {
     wave: WaveChannel,
     noise: NoiseChannel,
     last_mixed_sample: f32,
+    pending_tcycle_samples: Vec<f32>,
 }
 
 impl Default for ApuState {
@@ -518,6 +520,7 @@ impl Default for ApuState {
             wave: WaveChannel::default(),
             noise: NoiseChannel::default(),
             last_mixed_sample: 0.0,
+            pending_tcycle_samples: Vec::new(),
         }
     }
 }
@@ -586,6 +589,7 @@ impl ApuState {
     fn step_tcycle(&mut self, io: &[u8; 0x80]) {
         if !self.enabled {
             self.last_mixed_sample = 0.0;
+            self.push_tcycle_sample(0.0);
             return;
         }
 
@@ -595,6 +599,14 @@ impl ApuState {
         self.noise.step_tcycle();
         self.refresh_channel_on_mask();
         self.last_mixed_sample = self.mix_sample(io);
+        self.push_tcycle_sample(self.last_mixed_sample);
+    }
+
+    fn push_tcycle_sample(&mut self, sample: f32) {
+        if self.pending_tcycle_samples.len() >= MAX_PENDING_AUDIO_TCYCLE_SAMPLES {
+            return;
+        }
+        self.pending_tcycle_samples.push(sample);
     }
 
     fn refresh_channel_on_mask(&mut self) {
@@ -740,6 +752,13 @@ impl Bus {
 
     pub(super) fn step_apu_tcycle(&mut self) {
         self.apu.step_tcycle(&self.io);
+    }
+
+    pub fn drain_audio_tcycle_samples(&mut self) -> Vec<f32> {
+        if self.apu.pending_tcycle_samples.is_empty() {
+            return Vec::new();
+        }
+        self.apu.pending_tcycle_samples.drain(..).collect()
     }
 
     fn clear_apu_registers(&mut self) {

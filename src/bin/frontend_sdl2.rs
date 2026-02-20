@@ -87,6 +87,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         .map_err(io::Error::other)?;
     audio_queue.resume();
     let mut audio_mixer = AudioMixer::new(audio_queue.spec().freq.max(1) as u32);
+    audio_mixer.set_source(MixerSource::CoreApu);
     if env::var("GB_AUDIO_TEST_TONE")
         .map(|value| value == "1")
         .unwrap_or(false)
@@ -158,6 +159,8 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .into());
             };
             pacer.consume_emulated_cycles(cycles);
+            let tcycle_samples = gb.drain_audio_tcycle_samples();
+            audio_mixer.push_core_tcycle_samples(&tcycle_samples);
             produced_frame = true;
         }
 
