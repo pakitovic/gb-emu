@@ -37,6 +37,9 @@ src/
 tests/
   integration_smoke.rs
 scripts/
+  dev/
+    bootstrap.sh
+    setup-hooks.sh
   blargg/
     fetch_blargg_roms.sh
     run_blargg.sh
@@ -48,7 +51,6 @@ scripts/
     roms_boot_models.txt
   pr/
     create_pr.sh
-  setup-hooks.sh
 web/
   minimal/
     index.html
@@ -92,6 +94,26 @@ Supported models for `--model`:
 - `git`, `curl`, `unzip`, `perl`, and `rg` (ripgrep) for ROM fetch/run scripts.
 - Optional for SDL2 frontend: SDL2 runtime/dev libraries available in the OS.
 - Optional for web frontend: `wasm-pack` (or equivalent wasm build tooling).
+
+Bootstrap helper:
+
+```bash
+# Check core + SDL2 + web dependencies.
+scripts/dev/bootstrap.sh
+
+# Same check, but install wasm-pack automatically when missing.
+scripts/dev/bootstrap.sh --install-wasm-pack
+
+# Skip one frontend when not needed on your machine.
+scripts/dev/bootstrap.sh --skip-sdl2
+scripts/dev/bootstrap.sh --skip-web
+```
+
+Common SDL2 install hints:
+- macOS (Homebrew): `brew install sdl2`
+- Debian/Ubuntu: `sudo apt-get update && sudo apt-get install -y libsdl2-dev`
+- Fedora: `sudo dnf install -y SDL2-devel`
+- Arch Linux: `sudo pacman -S --needed sdl2`
 
 ## Quality and Tests
 
@@ -217,7 +239,7 @@ When adding new ROM suites, document:
 - Keep code identifiers/comments in English.
 - Prefer small, safe refactors with tests.
 - Add/adjust tests whenever behavior changes (unit + integration as needed).
-- Optional local hook setup: `scripts/setup-hooks.sh` (pre-commit runs `cargo fmt-check` and `cargo lint`).
+- Optional local hook setup: `scripts/dev/setup-hooks.sh` (pre-commit runs `cargo fmt-check` and `cargo lint`).
 - PR helper:
   - From a feature branch, run `scripts/pr/create_pr.sh` (or `scripts/pr/create_pr.sh main`).
   - PR title is set to the latest commit subject.
