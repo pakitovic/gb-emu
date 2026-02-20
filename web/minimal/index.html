@@ -97,6 +97,18 @@
       font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
     }
 
+    #cart-info {
+      white-space: pre-wrap;
+      margin: 0;
+      background: #0f171c;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      color: #cde0eb;
+      font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+      font-size: 12px;
+    }
+
     #serial {
       white-space: pre-wrap;
       margin: 0;
@@ -130,6 +142,7 @@
     <canvas id="screen" width="160" height="144" aria-label="Game Boy screen"></canvas>
     <div id="status">Load a ROM to start emulation.</div>
     <div id="audio-telemetry">Audio: disabled</div>
+    <pre id="cart-info" aria-label="Cartridge metadata">Cartridge: not loaded.</pre>
     <pre id="serial" aria-label="Serial output"></pre>
   </main>
   <script type="module" src="./main.js"></script>

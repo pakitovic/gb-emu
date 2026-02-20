@@ -10,6 +10,7 @@ use gb_emu::timing::FramePacer;
 use sdl2::audio::AudioSpecDesired;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use sdl2::messagebox::{MessageBoxFlag, show_simple_message_box};
 use sdl2::pixels::PixelFormatEnum;
 use std::env;
 use std::error::Error;
@@ -37,6 +38,9 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let cartridge = Cartridge::from_file(&rom_path)?;
     let mut gb = GameBoy::new_with_model(cartridge, model);
+    let cartridge_metadata = gb.cartridge_metadata();
+    let cartridge_debug_report = cartridge_metadata.debug_report();
+    println!("{cartridge_debug_report}");
 
     let sdl = sdl2::init().map_err(io::Error::other)?;
     let video = sdl.video().map_err(io::Error::other)?;
@@ -44,7 +48,12 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let window = video
         .window(
-            &format!("gb-emu SDL2 | {}", gb.rom_title()),
+            &format!(
+                "gb-emu SDL2 | {} | {} | warnings {} | F1 cart-info",
+                gb.rom_title(),
+                cartridge_metadata.mapper,
+                cartridge_metadata.header_warnings.len()
+            ),
             (SCREEN_WIDTH as u32) * SCALE,
             (SCREEN_HEIGHT as u32) * SCALE,
         )
@@ -103,6 +112,20 @@ fn run() -> Result<(), Box<dyn Error>> {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'main_loop,
+                Event::KeyDown {
+                    keycode: Some(Keycode::F1),
+                    repeat: false,
+                    ..
+                } => {
+                    if let Err(err) = show_simple_message_box(
+                        MessageBoxFlag::INFORMATION,
+                        "Cartridge metadata",
+                        &cartridge_debug_report,
+                        None,
+                    ) {
+                        eprintln!("SDL2 cart-info panel failed: {err}");
+                    }
+                }
                 Event::KeyDown {
                     keycode: Some(code),
                     repeat: false,

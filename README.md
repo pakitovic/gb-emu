@@ -18,6 +18,7 @@ Current scope:
 - Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
 - Cartridge header ROM size decoding across standard size codes, mapper-specific RAM enable/banking behavior (including MBC5 rumble register semantics), and battery-backed persistence (`.sav`, plus `.rtc` for MBC3 timer cartridges) with atomic file replace writes.
 - Cartridge header diagnostics for Nintendo logo/header checksum/global checksum, exposed as non-blocking warnings in cartridge metadata.
+- Cartridge metadata debug report consumed by CLI (`--cart-info`) and frontends (SDL2 `F1` cart-info panel, web debug panel).
 - SDL2 frontend adaptive audio queue targeting with underrun estimation from queue depth and host time.
 - Minimal browser demo (`web/minimal`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
 - Minimal browser demo audio telemetry plus adaptive queue targeting for underrun recovery and latency tuning.
@@ -39,6 +40,7 @@ src/
   lib.rs
   main.rs
 tests/
+  cli_cart_info.rs
   integration_smoke.rs
 scripts/
   dev/
@@ -75,6 +77,7 @@ Useful flags:
 cargo run -- --trace <path_to_rom.gb>
 cargo run -- --blargg --max-steps 120000000 <path_to_rom.gb>
 cargo run -- --mooneye --model dmg0 <path_to_rom.gb>
+cargo run -- --cart-info <path_to_rom.gb>
 ```
 
 Supported models for `--model`:
@@ -226,6 +229,7 @@ Notes:
 - Cartridge metadata is exposed from core via `Cartridge::metadata()` and `GameBoy::cartridge_metadata()` (type code, mapper, ROM/RAM size codes, bank counts, declared/effective RAM, battery/timer/rumble flags, and header diagnostics warnings).
 - Current web entrypoint is `WebEmulator` in `src/web.rs`.
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
+- SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
 - SDL2/Web pacing uses `timing::FramePacer` from the core to avoid frontend-specific timing drift.
 - SDL2 audio uses the core mixer clock bridge and queues PCM in real time.
 - SDL2 queue refill is driven by emulated audio t-cycles; underruns are padded with silence (no synthetic emulated cycles).
@@ -239,8 +243,9 @@ Notes:
   - `set_audio_sample_rate(rate_hz)` and `drain_audio_samples(max_samples)` for WebAudio feeding.
   - `drain_audio_samples_realtime(block_samples)` for callback-style fixed-size WebAudio blocks.
   - `set_audio_test_tone_enabled(enabled)` for pipeline/debug validation.
+  - `cartridge_debug_report()` and `cartridge_warning_count()` for frontend cartridge diagnostics panels.
 - `web/minimal` is intentionally small and uses `AudioWorkletNode` for lower-latency callback-style audio.
-- `web/minimal` surfaces simple audio telemetry (`queued ms` and cumulative underrun samples/ms) and auto-adjusts the refill target queue based on recent underrun windows.
+- `web/minimal` surfaces cartridge metadata/warnings plus audio telemetry (`queued ms` and cumulative underrun samples/ms) and auto-adjusts the refill target queue based on recent underrun windows.
 
 ## CI
 
