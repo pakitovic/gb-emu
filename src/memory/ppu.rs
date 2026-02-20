@@ -10,6 +10,7 @@ const DMG_SHADE_TO_LUMA: [u8; 4] = [0xFF, 0xAA, 0x55, 0x00];
 const MAX_SPRITES_PER_LINE: usize = 10;
 const MODE3_BG_WARMUP_DOTS: u8 = 12;
 const BG_FIFO_CAPACITY: usize = 16;
+const BG_FETCH_TILE_DOTS: u8 = 6;
 const OBJ_FETCH_BASE_DOTS: u8 = 6;
 const OBJ_SESSION_SHUTDOWN_PENALTY: [u8; 8] = [3, 2, 3, 2, 3, 2, 2, 2];
 
@@ -76,6 +77,7 @@ struct Mode3FifoState {
     head: usize,
     len: usize,
     pixels: [u8; BG_FIFO_CAPACITY],
+    bg_fetch_dots_remaining: u8,
     obj_head: usize,
     obj_len: usize,
     obj_pixels: [ObjFifoPixel; BG_FIFO_CAPACITY],
@@ -96,6 +98,7 @@ impl Mode3FifoState {
         self.fetch_screen_x = -(discard_pixels as i16);
         self.head = 0;
         self.len = 0;
+        self.bg_fetch_dots_remaining = 0;
         self.obj_head = 0;
         self.obj_len = 0;
         self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
@@ -115,6 +118,7 @@ impl Mode3FifoState {
         self.fetch_screen_x = 0;
         self.head = 0;
         self.len = 0;
+        self.bg_fetch_dots_remaining = 0;
         self.obj_head = 0;
         self.obj_len = 0;
         self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
@@ -560,23 +564,7 @@ impl PpuState {
 
         let lcdc = bus.io[0x40];
         let y = ly as usize;
-        let should_fetch = bus.ppu.mode3_fifo.can_push_8();
-        if should_fetch {
-            let fetch_screen_x = bus.ppu.mode3_fifo.fetch_screen_x;
-            let mut fetched_pixels = [0u8; 8];
-            for (lane, pixel) in fetched_pixels.iter_mut().enumerate() {
-                *pixel = Self::bg_window_color_id_for_screen_x(
-                    bus,
-                    lcdc,
-                    y,
-                    fetch_screen_x + lane as i16,
-                );
-            }
-            for color_id in fetched_pixels {
-                bus.ppu.mode3_fifo.push(color_id);
-            }
-            bus.ppu.mode3_fifo.fetch_screen_x += 8;
-        }
+        Self::mode3_step_bg_fetch(bus, lcdc, y);
 
         let color_id = if bus.ppu.mode3_fifo.warmup_dots > 0 {
             bus.ppu.mode3_fifo.warmup_dots -= 1;
@@ -607,6 +595,31 @@ impl PpuState {
 
     fn mode3_current_screen_x(bus: &Bus) -> i16 {
         bus.ppu.mode3_fifo.output_x as i16 - bus.ppu.mode3_fifo.discard_pixels as i16
+    }
+
+    fn mode3_step_bg_fetch(bus: &mut Bus, lcdc: u8, y: usize) {
+        if bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0 {
+            if !bus.ppu.mode3_fifo.can_push_8() {
+                return;
+            }
+            bus.ppu.mode3_fifo.bg_fetch_dots_remaining = BG_FETCH_TILE_DOTS;
+        }
+
+        bus.ppu.mode3_fifo.bg_fetch_dots_remaining -= 1;
+        if bus.ppu.mode3_fifo.bg_fetch_dots_remaining != 0 {
+            return;
+        }
+
+        let fetch_screen_x = bus.ppu.mode3_fifo.fetch_screen_x;
+        let mut fetched_pixels = [0u8; 8];
+        for (lane, pixel) in fetched_pixels.iter_mut().enumerate() {
+            *pixel =
+                Self::bg_window_color_id_for_screen_x(bus, lcdc, y, fetch_screen_x + lane as i16);
+        }
+        for color_id in fetched_pixels {
+            bus.ppu.mode3_fifo.push(color_id);
+        }
+        bus.ppu.mode3_fifo.fetch_screen_x += 8;
     }
 
     fn extend_mode3_for_obj_contention(bus: &mut Bus, ly: u8, startup_line: bool) {
@@ -987,5 +1000,15 @@ impl Bus {
 
     pub(super) fn stat_irq_source_active(&self) -> bool {
         PpuState::stat_irq_source_active(self)
+    }
+
+    #[cfg(test)]
+    pub(super) fn mode3_bg_fifo_len(&self) -> usize {
+        self.ppu.mode3_fifo.len
+    }
+
+    #[cfg(test)]
+    pub(super) fn mode3_bg_fetch_dots_remaining(&self) -> u8 {
+        self.ppu.mode3_fifo.bg_fetch_dots_remaining
     }
 }
