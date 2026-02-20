@@ -9,11 +9,12 @@ crate-type = ["rlib", "cdylib"]
 [features]
 default = []
 frontend-sdl2 = ["dep:sdl2"]
-frontend-web = ["dep:wasm-bindgen"]
+frontend-web = ["dep:wasm-bindgen", "dep:js-sys"]
 
 [dependencies]
 sdl2 = { version = "0.38.0", optional = true }
 wasm-bindgen = { version = "0.2.100", optional = true }
+js-sys = { version = "0.3.77", optional = true }
 
 [[bin]]
 name = "frontend-sdl2"

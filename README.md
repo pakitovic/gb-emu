@@ -231,6 +231,7 @@ Notes:
 - MBC5 rumble status is exposed from core (`GameBoy::cartridge_has_rumble()`, `GameBoy::rumble_active()`), but no host haptics backend is wired yet.
 - Cartridge metadata is exposed from core via `Cartridge::metadata()` and `GameBoy::cartridge_metadata()` (type code, mapper, ROM/RAM size codes, bank counts, declared/effective RAM, battery/timer/rumble flags, and header diagnostics warnings).
 - Current web entrypoint is `WebEmulator` in `src/web.rs`.
+- Web builds use browser wall-clock time (`Date.now`) for MBC3 RTC state to avoid wasm host-time traps.
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
 - SDL2/Web pacing uses `timing::FramePacer` from the core to avoid frontend-specific timing drift.
