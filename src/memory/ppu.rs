@@ -262,6 +262,7 @@ pub(super) struct PpuState {
     pub(super) frame_counter: u64,
     window_line_counter: u8,
     window_triggered_this_line: bool,
+    window_trigger_pending: bool,
     mode3_dots_latched: u16,
     mode3_fifo: Mode3FifoState,
     bg_color_ids_line: [u8; super::LCD_WIDTH],
@@ -279,6 +280,7 @@ impl Default for PpuState {
             frame_counter: 0,
             window_line_counter: 0,
             window_triggered_this_line: false,
+            window_trigger_pending: false,
             mode3_dots_latched: 0,
             mode3_fifo: Mode3FifoState::default(),
             bg_color_ids_line: [0; super::LCD_WIDTH],
@@ -302,6 +304,7 @@ impl PpuState {
                 bus.ppu.stat_mode0_enabled_this_line = false;
                 bus.ppu.window_line_counter = 0;
                 bus.ppu.window_triggered_this_line = false;
+                bus.ppu.window_trigger_pending = false;
                 bus.ppu.mode3_dots_latched = 0;
                 bus.ppu.mode3_fifo.reset();
                 bus.ppu.bg_color_ids_line.fill(0);
@@ -318,6 +321,7 @@ impl PpuState {
                 bus.ppu.stat_mode0_enabled_this_line = false;
                 bus.ppu.window_line_counter = 0;
                 bus.ppu.window_triggered_this_line = false;
+                bus.ppu.window_trigger_pending = false;
                 bus.ppu.mode3_dots_latched = 0;
                 bus.ppu.mode3_fifo.reset();
                 bus.ppu.bg_color_ids_line.fill(0);
@@ -360,6 +364,7 @@ impl PpuState {
         bus.ppu.stat_mode0_enabled_this_line = false;
         bus.ppu.window_line_counter = 0;
         bus.ppu.window_triggered_this_line = false;
+        bus.ppu.window_trigger_pending = false;
         bus.ppu.mode3_dots_latched = 0;
         bus.ppu.mode3_fifo.reset();
         bus.ppu.bg_color_ids_line.fill(0);
@@ -387,6 +392,7 @@ impl PpuState {
             let startup_line = bus.ppu.startup_line && ly == 0;
             bus.ppu.mode3_dots_latched = Self::mode3_length_tcycles(bus, ly, startup_line);
             bus.ppu.window_triggered_this_line = false;
+            bus.ppu.window_trigger_pending = false;
         }
 
         if ly < 144 {
@@ -408,6 +414,7 @@ impl PpuState {
             bus.io[0x44] = next_ly;
             bus.ppu.stat_mode0_enabled_this_line = false;
             bus.ppu.window_triggered_this_line = false;
+            bus.ppu.window_trigger_pending = false;
 
             if bus.ppu.startup_line && ly == 0 {
                 bus.ppu.startup_line = false;
@@ -674,18 +681,50 @@ impl PpuState {
         bus.io[0x4B] as i16 - 7
     }
 
+    fn mode3_bg_takeover_boundary(bus: &Bus) -> bool {
+        bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::TileIndex
+            && bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0
+            && bus.ppu.mode3_fifo.obj_fetch_dots_remaining == 0
+            && bus.ppu.mode3_fifo.obj_shutdown_dots_remaining == 0
+    }
+
+    fn mode3_window_takeover_boundary(bus: &Bus) -> bool {
+        Self::mode3_bg_takeover_boundary(bus) && bus.ppu.mode3_fifo.can_push_8()
+    }
+
     fn mode3_maybe_trigger_window(bus: &mut Bus, ly: u8, startup_line: bool) {
-        if bus.ppu.window_triggered_this_line || !Self::mode3_window_enabled_on_line(bus, ly) {
+        if bus.ppu.window_triggered_this_line {
+            return;
+        }
+        if !Self::mode3_window_enabled_on_line(bus, ly) {
+            bus.ppu.window_trigger_pending = false;
             return;
         }
 
         let trigger_x = Self::mode3_window_trigger_screen_x(bus);
         let output_x = bus.ppu.mode3_fifo.output_x as i16;
         let reached_trigger = output_x == trigger_x || (trigger_x <= 0 && output_x == 0);
-        if !reached_trigger {
+        if !bus.ppu.window_trigger_pending {
+            if !reached_trigger {
+                return;
+            }
+
+            // WX<=7 can start at the beginning of the visible line without
+            // waiting for a later BG takeover boundary.
+            if trigger_x <= 0 {
+                bus.ppu.window_triggered_this_line = true;
+                bus.ppu.mode3_fifo.restart_for_window(trigger_x);
+                Self::extend_mode3_dots(bus, ly, startup_line, MODE3_WINDOW_RESTART_DOTS);
+                return;
+            }
+            bus.ppu.window_trigger_pending = true;
+        }
+
+        if !Self::mode3_window_takeover_boundary(bus) {
             return;
         }
 
+        bus.ppu.window_trigger_pending = false;
         bus.ppu.window_triggered_this_line = true;
         bus.ppu.mode3_fifo.restart_for_window(trigger_x);
         Self::extend_mode3_dots(bus, ly, startup_line, MODE3_WINDOW_RESTART_DOTS);
@@ -1024,7 +1063,7 @@ impl PpuState {
             return true;
         }
 
-        if bus.ppu.mode3_fifo.bg_fetch_dots_remaining > 0 {
+        if !Self::mode3_bg_takeover_boundary(bus) {
             return false;
         }
 
@@ -1246,5 +1285,20 @@ impl Bus {
     #[cfg(test)]
     pub(super) fn mode3_obj_next_sprite_index(&self) -> usize {
         self.ppu.mode3_fifo.obj_next_sprite
+    }
+
+    #[cfg(test)]
+    pub(super) fn mode3_window_triggered_this_line(&self) -> bool {
+        self.ppu.window_triggered_this_line
+    }
+
+    #[cfg(test)]
+    pub(super) fn mode3_window_trigger_pending(&self) -> bool {
+        self.ppu.window_trigger_pending
+    }
+
+    #[cfg(test)]
+    pub(super) fn mode3_window_takeover_boundary(&self) -> bool {
+        PpuState::mode3_window_takeover_boundary(self)
     }
 }
