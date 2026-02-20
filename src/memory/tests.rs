@@ -1413,21 +1413,30 @@ fn mode3_bg_fetch_pipeline_pushes_first_tile_after_six_dots() {
     }
     assert!(reached_ly2_mode3);
 
-    // First Mode 3 render dot starts BG fetch (6 dots total), but does not push yet.
+    // First Mode 3 render dot starts tile-index phase (2 dots).
     bus.tick(1);
     assert_eq!(bus.mode3_bg_fifo_len(), 0);
-    assert_eq!(bus.mode3_bg_fetch_dots_remaining(), 5);
-
-    // After five dots from fetch start, the first tile is still pending.
-    for _ in 0..4 {
-        bus.tick(1);
-    }
-    assert_eq!(bus.mode3_bg_fifo_len(), 0);
+    assert_eq!(bus.mode3_bg_fetch_phase(), 0);
     assert_eq!(bus.mode3_bg_fetch_dots_remaining(), 1);
 
-    // Dot 6 completes the fetch and pushes 8 pixels into the BG FIFO.
+    // Dot 2 finishes tile-index and enters low-byte phase.
+    bus.tick(1);
+    assert_eq!(bus.mode3_bg_fifo_len(), 0);
+    assert_eq!(bus.mode3_bg_fetch_phase(), 1);
+    assert_eq!(bus.mode3_bg_fetch_dots_remaining(), 2);
+
+    // Dot 4 finishes low-byte and enters high-byte phase.
+    bus.tick(1);
+    bus.tick(1);
+    assert_eq!(bus.mode3_bg_fifo_len(), 0);
+    assert_eq!(bus.mode3_bg_fetch_phase(), 2);
+    assert_eq!(bus.mode3_bg_fetch_dots_remaining(), 2);
+
+    // Dot 6 finishes high-byte and pushes 8 pixels in push phase.
+    bus.tick(1);
     bus.tick(1);
     assert_eq!(bus.mode3_bg_fifo_len(), 8);
+    assert_eq!(bus.mode3_bg_fetch_phase(), 0);
     assert_eq!(bus.mode3_bg_fetch_dots_remaining(), 0);
 }
 
