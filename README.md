@@ -11,11 +11,14 @@ Current scope:
 - DMG background layer rendering to a grayscale framebuffer.
 - DMG window + sprite (OBJ) composition with priority/palette/flip handling.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
+- Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
+- Core audio mixer clock bridge from emulated t-cycles to PCM samples.
 
 ## Project Structure
 
 ```text
 src/
+  audio.rs
   bin/
     frontend_sdl2.rs
   cartridge/
@@ -23,6 +26,7 @@ src/
   gameboy.rs
   hardware.rs
   memory/
+  timing.rs
   web.rs
   lib.rs
   main.rs
@@ -69,6 +73,7 @@ Supported models for `--model`:
 - ROM-only cartridges must be 32KB.
 - Unsupported cartridge/ROM size combinations fail fast when loading the ROM.
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
+- APU emulation is not implemented yet; current audio path is timing-synchronized PCM generation (silence by default, optional test tone).
 
 ## Local Requirements
 
@@ -133,6 +138,14 @@ Notes:
 - The core remains frontend-agnostic and can be embedded by multiple frontends.
 - Current web entrypoint is `WebEmulator` in `src/web.rs`.
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
+- SDL2/Web pacing uses `timing::FramePacer` from the core to avoid frontend-specific timing drift.
+- SDL2 audio uses the core mixer clock bridge and queues PCM in real time.
+- Optional SDL2 debug tone: set `GB_AUDIO_TEST_TONE=1`.
+- Web helpers:
+  - `run_for_elapsed_micros(elapsed_micros)` to step as many emulated frames as host time allows.
+  - `audio_clock_tcycles()` / `drain_audio_tcycles()` for raw emulated audio clock access.
+  - `set_audio_sample_rate(rate_hz)` and `drain_audio_samples(max_samples)` for WebAudio feeding.
+  - `set_audio_test_tone_enabled(enabled)` for pipeline/debug validation.
 
 ## CI
 
