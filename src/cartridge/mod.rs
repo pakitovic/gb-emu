@@ -30,6 +30,18 @@ const MBC2_RAM_BYTES: usize = 512;
 const ROM_ONLY_ROM_BANK_COUNT: usize = 2;
 const SAVE_FILE_EXTENSION: &str = "sav";
 const RTC_FILE_EXTENSION: &str = "rtc";
+const HEADER_LOGO_START: usize = 0x0104;
+const HEADER_LOGO_END: usize = 0x0133;
+const HEADER_CHECKSUM_START: usize = 0x0134;
+const HEADER_CHECKSUM_END: usize = 0x014C;
+const HEADER_CHECKSUM_OFFSET: usize = 0x014D;
+const GLOBAL_CHECKSUM_HIGH_OFFSET: usize = 0x014E;
+const GLOBAL_CHECKSUM_LOW_OFFSET: usize = 0x014F;
+const NINTENDO_LOGO_BYTES: [u8; 48] = [
+    0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
+    0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
+    0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CartridgeMapper {
@@ -58,6 +70,20 @@ pub struct CartridgeMetadata {
     pub has_rumble: bool,
     pub has_battery_save: bool,
     pub rumble_active: bool,
+    pub header_warnings: Vec<CartridgeHeaderWarning>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CartridgeHeaderWarning {
+    NintendoLogoMismatch,
+    HeaderChecksumMismatch {
+        header_value: u8,
+        computed_value: u8,
+    },
+    GlobalChecksumMismatch {
+        header_value: u16,
+        computed_value: u16,
+    },
 }
 
 trait RtcClock {
@@ -333,6 +359,7 @@ pub struct Cartridge {
     ram_size_code: u8,
     declared_ram_size_bytes: usize,
     compatibility_ram_mode: bool,
+    header_warnings: Vec<CartridgeHeaderWarning>,
     mapper: MapperType,
     rom_bank_count: usize,
     ram: Vec<u8>,
@@ -430,6 +457,7 @@ impl Cartridge {
         }
 
         let title = parse_title(&rom);
+        let header_warnings = diagnose_header(&rom);
         // Keep a transient 8KB RAM window for ROM-only homebrew/test ROM protocols
         // that write pass/fail signatures into A000-BFFF without declaring cartridge RAM.
         let effective_ram_size = if spec.mapper == MapperType::Mbc2 {
@@ -470,6 +498,7 @@ impl Cartridge {
             ram_size_code,
             declared_ram_size_bytes: ram_size_bytes,
             compatibility_ram_mode: compatibility_ram,
+            header_warnings,
             mapper: spec.mapper,
             rom_bank_count,
             ram,
@@ -708,7 +737,12 @@ impl Cartridge {
             has_rumble: self.has_rumble(),
             has_battery_save: self.has_battery_save(),
             rumble_active: self.rumble_active(),
+            header_warnings: self.header_warnings.clone(),
         }
+    }
+
+    pub fn header_warnings(&self) -> &[CartridgeHeaderWarning] {
+        &self.header_warnings
     }
 
     pub fn has_rumble(&self) -> bool {
@@ -1011,6 +1045,70 @@ fn ram_size_bytes_from_code(code: u8) -> Option<usize> {
     Some(bytes)
 }
 
+fn diagnose_header(rom: &[u8]) -> Vec<CartridgeHeaderWarning> {
+    let mut warnings = Vec::new();
+
+    if !has_valid_nintendo_logo(rom) {
+        warnings.push(CartridgeHeaderWarning::NintendoLogoMismatch);
+    }
+
+    let header_checksum = read_header_checksum(rom);
+    let computed_header_checksum = compute_header_checksum(rom);
+    if header_checksum != computed_header_checksum {
+        warnings.push(CartridgeHeaderWarning::HeaderChecksumMismatch {
+            header_value: header_checksum,
+            computed_value: computed_header_checksum,
+        });
+    }
+
+    let global_checksum = read_global_checksum(rom);
+    let computed_global_checksum = compute_global_checksum(rom);
+    if global_checksum != computed_global_checksum {
+        warnings.push(CartridgeHeaderWarning::GlobalChecksumMismatch {
+            header_value: global_checksum,
+            computed_value: computed_global_checksum,
+        });
+    }
+
+    warnings
+}
+
+fn has_valid_nintendo_logo(rom: &[u8]) -> bool {
+    let Some(logo_bytes) = rom.get(HEADER_LOGO_START..=HEADER_LOGO_END) else {
+        return false;
+    };
+    logo_bytes == NINTENDO_LOGO_BYTES
+}
+
+fn read_header_checksum(rom: &[u8]) -> u8 {
+    rom.get(HEADER_CHECKSUM_OFFSET).copied().unwrap_or(0)
+}
+
+fn compute_header_checksum(rom: &[u8]) -> u8 {
+    let Some(checksum_slice) = rom.get(HEADER_CHECKSUM_START..=HEADER_CHECKSUM_END) else {
+        return 0;
+    };
+    checksum_slice
+        .iter()
+        .fold(0u8, |acc, byte| acc.wrapping_sub(*byte).wrapping_sub(1))
+}
+
+fn read_global_checksum(rom: &[u8]) -> u16 {
+    let high = rom.get(GLOBAL_CHECKSUM_HIGH_OFFSET).copied().unwrap_or(0) as u16;
+    let low = rom.get(GLOBAL_CHECKSUM_LOW_OFFSET).copied().unwrap_or(0) as u16;
+    (high << 8) | low
+}
+
+fn compute_global_checksum(rom: &[u8]) -> u16 {
+    rom.iter().enumerate().fold(0u16, |acc, (index, byte)| {
+        if index == GLOBAL_CHECKSUM_HIGH_OFFSET || index == GLOBAL_CHECKSUM_LOW_OFFSET {
+            acc
+        } else {
+            acc.wrapping_add(*byte as u16)
+        }
+    })
+}
+
 fn write_file_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     let mut attempt = 0u32;
     loop {
@@ -1098,6 +1196,15 @@ mod tests {
         for bank in 0..bank_count {
             rom[bank * ROM_BANK_BYTES] = bank as u8;
         }
+    }
+
+    fn apply_valid_header_signature(rom: &mut [u8]) {
+        rom[HEADER_LOGO_START..=HEADER_LOGO_END].copy_from_slice(&NINTENDO_LOGO_BYTES);
+        let header_checksum = compute_header_checksum(rom);
+        rom[HEADER_CHECKSUM_OFFSET] = header_checksum;
+        let global_checksum = compute_global_checksum(rom);
+        rom[GLOBAL_CHECKSUM_HIGH_OFFSET] = (global_checksum >> 8) as u8;
+        rom[GLOBAL_CHECKSUM_LOW_OFFSET] = global_checksum as u8;
     }
 
     fn unique_temp_file_path(name: &str, ext: &str) -> PathBuf {
@@ -1477,6 +1584,37 @@ mod tests {
         assert!(!metadata.has_rumble);
         assert!(!metadata.has_battery_save);
         assert!(!metadata.rumble_active);
+    }
+
+    #[test]
+    fn header_diagnostics_warn_but_do_not_block_loading() {
+        let rom = make_rom(64 * 1024, MBC1, 0x01, 0x00);
+        let cart = Cartridge::from_bytes(rom).expect("invalid header should still load");
+        let warnings = cart.header_warnings();
+
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| matches!(warning, CartridgeHeaderWarning::NintendoLogoMismatch))
+        );
+        assert!(warnings.iter().any(|warning| matches!(
+            warning,
+            CartridgeHeaderWarning::HeaderChecksumMismatch { .. }
+        )));
+        assert!(warnings.iter().any(|warning| matches!(
+            warning,
+            CartridgeHeaderWarning::GlobalChecksumMismatch { .. }
+        )));
+    }
+
+    #[test]
+    fn header_diagnostics_accept_valid_logo_and_checksums() {
+        let mut rom = make_rom(64 * 1024, MBC1, 0x01, 0x00);
+        apply_valid_header_signature(&mut rom);
+
+        let cart = Cartridge::from_bytes(rom).expect("valid header should load");
+        assert!(cart.header_warnings().is_empty());
+        assert!(cart.metadata().header_warnings.is_empty());
     }
 
     #[test]
