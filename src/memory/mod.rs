@@ -28,7 +28,6 @@ pub const LCD_FRAME_PIXELS: usize = LCD_WIDTH * LCD_HEIGHT;
 pub struct Bus {
     cartridge: Cartridge,
     vram: [u8; 0x2000],
-    eram: [u8; 0x2000],
     wram: [u8; 0x2000],
     oam: [u8; 0x00A0],
     io: [u8; 0x0080],

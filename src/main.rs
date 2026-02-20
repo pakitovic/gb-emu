@@ -67,6 +67,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         gb.run(options.trace);
     }
 
+    gb.flush_battery_save()?;
+
     Ok(())
 }
 

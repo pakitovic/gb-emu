@@ -3,7 +3,7 @@
 Personal/hobby Game Boy emulator project written in Rust, focused on learning and incremental milestones.
 
 Current scope:
-- ROM-only plus basic MBC1/MBC5 support.
+- ROM-only/ROM+RAM plus expanded MBC1/MBC5 support.
 - CPU core with growing opcode coverage.
 - Memory bus + timer/interrupt basics.
 - Blargg + Gekkio ROM test integration in local scripts and CI.
@@ -16,6 +16,7 @@ Current scope:
 - Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core audio mixer clock bridge from emulated t-cycles to PCM samples.
 - Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
+- Cartridge header ROM size decoding across standard size codes, RAM enable/banking for supported mappers, and battery-backed `.sav` persistence.
 - SDL2 frontend adaptive audio queue targeting with underrun estimation from queue depth and host time.
 - Minimal browser demo (`web/minimal`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
 - Minimal browser demo audio telemetry plus adaptive queue targeting for underrun recovery and latency tuning.
@@ -84,10 +85,15 @@ Supported models for `--model`:
 
 ## Current Limitations
 
-- Supported cartridge types: ROM-only (0x00), MBC1 (0x01/0x02/0x03), MBC5 (0x19/0x1A/0x1B).
-- Supported ROM size codes: 32KB (0x00) and 64KB (0x01).
-- ROM-only cartridges must be 32KB.
-- Unsupported cartridge/ROM size combinations fail fast when loading the ROM.
+- Supported cartridge types:
+  - ROM-only / ROM+RAM / ROM+RAM+BATTERY (0x00/0x08/0x09).
+  - MBC1 family (0x01/0x02/0x03) with RAM enable and RAM banking mode support.
+  - MBC5 family including rumble variants (0x19..0x1E), with ROM/RAM banking support (rumble signal itself is currently ignored).
+- Supported ROM size codes: 0x00..0x08 and 0x52/0x53/0x54 (validated against exact file length).
+- Supported RAM size codes: 0x00..0x05 for supported cartridge families.
+- For compatibility with legacy test ROM conventions, RAM-capable cartridge types declaring RAM size code `0x00` get a transient 8KB external RAM window.
+- ROM-only and ROM+RAM cartridge family (no MBC) is limited to 32KB ROM by hardware design.
+- Unsupported mappers (for example MBC2/MBC3/MBC6/MBC7/HuC variants, camera/tama) still fail fast when loading the ROM.
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 - Dot-stepped OBJ fetch stalls are modeled, but full cycle-exact BG/OBJ fetch contention is still approximated.
 - APU emulation is not implemented yet; current audio path is timing-synchronized PCM generation (silence by default, optional test tone).
@@ -209,6 +215,7 @@ Notes:
 - SDL2 queue target is auto-tuned over time windows (same policy as web) using estimated underruns from elapsed playback vs queued samples.
 - `scripts/dev/run_sdl2_frontend.sh` is the recommended local command for clean SDL2 rebuilds and consistent macOS/Homebrew linker env setup.
 - Optional SDL2 debug tone: set `GB_AUDIO_TEST_TONE=1`.
+- Battery-backed cartridges loaded via `Cartridge::from_file(...)` persist external RAM to a sibling `.sav` file; current CLI/SDL2 frontends flush saves on graceful exit.
 - Web helpers:
   - `run_for_elapsed_micros(elapsed_micros)` to step as many emulated frames as host time allows.
   - `audio_clock_tcycles()` / `drain_audio_tcycles()` for raw emulated audio clock access.
