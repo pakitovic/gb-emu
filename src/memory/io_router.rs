@@ -12,6 +12,9 @@ impl Bus {
         match addr {
             0xFF00 => self.write_p1(value),
             0xFF0F => self.write_if(value),
+            0xFF10..=0xFF14 | 0xFF16..=0xFF1E | 0xFF20..=0xFF23 | 0xFF30..=0xFF3F => {
+                self.write_apu_register(addr, value)
+            }
             0xFF40 => self.write_lcdc(value),
             0xFF41 => self.write_stat(value),
             0xFF24 => self.write_nr50(value),

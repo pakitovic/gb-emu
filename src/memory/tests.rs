@@ -846,6 +846,141 @@ fn apu_frame_sequencer_stops_when_apu_is_powered_off() {
 }
 
 #[test]
+fn apu_square_channels_generate_dynamic_mixed_output() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+    bus.write_byte(0xFF24, 0x77); // max left/right output volume
+    bus.write_byte(0xFF25, 0x33); // CH1+CH2 routed to both sides
+
+    // CH1
+    bus.write_byte(0xFF11, 0x80); // duty 10, length 0
+    bus.write_byte(0xFF12, 0xF0); // DAC on, volume 15
+    bus.write_byte(0xFF13, 0xFC); // high frequency => short waveform period
+    bus.write_byte(0xFF14, 0x87); // trigger
+
+    // CH2
+    bus.write_byte(0xFF16, 0xC0); // duty 11
+    bus.write_byte(0xFF17, 0xE0); // DAC on, volume 14
+    bus.write_byte(0xFF18, 0xF0);
+    bus.write_byte(0xFF19, 0x87); // trigger
+
+    let mut min_sample = f32::INFINITY;
+    let mut max_sample = f32::NEG_INFINITY;
+    for _ in 0..128 {
+        bus.tick(1);
+        let sample = bus.apu_last_mixed_sample();
+        min_sample = min_sample.min(sample);
+        max_sample = max_sample.max(sample);
+    }
+
+    assert_ne!(bus.read_byte(0xFF26) & 0x03, 0x00);
+    assert!(max_sample - min_sample > 0.05);
+}
+
+#[test]
+fn apu_length_clock_disables_square_channel_when_counter_expires() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+
+    bus.write_byte(0xFF16, 0x3F); // length=1
+    bus.write_byte(0xFF17, 0xF0); // DAC on
+    bus.write_byte(0xFF19, 0xC0); // length enable + trigger
+    assert_ne!(bus.read_byte(0xFF26) & 0x02, 0x00);
+
+    tick_n(&mut bus, 4096);
+    bus.write_byte(0xFF04, 0x00); // force first frame-sequencer length clock (step 0)
+
+    assert_eq!(bus.read_byte(0xFF26) & 0x02, 0x00);
+}
+
+#[test]
+fn apu_envelope_clock_updates_square_volume() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+
+    bus.write_byte(0xFF16, 0x80);
+    bus.write_byte(0xFF17, 0x19); // start vol=1, increase, period=1
+    bus.write_byte(0xFF19, 0x80); // trigger
+    assert_eq!(bus.apu_square2_envelope_volume(), 1);
+
+    for _ in 0..8 {
+        tick_n(&mut bus, 4096);
+        bus.write_byte(0xFF04, 0x00);
+    }
+
+    assert_eq!(bus.apu_square2_envelope_volume(), 2);
+}
+
+#[test]
+fn apu_sweep_clock_updates_square1_frequency() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+
+    bus.write_byte(0xFF10, 0x11); // period=1, increase, shift=1
+    bus.write_byte(0xFF11, 0x80);
+    bus.write_byte(0xFF12, 0xF0);
+    bus.write_byte(0xFF13, 0xE8); // freq = 1000
+    bus.write_byte(0xFF14, 0x83); // trigger
+    assert_eq!(bus.apu_square1_frequency(), 1000);
+
+    for _ in 0..3 {
+        tick_n(&mut bus, 4096);
+        bus.write_byte(0xFF04, 0x00);
+    }
+
+    assert_eq!(bus.apu_square1_frequency(), 1500);
+}
+
+#[test]
+fn apu_wave_and_noise_channels_set_status_bits_on_trigger() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+    bus.write_byte(0xFF24, 0x77);
+    bus.write_byte(0xFF25, 0xCC); // CH3+CH4 routed to both sides
+
+    // CH3 (wave)
+    bus.write_byte(0xFF30, 0xF0);
+    bus.write_byte(0xFF31, 0x00);
+    bus.write_byte(0xFF1A, 0x80); // DAC on
+    bus.write_byte(0xFF1C, 0x20); // output level 100%
+    bus.write_byte(0xFF1D, 0x40);
+    bus.write_byte(0xFF1E, 0x80); // trigger
+
+    // CH4 (noise)
+    bus.write_byte(0xFF20, 0x3F); // length=1
+    bus.write_byte(0xFF21, 0xF0); // DAC on, volume 15
+    bus.write_byte(0xFF22, 0x00); // shortest divisor
+    bus.write_byte(0xFF23, 0x80); // trigger
+
+    let mut min_sample = f32::INFINITY;
+    let mut max_sample = f32::NEG_INFINITY;
+    for _ in 0..256 {
+        bus.tick(1);
+        let sample = bus.apu_last_mixed_sample();
+        min_sample = min_sample.min(sample);
+        max_sample = max_sample.max(sample);
+    }
+
+    assert_ne!(bus.read_byte(0xFF26) & 0x0C, 0x00);
+    assert!(max_sample - min_sample > 0.05);
+}
+
+#[test]
+fn apu_boot_nr52_channel_status_bit_is_stable_after_first_tick() {
+    let mut bus = make_test_bus_with_model(HardwareModel::Dmg);
+    assert_eq!(bus.read_byte(0xFF26) & 0x0F, 0x01);
+
+    bus.tick(1);
+
+    assert_eq!(bus.read_byte(0xFF26) & 0x0F, 0x01);
+}
+
+#[test]
 fn framebuffer_renders_bg_tile_colors_with_identity_palette() {
     let mut bus = make_test_bus();
 
