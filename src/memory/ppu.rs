@@ -684,12 +684,27 @@ impl PpuState {
     fn mode3_bg_takeover_boundary(bus: &Bus) -> bool {
         bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::TileIndex
             && bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0
+    }
+
+    fn mode3_obj_takeover_boundary(bus: &Bus) -> bool {
+        Self::mode3_bg_takeover_boundary(bus)
             && bus.ppu.mode3_fifo.obj_fetch_dots_remaining == 0
             && bus.ppu.mode3_fifo.obj_shutdown_dots_remaining == 0
     }
 
     fn mode3_window_takeover_boundary(bus: &Bus) -> bool {
-        Self::mode3_bg_takeover_boundary(bus) && bus.ppu.mode3_fifo.can_push_8()
+        Self::mode3_obj_takeover_boundary(bus)
+    }
+
+    fn mode3_window_restart_now(bus: &mut Bus, ly: u8, startup_line: bool, trigger_x: i16) {
+        bus.ppu.window_trigger_pending = false;
+        bus.ppu.window_triggered_this_line = true;
+        bus.ppu.mode3_fifo.restart_for_window(trigger_x);
+        Self::extend_mode3_dots(bus, ly, startup_line, MODE3_WINDOW_RESTART_DOTS);
+    }
+
+    fn mode3_window_trigger_is_immediate(trigger_x: i16) -> bool {
+        trigger_x <= 0
     }
 
     fn mode3_maybe_trigger_window(bus: &mut Bus, ly: u8, startup_line: bool) {
@@ -711,10 +726,8 @@ impl PpuState {
 
             // WX<=7 can start at the beginning of the visible line without
             // waiting for a later BG takeover boundary.
-            if trigger_x <= 0 {
-                bus.ppu.window_triggered_this_line = true;
-                bus.ppu.mode3_fifo.restart_for_window(trigger_x);
-                Self::extend_mode3_dots(bus, ly, startup_line, MODE3_WINDOW_RESTART_DOTS);
+            if Self::mode3_window_trigger_is_immediate(trigger_x) {
+                Self::mode3_window_restart_now(bus, ly, startup_line, trigger_x);
                 return;
             }
             bus.ppu.window_trigger_pending = true;
@@ -724,10 +737,7 @@ impl PpuState {
             return;
         }
 
-        bus.ppu.window_trigger_pending = false;
-        bus.ppu.window_triggered_this_line = true;
-        bus.ppu.mode3_fifo.restart_for_window(trigger_x);
-        Self::extend_mode3_dots(bus, ly, startup_line, MODE3_WINDOW_RESTART_DOTS);
+        Self::mode3_window_restart_now(bus, ly, startup_line, trigger_x);
     }
 
     fn mode3_step_bg_fetch(bus: &mut Bus, lcdc: u8, y: usize) {
@@ -1063,7 +1073,7 @@ impl PpuState {
             return true;
         }
 
-        if !Self::mode3_bg_takeover_boundary(bus) {
+        if !Self::mode3_obj_takeover_boundary(bus) {
             return false;
         }
 
@@ -1300,5 +1310,10 @@ impl Bus {
     #[cfg(test)]
     pub(super) fn mode3_window_takeover_boundary(&self) -> bool {
         PpuState::mode3_window_takeover_boundary(self)
+    }
+
+    #[cfg(test)]
+    pub(super) fn mode3_output_x(&self) -> u8 {
+        self.ppu.mode3_fifo.output_x
     }
 }
