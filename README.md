@@ -17,6 +17,7 @@ Current scope:
 - Core audio mixer clock bridge from emulated t-cycles to PCM samples.
 - Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
 - Cartridge header ROM size decoding across standard size codes, mapper-specific RAM enable/banking behavior (including MBC5 rumble register semantics), and battery-backed persistence (`.sav`, plus `.rtc` for MBC3 timer cartridges) with atomic file replace writes.
+- Cartridge header diagnostics for Nintendo logo/header checksum/global checksum, exposed as non-blocking warnings in cartridge metadata.
 - SDL2 frontend adaptive audio queue targeting with underrun estimation from queue depth and host time.
 - Minimal browser demo (`web/minimal`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
 - Minimal browser demo audio telemetry plus adaptive queue targeting for underrun recovery and latency tuning.
@@ -97,6 +98,7 @@ Supported models for `--model`:
 - ROM-only and ROM+RAM cartridge family (no MBC) is limited to 32KB ROM by hardware design.
 - Unsupported mappers (for example MBC6/MBC7/HuC variants, camera/tama) still fail fast when loading the ROM.
 - MBC3 RTC persistence currently uses a sidecar `.rtc` file; this is emulator-specific metadata and not a hardware cartridge dump format.
+- Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 - Dot-stepped OBJ fetch stalls are modeled, but full cycle-exact BG/OBJ fetch contention is still approximated.
 - APU emulation is not implemented yet; current audio path is timing-synchronized PCM generation (silence by default, optional test tone).
@@ -221,7 +223,7 @@ scripts/dev/run_web_demo.sh
 Notes:
 - The core remains frontend-agnostic and can be embedded by multiple frontends.
 - MBC5 rumble status is exposed from core (`GameBoy::cartridge_has_rumble()`, `GameBoy::rumble_active()`), but no host haptics backend is wired yet.
-- Cartridge metadata is exposed from core via `Cartridge::metadata()` and `GameBoy::cartridge_metadata()` (type code, mapper, ROM/RAM size codes, bank counts, declared/effective RAM, battery/timer/rumble flags).
+- Cartridge metadata is exposed from core via `Cartridge::metadata()` and `GameBoy::cartridge_metadata()` (type code, mapper, ROM/RAM size codes, bank counts, declared/effective RAM, battery/timer/rumble flags, and header diagnostics warnings).
 - Current web entrypoint is `WebEmulator` in `src/web.rs`.
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2/Web pacing uses `timing::FramePacer` from the core to avoid frontend-specific timing drift.

@@ -363,4 +363,5 @@ fn gameboy_exposes_cartridge_metadata_for_debug() {
     assert!(metadata.has_rumble);
     assert!(metadata.has_battery_save);
     assert!(!metadata.rumble_active);
+    assert!(!metadata.header_warnings.is_empty());
 }
