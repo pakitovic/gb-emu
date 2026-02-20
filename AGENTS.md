@@ -114,7 +114,11 @@ Before considering a task complete, all of the following must hold:
 - Keep PRs narrowly scoped and reviewable.
 - If creating branches, use the `codex/` prefix.
 - Never implement changes directly on `main`; create a dedicated branch per logical change/feature.
+- Create new branches from `main` using regular checkout flow (for example: `git checkout main` then `git checkout -b codex/<topic>`).
+- Do not use `git worktree` for normal development unless explicitly requested by the user.
 - Default to one PR per branch/change. If the request includes multiple sequential changes, split them into separate branches/PRs unless explicitly asked to combine.
+- Parallel requests can use separate branches created from `main`; resolve conflicts later if they appear.
+- Keep each branch incremental and small to minimize merge/rebase conflicts.
 - Prepare commit title, PR title, and PR description in English.
 - PR descriptions should include:
   - Problem statement.
