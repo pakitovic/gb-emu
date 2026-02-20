@@ -52,6 +52,19 @@ pub enum CartridgeMapper {
     Mbc5,
 }
 
+impl Display for CartridgeMapper {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            Self::RomOnly => "ROM-only",
+            Self::Mbc1 => "MBC1",
+            Self::Mbc2 => "MBC2",
+            Self::Mbc3 => "MBC3",
+            Self::Mbc5 => "MBC5",
+        };
+        write!(f, "{label}")
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CartridgeMetadata {
     pub title: String,
@@ -73,6 +86,55 @@ pub struct CartridgeMetadata {
     pub header_warnings: Vec<CartridgeHeaderWarning>,
 }
 
+impl CartridgeMetadata {
+    pub fn debug_report(&self) -> String {
+        let mut lines = Vec::with_capacity(12 + self.header_warnings.len());
+        let title = if self.title.trim().is_empty() {
+            "<empty title>".to_string()
+        } else {
+            self.title.clone()
+        };
+        lines.push("Cartridge Metadata".to_string());
+        lines.push(format!("Title: {title}"));
+        lines.push(format!(
+            "Type: 0x{:02X} ({})",
+            self.cart_type_code, self.mapper
+        ));
+        lines.push(format!(
+            "ROM: code 0x{:02X}, {} bytes, {} banks",
+            self.rom_size_code, self.rom_size_bytes, self.rom_bank_count
+        ));
+        lines.push(format!(
+            "RAM: code 0x{:02X}, declared {} bytes, effective {} bytes, {} banks",
+            self.ram_size_code,
+            self.declared_ram_size_bytes,
+            self.effective_ram_size_bytes,
+            self.ram_bank_count
+        ));
+        lines.push(format!(
+            "Compatibility RAM mode: {}",
+            yes_no(self.compatibility_ram_mode)
+        ));
+        lines.push(format!(
+            "Capabilities: battery={}, timer={}, rumble={} (active={}), battery-save={}",
+            yes_no(self.has_battery),
+            yes_no(self.has_timer),
+            yes_no(self.has_rumble),
+            yes_no(self.rumble_active),
+            yes_no(self.has_battery_save)
+        ));
+        lines.push(format!("Header warnings ({}):", self.header_warnings.len()));
+        if self.header_warnings.is_empty() {
+            lines.push("- none".to_string());
+        } else {
+            for warning in &self.header_warnings {
+                lines.push(format!("- {warning}"));
+            }
+        }
+        lines.join("\n")
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CartridgeHeaderWarning {
     NintendoLogoMismatch,
@@ -84,6 +146,32 @@ pub enum CartridgeHeaderWarning {
         header_value: u16,
         computed_value: u16,
     },
+}
+
+impl Display for CartridgeHeaderWarning {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NintendoLogoMismatch => write!(f, "Nintendo logo mismatch"),
+            Self::HeaderChecksumMismatch {
+                header_value,
+                computed_value,
+            } => write!(
+                f,
+                "Header checksum mismatch (header 0x{header_value:02X}, computed 0x{computed_value:02X})"
+            ),
+            Self::GlobalChecksumMismatch {
+                header_value,
+                computed_value,
+            } => write!(
+                f,
+                "Global checksum mismatch (header 0x{header_value:04X}, computed 0x{computed_value:04X})"
+            ),
+        }
+    }
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }
 
 trait RtcClock {
@@ -1584,6 +1672,71 @@ mod tests {
         assert!(!metadata.has_rumble);
         assert!(!metadata.has_battery_save);
         assert!(!metadata.rumble_active);
+    }
+
+    #[test]
+    fn metadata_debug_report_formats_core_fields_and_warnings() {
+        let metadata = CartridgeMetadata {
+            title: "TESTROM".to_string(),
+            cart_type_code: 0x03,
+            mapper: CartridgeMapper::Mbc1,
+            rom_size_code: 0x01,
+            ram_size_code: 0x03,
+            rom_size_bytes: 64 * 1024,
+            rom_bank_count: 4,
+            declared_ram_size_bytes: 32 * 1024,
+            effective_ram_size_bytes: 32 * 1024,
+            ram_bank_count: 4,
+            compatibility_ram_mode: false,
+            has_battery: true,
+            has_timer: false,
+            has_rumble: false,
+            has_battery_save: true,
+            rumble_active: false,
+            header_warnings: vec![
+                CartridgeHeaderWarning::NintendoLogoMismatch,
+                CartridgeHeaderWarning::HeaderChecksumMismatch {
+                    header_value: 0xAA,
+                    computed_value: 0xBB,
+                },
+            ],
+        };
+
+        let report = metadata.debug_report();
+        assert!(report.contains("Cartridge Metadata"));
+        assert!(report.contains("Title: TESTROM"));
+        assert!(report.contains("Type: 0x03 (MBC1)"));
+        assert!(report.contains("Header warnings (2):"));
+        assert!(report.contains("- Nintendo logo mismatch"));
+        assert!(report.contains("- Header checksum mismatch (header 0xAA, computed 0xBB)"));
+    }
+
+    #[test]
+    fn metadata_debug_report_marks_empty_warning_list() {
+        let metadata = CartridgeMetadata {
+            title: String::new(),
+            cart_type_code: ROM_ONLY,
+            mapper: CartridgeMapper::RomOnly,
+            rom_size_code: 0x00,
+            ram_size_code: 0x00,
+            rom_size_bytes: 32 * 1024,
+            rom_bank_count: 2,
+            declared_ram_size_bytes: 0,
+            effective_ram_size_bytes: RAM_BANK_BYTES,
+            ram_bank_count: 1,
+            compatibility_ram_mode: true,
+            has_battery: false,
+            has_timer: false,
+            has_rumble: false,
+            has_battery_save: false,
+            rumble_active: false,
+            header_warnings: Vec::new(),
+        };
+
+        let report = metadata.debug_report();
+        assert!(report.contains("Title: <empty title>"));
+        assert!(report.contains("Header warnings (0):"));
+        assert!(report.contains("- none"));
     }
 
     #[test]

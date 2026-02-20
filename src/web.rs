@@ -129,6 +129,14 @@ impl WebEmulator {
         self.gb.rom_title().to_string()
     }
 
+    pub fn cartridge_debug_report(&self) -> String {
+        self.gb.cartridge_metadata().debug_report()
+    }
+
+    pub fn cartridge_warning_count(&self) -> u32 {
+        self.gb.cartridge_metadata().header_warnings.len() as u32
+    }
+
     pub fn set_button(&mut self, button: u8, pressed: bool) -> Result<(), JsValue> {
         let button = Button::from_index(button)
             .ok_or_else(|| JsValue::from_str("Invalid button index (expected 0..7)"))?;
@@ -164,5 +172,18 @@ mod tests {
         let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
         assert!(web.set_button(4, true).is_ok());
         assert!(web.set_button(4, false).is_ok());
+    }
+
+    #[test]
+    fn cartridge_debug_report_exposes_metadata_summary() {
+        let rom = make_rom_32kb();
+        let web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
+        let report = web.cartridge_debug_report();
+
+        assert!(report.contains("Cartridge Metadata"));
+        assert!(report.contains("Type: 0x00 (ROM-only)"));
+        assert!(report.contains("Header warnings"));
+        assert!(report.contains("Nintendo logo mismatch"));
+        assert!(web.cartridge_warning_count() >= 1);
     }
 }

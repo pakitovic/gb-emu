@@ -29,6 +29,7 @@ const romFileInput = document.getElementById("rom-file");
 const modelSelect = document.getElementById("model");
 const statusLabel = document.getElementById("status");
 const audioTelemetryLabel = document.getElementById("audio-telemetry");
+const cartInfoPre = document.getElementById("cart-info");
 const serialPre = document.getElementById("serial");
 const testToneCheckbox = document.getElementById("test-tone");
 const audioEnableButton = document.getElementById("audio-enable");
@@ -55,6 +56,17 @@ let audioAdaptiveQueueState = createAdaptiveQueueState();
 
 function setStatus(message) {
   statusLabel.textContent = message;
+}
+
+function updateCartridgeInfoPanel() {
+  if (!cartInfoPre) {
+    return;
+  }
+  if (!emulator) {
+    cartInfoPre.textContent = "Cartridge: not loaded.";
+    return;
+  }
+  cartInfoPre.textContent = emulator.cartridge_debug_report();
 }
 
 function drawFrame() {
@@ -116,6 +128,7 @@ function maybeAdjustAudioQueueTarget(nowMs) {
 
 function stepFrame(nowMs) {
   if (!emulator) {
+    updateCartridgeInfoPanel();
     updateAudioTelemetry();
     rafId = requestAnimationFrame(stepFrame);
     return;
@@ -283,10 +296,15 @@ async function loadRom(file) {
     refillAudioQueue();
   }
 
+  const warningCount = emulator.cartridge_warning_count();
+  const warningText = warningCount > 0 ? ` (${warningCount} header warnings)` : "";
   drawFrame();
+  updateCartridgeInfoPanel();
   updateAudioTelemetry();
   serialPre.textContent = "";
-  setStatus(`Loaded ${file.name} (${emulator.rom_title()}) on model ${model}.`);
+  setStatus(
+    `Loaded ${file.name} (${emulator.rom_title()}) on model ${model}.${warningText}`
+  );
 }
 
 function bindDomEvents() {
@@ -319,6 +337,7 @@ async function bootstrap() {
   await initWasm();
   wasmReady = true;
   setStatus("WASM ready. Load a ROM to start.");
+  updateCartridgeInfoPanel();
   updateAudioTelemetry();
 
   if (rafId === 0) {

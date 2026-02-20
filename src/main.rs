@@ -11,6 +11,7 @@ struct CliOptions {
     trace: bool,
     blargg: bool,
     mooneye: bool,
+    cart_info: bool,
     model: HardwareModel,
     max_steps: usize,
 }
@@ -26,6 +27,10 @@ fn run() -> Result<(), Box<dyn Error>> {
     let options = parse_args(env::args().skip(1))?;
 
     let cartridge = Cartridge::from_file(&options.rom_path)?;
+    if options.cart_info {
+        println!("{}", cartridge.metadata().debug_report());
+        return Ok(());
+    }
 
     let mut gb = GameBoy::new_with_model(cartridge, options.model);
 
@@ -80,6 +85,7 @@ where
     let mut trace = false;
     let mut blargg = false;
     let mut mooneye = false;
+    let mut cart_info = false;
     let mut model = HardwareModel::default();
     let mut max_steps: usize = 20_000_000;
 
@@ -89,6 +95,7 @@ where
             "--trace" => trace = true,
             "--blargg" => blargg = true,
             "--mooneye" => mooneye = true,
+            "--cart-info" => cart_info = true,
             "--model" => {
                 let Some(value) = args.next() else {
                     return Err(io::Error::new(
@@ -132,7 +139,7 @@ where
     let Some(rom_path) = rom_path else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "Usage: cargo run -- [--trace] [--blargg|--mooneye] [--model dmg0|dmg|mgb|sgb|sgb2] [--max-steps N] <rom_file>",
+            "Usage: cargo run -- [--trace] [--blargg|--mooneye] [--cart-info] [--model dmg0|dmg|mgb|sgb|sgb2] [--max-steps N] <rom_file>",
         ));
     };
 
@@ -148,6 +155,7 @@ where
         trace,
         blargg,
         mooneye,
+        cart_info,
         model,
         max_steps,
     })
@@ -181,8 +189,26 @@ mod tests {
                 trace: true,
                 blargg: true,
                 mooneye: false,
+                cart_info: false,
                 model: HardwareModel::Mgb,
                 max_steps: 123,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_cart_info_flag() {
+        let options = parse(&["--cart-info", "test.gb"]).expect("args should parse");
+        assert_eq!(
+            options,
+            CliOptions {
+                rom_path: "test.gb".to_string(),
+                trace: false,
+                blargg: false,
+                mooneye: false,
+                cart_info: true,
+                model: HardwareModel::default(),
+                max_steps: 20_000_000,
             }
         );
     }
