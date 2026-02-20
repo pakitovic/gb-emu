@@ -20,6 +20,7 @@ Current scope:
 - APU output path now applies a DMG-style DC-blocking high-pass filter and linear t-cycle-to-PCM resampling for cleaner realtime frontend audio output.
 - APU frontend output now preserves stereo channel routing (NR50/NR51 left/right masks) end-to-end for SDL2 and WebAudio.
 - APU length-enable edge behavior now includes immediate length clocking on non-length frame-sequencer steps when enabling length mid-playback.
+- APU DMG quirk coverage now includes CH1 sweep overflow/negate-clear disable behavior, trigger+length-zero reload/decrement edges, envelope trigger reload offset on envelope-clock steps, CH3 wave sample-buffer retrigger semantics, and CH4 `clock_shift >= 14` no-clock behavior.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
