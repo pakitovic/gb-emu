@@ -2,7 +2,9 @@ import initWasm, { WebEmulator } from "./pkg/gb_emu.js";
 
 const SCREEN_WIDTH = 160;
 const SCREEN_HEIGHT = 144;
-const AUDIO_BLOCK_SAMPLES = 1024;
+const AUDIO_BLOCK_SAMPLES = 512;
+const AUDIO_QUEUE_TARGET_SAMPLES = 4096;
+const AUDIO_REFILL_INTERVAL_MS = 8;
 
 const KEY_TO_BUTTON = {
   ArrowRight: 0,
@@ -33,7 +35,10 @@ let rafId = 0;
 let lastFrameTimeMs = 0;
 
 let audioContext = null;
-let scriptNode = null;
+let audioNode = null;
+let audioRefillTimerId = null;
+let queuedAudioSamples = 0;
+let audioWorkletLoaded = false;
 
 function setStatus(message) {
   statusLabel.textContent = message;
@@ -90,11 +95,17 @@ function setButtonFromKeyboardEvent(event, pressed) {
   emulator.set_button(buttonIndex, pressed);
 }
 
-function disconnectAudioNode() {
-  if (scriptNode) {
-    scriptNode.disconnect();
-    scriptNode = null;
+function disconnectAudioBackend() {
+  if (audioRefillTimerId !== null) {
+    window.clearInterval(audioRefillTimerId);
+    audioRefillTimerId = null;
   }
+  if (audioNode) {
+    audioNode.port.onmessage = null;
+    audioNode.disconnect();
+    audioNode = null;
+  }
+  queuedAudioSamples = 0;
 }
 
 async function ensureAudioContext() {
@@ -125,24 +136,63 @@ async function enableAudio() {
 
   try {
     const ac = await ensureAudioContext();
+    if (!ac.audioWorklet || typeof ac.audioWorklet.addModule !== "function") {
+      throw new Error("AudioWorklet is not available in this browser");
+    }
     emulator.set_audio_sample_rate(ac.sampleRate);
     emulator.set_audio_test_tone_enabled(testToneCheckbox.checked);
 
-    disconnectAudioNode();
-    scriptNode = ac.createScriptProcessor(AUDIO_BLOCK_SAMPLES, 0, 1);
-    scriptNode.onaudioprocess = (event) => {
-      if (!emulator) {
+    disconnectAudioBackend();
+    if (!audioWorkletLoaded) {
+      await ac.audioWorklet.addModule("./audio-worklet.js");
+      audioWorkletLoaded = true;
+    }
+    audioNode = new AudioWorkletNode(ac, "gb-audio-processor", {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [1],
+      channelCount: 1,
+      channelCountMode: "explicit",
+      channelInterpretation: "speakers",
+    });
+    audioNode.port.onmessage = (event) => {
+      const data = event.data;
+      if (!data || data.type !== "consumed") {
         return;
       }
-      const output = event.outputBuffer.getChannelData(0);
-      const samples = emulator.drain_audio_samples_realtime(output.length);
-      output.set(samples);
+      queuedAudioSamples = Math.max(0, queuedAudioSamples - (data.samples | 0));
     };
-    scriptNode.connect(ac.destination);
-    setStatus(`Audio enabled (${ac.sampleRate} Hz, block ${AUDIO_BLOCK_SAMPLES}).`);
+    audioNode.connect(ac.destination);
+
+    refillAudioQueue();
+    audioRefillTimerId = window.setInterval(() => {
+      if (ac.state !== "running") {
+        return;
+      }
+      refillAudioQueue();
+    }, AUDIO_REFILL_INTERVAL_MS);
+
+    setStatus(`AudioWorklet enabled (${ac.sampleRate} Hz, block ${AUDIO_BLOCK_SAMPLES}).`);
   } catch (error) {
     console.error(error);
     setStatus(`Audio setup error: ${error}`);
+  }
+}
+
+function refillAudioQueue() {
+  if (!emulator || !audioNode) {
+    return;
+  }
+
+  let guard = 0;
+  while (queuedAudioSamples < AUDIO_QUEUE_TARGET_SAMPLES && guard < 16) {
+    const samples = emulator.drain_audio_samples_realtime(AUDIO_BLOCK_SAMPLES);
+    if (!samples || samples.length === 0) {
+      break;
+    }
+    audioNode.port.postMessage({ type: "samples", samples });
+    queuedAudioSamples += samples.length;
+    guard += 1;
   }
 }
 
@@ -162,6 +212,11 @@ async function loadRom(file) {
 
   if (audioContext) {
     emulator.set_audio_sample_rate(audioContext.sampleRate);
+  }
+  if (audioNode) {
+    audioNode.port.postMessage({ type: "reset" });
+    queuedAudioSamples = 0;
+    refillAudioQueue();
   }
 
   drawFrame();
