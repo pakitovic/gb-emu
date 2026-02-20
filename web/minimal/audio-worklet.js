@@ -7,6 +7,8 @@ class GBAudioProcessor extends AudioWorkletProcessor {
     this.head = 0;
     this.samplesSinceLastReport = 0;
     this.underrunsSinceLastReport = 0;
+    this.currentLeft = 0.0;
+    this.currentRight = 0.0;
 
     this.port.onmessage = (event) => {
       const data = event.data;
@@ -41,16 +43,16 @@ class GBAudioProcessor extends AudioWorkletProcessor {
     while (this.queue.length > 0) {
       const front = this.queue[0];
       if ((front.length - this.head) >= AUDIO_CHANNELS) {
-        const left = front[this.head];
-        const right = front[this.head + 1];
+        this.currentLeft = front[this.head];
+        this.currentRight = front[this.head + 1];
         this.head += AUDIO_CHANNELS;
-        return [left, right];
+        return true;
       }
       this.queue.shift();
       this.head = 0;
     }
 
-    return null;
+    return false;
   }
 
   process(_inputs, outputs) {
@@ -62,17 +64,16 @@ class GBAudioProcessor extends AudioWorkletProcessor {
     const leftChannel = output[0];
     const rightChannel = output.length > 1 ? output[1] : null;
     for (let i = 0; i < leftChannel.length; i += 1) {
-      const frame = this.popFrame();
-      if (frame === null) {
+      if (!this.popFrame()) {
         leftChannel[i] = 0.0;
         if (rightChannel) {
           rightChannel[i] = 0.0;
         }
         this.underrunsSinceLastReport += 1;
       } else {
-        leftChannel[i] = frame[0];
+        leftChannel[i] = this.currentLeft;
         if (rightChannel) {
-          rightChannel[i] = frame[1];
+          rightChannel[i] = this.currentRight;
         }
       }
     }
