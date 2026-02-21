@@ -1,5 +1,6 @@
 use super::*;
 
+mod channel_writes;
 mod decode;
 mod power;
 pub(super) use decode::{ApuRegister, decode_register};
@@ -41,50 +42,5 @@ impl ApuState {
             return;
         }
         io[NR51_INDEX] = value;
-    }
-
-    fn write_channel_register(&mut self, io: &mut [u8; 0x80], register: ApuRegister, value: u8) {
-        if !self.enabled {
-            return;
-        }
-
-        io[register.io_index()] = value;
-        let length_clocks_next = self.length_clocks_on_next_frame_step();
-        let envelope_clocks_next = self.envelope_clocks_on_next_frame_step();
-        match register {
-            ApuRegister::Nr10 => {
-                if self.square1.sweep.write_register(value) {
-                    self.square1.enabled = false;
-                }
-            }
-            ApuRegister::Nr11 => self.square1.write_duty_length(value),
-            ApuRegister::Nr12 => self.square1.write_envelope(value),
-            ApuRegister::Nr13 => self.square1.write_frequency_low(value),
-            ApuRegister::Nr14 => {
-                self.square1
-                    .write_frequency_high(value, length_clocks_next, envelope_clocks_next)
-            }
-            ApuRegister::Nr21 => self.square2.write_duty_length(value),
-            ApuRegister::Nr22 => self.square2.write_envelope(value),
-            ApuRegister::Nr23 => self.square2.write_frequency_low(value),
-            ApuRegister::Nr24 => {
-                self.square2
-                    .write_frequency_high(value, length_clocks_next, envelope_clocks_next)
-            }
-            ApuRegister::Nr30 => self.wave.write_dac_enable(value),
-            ApuRegister::Nr31 => self.wave.write_length(value),
-            ApuRegister::Nr32 => self.wave.write_output_level(value),
-            ApuRegister::Nr33 => self.wave.write_frequency_low(value),
-            ApuRegister::Nr34 => self.wave.write_frequency_high(value, length_clocks_next),
-            ApuRegister::Nr41 => self.noise.write_length(value),
-            ApuRegister::Nr42 => self.noise.write_envelope(value),
-            ApuRegister::Nr43 => self.noise.write_polynomial(value),
-            ApuRegister::Nr44 => {
-                self.noise
-                    .write_control(value, length_clocks_next, envelope_clocks_next)
-            }
-            _ => {}
-        }
-        self.refresh_channel_on_mask();
     }
 }
