@@ -9,6 +9,8 @@ mod register_dispatch;
 mod sequencer;
 #[cfg(test)]
 mod test_helpers;
+#[cfg(test)]
+mod tests;
 use channels::{NoiseChannel, SquareChannel, WaveChannel};
 
 const NR10_INDEX: usize = 0x10;
