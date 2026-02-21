@@ -4,6 +4,8 @@ use crate::hardware::HardwareModel;
 mod bus;
 mod channels;
 mod core;
+mod mix;
+mod sequencer;
 use channels::{NoiseChannel, SquareChannel, WaveChannel};
 
 const NR10_INDEX: usize = 0x10;
