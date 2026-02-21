@@ -44,6 +44,29 @@ Recommended references:
 - Respect lint rules (`clippy -D warnings`) and formatting (`rustfmt`).
 - Avoid host-side I/O side effects inside the core (windowing, audio backend, stdout rendering); expose data through APIs for frontend adapters.
 
+## Rust Module Organization and Visibility Policy
+- Rust supports both `foo.rs` and `foo/mod.rs`; behavior is equivalent. This repository must use one consistent rule for new/refactored production modules.
+- For new or refactored production modules with children, use:
+  - Entry file: `<module>.rs`
+  - Children: `<module>/...`
+- Do not introduce new production `mod.rs` files.
+- Existing legacy `mod.rs` files can remain as-is unless the task explicitly includes module layout migration.
+- Do not partially migrate a module layout in behavior work:
+  - If a module is touched for behavior, keep its current layout.
+  - If layout migration is needed, do it as a dedicated structural refactor change.
+- Keep re-exports in the module entry file only (`<module>.rs` or legacy `mod.rs`), and avoid long re-export chains from nested children.
+- Visibility must be minimized and explicit:
+  - Default to private items.
+  - Use `pub(super)` for parent-only access.
+  - Use `pub(in crate::<subsystem>)` for subsystem boundaries.
+  - Use `pub(crate)` only when a cross-subsystem API is required.
+  - Use `pub` only for intentionally public crate API surfaces.
+- Refactor safety rule:
+  - Structural refactors (split/move/rename/visibility tightening) must not change behavior.
+  - Behavior changes must be in a separate commit/PR unless explicitly requested to combine.
+  - For CPU/PPU/APU/timer/interrupt/DMA paths, keep or add characterization tests before/with structural refactors.
+- Test-only module trees may keep using `mod.rs` when it improves fixture organization.
+
 ## Testing Policy (Mandatory)
 For every behavior change:
 - Add or update unit tests.
