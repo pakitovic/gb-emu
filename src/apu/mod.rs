@@ -6,6 +6,7 @@ mod constants;
 mod core;
 mod interface;
 mod mix;
+mod mmio;
 mod sequencer;
 #[cfg(test)]
 mod tests;
