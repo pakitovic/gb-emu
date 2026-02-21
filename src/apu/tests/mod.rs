@@ -4,4 +4,5 @@ use crate::hardware::HardwareModel;
 mod analog;
 mod channels_and_mixing;
 mod common;
+mod mmio;
 mod power_and_sequencer;
