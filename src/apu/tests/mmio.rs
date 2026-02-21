@@ -15,6 +15,18 @@ fn channel_on_mask(apu: &ApuState) -> u8 {
 }
 
 #[test]
+fn apu_boot_state_applies_nr52_mask_only_when_powered_on() {
+    let mut io = [0u8; 0x80];
+    io[NR52_INDEX] = 0x8D;
+    let apu_on = ApuState::from_boot_state(&io, HardwareModel::Dmg);
+    assert_eq!(apu_on.read_io_register(0xFF26), Some(0x8D));
+
+    io[NR52_INDEX] = 0x0F;
+    let apu_off = ApuState::from_boot_state(&io, HardwareModel::Dmg);
+    assert_eq!(apu_off.read_io_register(0xFF26), Some(0x00));
+}
+
+#[test]
 fn apu_mmio_decode_maps_channel_control_and_wave_registers() {
     assert_eq!(decode_register(0xFF10), Some(ApuRegister::Nr10));
     assert_eq!(decode_register(0xFF24), Some(ApuRegister::Nr50));
