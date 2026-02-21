@@ -13,8 +13,8 @@ impl ApuState {
         }
 
         io[register.io_index()] = value;
-        let length_clocks_next = self.length_clocks_on_next_frame_step();
-        let envelope_clocks_next = self.envelope_clocks_on_next_frame_step();
+        let length_clocks_next = self.timing.length_clocks_on_next_step();
+        let envelope_clocks_next = self.timing.envelope_clocks_on_next_step();
 
         match register {
             ApuRegister::Nr10

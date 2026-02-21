@@ -1,40 +1,64 @@
 use super::*;
 
+#[derive(Clone, Copy)]
+pub(in crate::apu) struct FrameSequencerClocks {
+    pub(in crate::apu) clock_length: bool,
+    pub(in crate::apu) clock_sweep: bool,
+    pub(in crate::apu) clock_envelope: bool,
+}
+
+impl FrameSequencerState {
+    pub(in crate::apu) fn advance(&mut self) -> FrameSequencerClocks {
+        self.ticks = self.ticks.saturating_add(1);
+        let clocks = FrameSequencerClocks {
+            clock_length: self.length_clocks_on_next_step(),
+            clock_sweep: self.step == 2 || self.step == 6,
+            clock_envelope: self.envelope_clocks_on_next_step(),
+        };
+        if clocks.clock_length {
+            self.length_tick_count = self.length_tick_count.saturating_add(1);
+        }
+        if clocks.clock_sweep {
+            self.sweep_tick_count = self.sweep_tick_count.saturating_add(1);
+        }
+        if clocks.clock_envelope {
+            self.envelope_tick_count = self.envelope_tick_count.saturating_add(1);
+        }
+        self.step = (self.step + 1) & 0x07;
+        clocks
+    }
+
+    pub(in crate::apu) fn length_clocks_on_next_step(&self) -> bool {
+        (self.step & 0x01) == 0
+    }
+
+    pub(in crate::apu) fn envelope_clocks_on_next_step(&self) -> bool {
+        self.step == 7
+    }
+}
+
 impl ApuState {
     pub(super) fn clock_frame_sequencer(&mut self) {
         if !self.enabled {
             return;
         }
 
-        self.timing.ticks = self.timing.ticks.saturating_add(1);
-        let step = self.timing.step;
-        if (step & 0x01) == 0 {
-            self.timing.length_tick_count = self.timing.length_tick_count.saturating_add(1);
+        let clocks = self.timing.advance();
+        if clocks.clock_length {
             self.square1.clock_length();
             self.square2.clock_length();
             self.wave.clock_length();
             self.noise.clock_length();
         }
-        if step == 2 || step == 6 {
-            self.timing.sweep_tick_count = self.timing.sweep_tick_count.saturating_add(1);
+        if clocks.clock_sweep {
             self.square1.clock_sweep();
         }
-        if step == 7 {
-            self.timing.envelope_tick_count = self.timing.envelope_tick_count.saturating_add(1);
+        if clocks.clock_envelope {
             self.square1.clock_envelope();
             self.square2.clock_envelope();
             self.noise.clock_envelope();
         }
-        self.timing.step = (self.timing.step + 1) & 0x07;
         self.refresh_channel_on_mask();
-    }
-
-    pub(super) fn length_clocks_on_next_frame_step(&self) -> bool {
-        (self.timing.step & 0x01) == 0
-    }
-
-    pub(super) fn envelope_clocks_on_next_frame_step(&self) -> bool {
-        self.timing.step == 7
     }
 
     pub(super) fn refresh_channel_on_mask(&mut self) {

@@ -7,3 +7,4 @@ mod common;
 mod interface;
 mod mmio;
 mod power_and_sequencer;
+mod sequencer;
