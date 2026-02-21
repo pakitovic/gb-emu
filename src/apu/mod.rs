@@ -8,8 +8,6 @@ mod interface;
 mod mix;
 mod sequencer;
 #[cfg(test)]
-mod test_debug;
-#[cfg(test)]
 mod tests;
 
 use channels::{NoiseChannel, SquareChannel, WaveChannel};
