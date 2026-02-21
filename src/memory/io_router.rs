@@ -12,14 +12,11 @@ impl Bus {
         match addr {
             0xFF00 => self.write_p1(value),
             0xFF0F => self.write_if(value),
-            0xFF10..=0xFF14 | 0xFF16..=0xFF1E | 0xFF20..=0xFF23 | 0xFF30..=0xFF3F => {
-                self.write_apu_register(addr, value)
+            0xFF10..=0xFF14 | 0xFF16..=0xFF1E | 0xFF20..=0xFF26 | 0xFF30..=0xFF3F => {
+                self.write_apu_io_register(addr, value)
             }
             0xFF40 => self.write_lcdc(value),
             0xFF41 => self.write_stat(value),
-            0xFF24 => self.write_nr50(value),
-            0xFF25 => self.write_nr51(value),
-            0xFF26 => self.write_nr52(value),
             0xFF04 => self.write_div(value),
             0xFF46 => self.write_dma(value),
             0xFF02 => self.write_sc(value),
@@ -41,7 +38,9 @@ impl Bus {
             0xFF00 => self.read_p1(),
             0xFF04 => self.read_div(),
             0xFF41 => self.stat_read_value(),
-            0xFF26 => self.read_nr52(),
+            0xFF26 => self
+                .read_apu_io_register(addr)
+                .unwrap_or(self.io[(addr - 0xFF00) as usize]),
             _ => self.io[(addr - 0xFF00) as usize],
         };
         value | io_unused_bits_mask(addr)

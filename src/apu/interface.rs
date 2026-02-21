@@ -10,25 +10,41 @@ impl ApuState {
         self.reset_analog_filter_state();
     }
 
-    pub(crate) fn read_nr52(&self) -> u8 {
+    pub(crate) fn read_io_register(&self, addr: u16) -> Option<u8> {
+        match addr {
+            0xFF26 => Some(self.read_nr52()),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn write_io_register(&mut self, io: &mut [u8; 0x80], addr: u16, value: u8) {
+        match addr {
+            0xFF24 => self.write_nr50(io, value),
+            0xFF25 => self.write_nr51(io, value),
+            0xFF26 => self.write_nr52(io, value),
+            _ => self.write_channel_register(io, addr, value),
+        }
+    }
+
+    fn read_nr52(&self) -> u8 {
         ((self.enabled as u8) << 7) | (self.channel_on_mask & 0x0F)
     }
 
-    pub(crate) fn write_nr50(&mut self, io: &mut [u8; 0x80], value: u8) {
+    fn write_nr50(&mut self, io: &mut [u8; 0x80], value: u8) {
         if !self.enabled {
             return;
         }
         io[NR50_INDEX] = value;
     }
 
-    pub(crate) fn write_nr51(&mut self, io: &mut [u8; 0x80], value: u8) {
+    fn write_nr51(&mut self, io: &mut [u8; 0x80], value: u8) {
         if !self.enabled {
             return;
         }
         io[NR51_INDEX] = value;
     }
 
-    pub(crate) fn write_nr52(&mut self, io: &mut [u8; 0x80], value: u8) {
+    fn write_nr52(&mut self, io: &mut [u8; 0x80], value: u8) {
         let request_enabled = (value & 0x80) != 0;
 
         if self.enabled && !request_enabled {
@@ -82,7 +98,7 @@ impl ApuState {
         }
     }
 
-    pub(crate) fn write_register(&mut self, io: &mut [u8; 0x80], addr: u16, value: u8) {
+    fn write_channel_register(&mut self, io: &mut [u8; 0x80], addr: u16, value: u8) {
         let index = (addr - 0xFF00) as usize;
         if (WAVE_RAM_START_INDEX..=WAVE_RAM_END_INDEX).contains(&index) {
             io[index] = value;
