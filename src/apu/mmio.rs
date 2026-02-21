@@ -1,6 +1,7 @@
 use super::*;
 
 mod decode;
+mod power;
 pub(super) use decode::{ApuRegister, decode_register};
 
 impl ApuState {
@@ -18,7 +19,7 @@ impl ApuState {
         match register {
             ApuRegister::Nr50 => self.write_nr50(io, value),
             ApuRegister::Nr51 => self.write_nr51(io, value),
-            ApuRegister::Nr52 => self.write_nr52(io, value),
+            ApuRegister::Nr52 => self.write_nr52_power(io, value),
             ApuRegister::WaveRam(index) => io[index] = value,
             _ => self.write_channel_register(io, register, value),
         }
@@ -40,30 +41,6 @@ impl ApuState {
             return;
         }
         io[NR51_INDEX] = value;
-    }
-
-    fn write_nr52(&mut self, io: &mut [u8; 0x80], value: u8) {
-        let request_enabled = (value & 0x80) != 0;
-
-        if self.enabled && !request_enabled {
-            Self::clear_registers(io);
-            self.reset_after_power_toggle(false);
-            io[NR52_INDEX] = 0x00;
-            return;
-        }
-
-        if !self.enabled && request_enabled {
-            Self::clear_registers(io);
-            self.reset_after_power_toggle(true);
-            io[NR52_INDEX] = 0x80;
-            return;
-        }
-
-        if self.enabled {
-            io[NR52_INDEX] = 0x80 | (self.channel_on_mask & 0x0F);
-        } else {
-            io[NR52_INDEX] = 0x00;
-        }
     }
 
     fn write_channel_register(&mut self, io: &mut [u8; 0x80], register: ApuRegister, value: u8) {
@@ -109,11 +86,5 @@ impl ApuState {
             _ => {}
         }
         self.refresh_channel_on_mask();
-    }
-
-    fn clear_registers(io: &mut [u8; 0x80]) {
-        for register in io.iter_mut().take(NR51_INDEX + 1).skip(NR10_INDEX) {
-            *register = 0x00;
-        }
     }
 }
