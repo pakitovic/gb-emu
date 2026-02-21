@@ -7,9 +7,13 @@ mod core;
 mod interface;
 mod mix;
 mod sequencer;
+#[cfg(test)]
+mod test_debug;
 
 use channels::{NoiseChannel, SquareChannel, WaveChannel};
 use constants::*;
+#[cfg(test)]
+pub(crate) use test_debug::ApuTestDebugState;
 
 pub(crate) struct ApuState {
     analog_profile: AnalogCalibrationProfile,

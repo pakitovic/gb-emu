@@ -23,11 +23,11 @@ fn apu_hpf_reduces_dc_offset_for_constant_wave_output() {
     let mut early_peak = 0.0f32;
     for _ in 0..128 {
         bus.tick(1);
-        early_peak = early_peak.max(bus.apu_last_mixed_sample().abs());
+        early_peak = early_peak.max(bus.apu_test_state().last_mixed_sample.abs());
     }
 
     tick_n(&mut bus, 80_000);
-    let late_abs = bus.apu_last_mixed_sample().abs();
+    let late_abs = bus.apu_test_state().last_mixed_sample.abs();
 
     assert!(early_peak > 0.1);
     assert!(
@@ -86,12 +86,19 @@ fn apu_analog_profile_is_model_specific() {
     let mgb = make_test_bus_with_model(HardwareModel::Mgb);
     let sgb = make_test_bus_with_model(HardwareModel::Sgb);
 
-    assert!((dmg.apu_analog_hpf_coeff() - mgb.apu_analog_hpf_coeff()).abs() > f32::EPSILON);
     assert!(
-        (dmg.apu_analog_low_pass_alpha() - mgb.apu_analog_low_pass_alpha()).abs() > f32::EPSILON
+        (dmg.apu_test_state().analog_hpf_coeff - mgb.apu_test_state().analog_hpf_coeff).abs()
+            > f32::EPSILON
     );
     assert!(
-        (mgb.apu_analog_soft_clip_drive() - sgb.apu_analog_soft_clip_drive()).abs() > f32::EPSILON
+        (dmg.apu_test_state().analog_low_pass_alpha - mgb.apu_test_state().analog_low_pass_alpha)
+            .abs()
+            > f32::EPSILON
+    );
+    assert!(
+        (mgb.apu_test_state().analog_soft_clip_drive - sgb.apu_test_state().analog_soft_clip_drive)
+            .abs()
+            > f32::EPSILON
     );
 }
 
@@ -116,7 +123,7 @@ fn apu_custom_calibration_profile_can_mute_channel_output() {
     tick_n(&mut bus, 256);
 
     assert!(
-        bus.apu_last_mixed_sample().abs() < 0.000_01,
+        bus.apu_test_state().last_mixed_sample.abs() < 0.000_01,
         "expected near-silence with zeroed calibration gain"
     );
 }
@@ -139,7 +146,8 @@ fn apu_custom_calibration_crossfeed_can_inject_right_into_left() {
     bus.write_byte(0xFF14, 0x87); // trigger
     tick_n(&mut bus, 512);
 
-    let (left, right) = bus.apu_last_mixed_sample_stereo();
+    let state = bus.apu_test_state();
+    let (left, right) = (state.last_mixed_sample_left, state.last_mixed_sample_right);
     assert!(right.abs() > 0.01);
     assert!(
         left.abs() > 0.001,
@@ -165,12 +173,12 @@ fn apu_low_pass_stage_softens_initial_attack() {
     bus.write_byte(0xFF1E, 0x80); // trigger
 
     bus.tick(1);
-    let first_abs = bus.apu_last_mixed_sample().abs();
+    let first_abs = bus.apu_test_state().last_mixed_sample.abs();
 
     let mut later_peak = 0.0f32;
     for _ in 0..512 {
         bus.tick(1);
-        later_peak = later_peak.max(bus.apu_last_mixed_sample().abs());
+        later_peak = later_peak.max(bus.apu_test_state().last_mixed_sample.abs());
     }
 
     assert!(first_abs > 0.0);
