@@ -1,6 +1,5 @@
-use super::{
-    AnalogCalibrationProfile, HardwareModel, make_test_bus, make_test_bus_with_model, tick_n,
-};
+use super::common::{make_test_bus, make_test_bus_with_model, tick_n};
+use super::{AnalogCalibrationProfile, HardwareModel};
 
 #[test]
 fn apu_hpf_reduces_dc_offset_for_constant_wave_output() {

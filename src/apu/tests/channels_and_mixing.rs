@@ -1,4 +1,4 @@
-use super::{make_test_bus, tick_n};
+use super::common::{make_test_bus, tick_n};
 
 #[test]
 fn apu_square_channels_generate_dynamic_mixed_output() {
