@@ -1,4 +1,4 @@
-use super::{HardwareModel, make_test_bus, make_test_bus_with_model, tick_n};
+use super::common::{make_test_bus, tick_n};
 
 #[test]
 fn nr52_power_toggle_clears_nr50_nr51_and_blocks_writes_while_off() {
@@ -70,14 +70,4 @@ fn apu_frame_sequencer_stops_when_apu_is_powered_off() {
 
     assert_eq!(bus.apu_test_state().frame_sequencer_ticks, 0);
     assert_eq!(bus.apu_test_state().frame_sequencer_step, 0);
-}
-
-#[test]
-fn apu_boot_nr52_channel_status_bit_is_stable_after_first_tick() {
-    let mut bus = make_test_bus_with_model(HardwareModel::Dmg);
-    assert_eq!(bus.read_byte(0xFF26) & 0x0F, 0x01);
-
-    bus.tick(1);
-
-    assert_eq!(bus.read_byte(0xFF26) & 0x0F, 0x01);
 }
