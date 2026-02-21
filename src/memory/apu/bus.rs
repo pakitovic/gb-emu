@@ -12,20 +12,12 @@ impl Bus {
         self.apu.set_analog_calibration(calibration);
     }
 
-    pub(in crate::memory) fn read_nr52(&self) -> u8 {
-        self.apu.read_nr52()
+    pub(in crate::memory) fn read_apu_io_register(&self, addr: u16) -> Option<u8> {
+        self.apu.read_io_register(addr)
     }
 
-    pub(in crate::memory) fn write_nr50(&mut self, value: u8) {
-        self.apu.write_nr50(&mut self.io, value);
-    }
-
-    pub(in crate::memory) fn write_nr51(&mut self, value: u8) {
-        self.apu.write_nr51(&mut self.io, value);
-    }
-
-    pub(in crate::memory) fn write_nr52(&mut self, value: u8) {
-        self.apu.write_nr52(&mut self.io, value);
+    pub(in crate::memory) fn write_apu_io_register(&mut self, addr: u16, value: u8) {
+        self.apu.write_io_register(&mut self.io, addr, value);
     }
 
     pub(in crate::memory) fn step_apu_frame_sequencer_from_divider(
@@ -46,9 +38,5 @@ impl Bus {
 
     pub fn set_audio_tcycle_stream_enabled(&mut self, enabled: bool) {
         self.apu.set_tcycle_stream_enabled(enabled);
-    }
-
-    pub(in crate::memory) fn write_apu_register(&mut self, addr: u16, value: u8) {
-        self.apu.write_register(&mut self.io, addr, value);
     }
 }
