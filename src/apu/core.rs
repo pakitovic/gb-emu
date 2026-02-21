@@ -22,18 +22,14 @@ impl ApuState {
     pub(super) fn reset_after_power_toggle(&mut self, enabled: bool) {
         self.enabled = enabled;
         self.channel_on_mask = 0;
-        self.frame_sequencer_step = 0;
-        self.frame_sequencer_ticks = 0;
-        self.length_tick_count = 0;
-        self.sweep_tick_count = 0;
-        self.envelope_tick_count = 0;
+        self.timing = FrameSequencerState::default();
         self.square1.reset(true);
         self.square2.reset(false);
         self.wave = WaveChannel::default();
         self.noise = NoiseChannel::default();
-        self.last_mixed_sample_left = 0.0;
-        self.last_mixed_sample_right = 0.0;
-        self.last_mixed_sample = 0.0;
+        self.analog.last_mixed_sample_left = 0.0;
+        self.analog.last_mixed_sample_right = 0.0;
+        self.analog.last_mixed_sample = 0.0;
         self.reset_analog_filter_state();
     }
 }

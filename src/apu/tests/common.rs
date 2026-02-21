@@ -85,14 +85,14 @@ impl ApuHarness {
 
     pub(super) fn apu_test_state(&self) -> ApuTestDebugState {
         ApuTestDebugState {
-            frame_sequencer_step: self.apu.frame_sequencer_step,
-            frame_sequencer_ticks: self.apu.frame_sequencer_ticks,
-            length_tick_count: self.apu.length_tick_count,
-            sweep_tick_count: self.apu.sweep_tick_count,
-            envelope_tick_count: self.apu.envelope_tick_count,
-            last_mixed_sample: self.apu.last_mixed_sample,
-            last_mixed_sample_left: self.apu.last_mixed_sample_left,
-            last_mixed_sample_right: self.apu.last_mixed_sample_right,
+            frame_sequencer_step: self.apu.timing.step,
+            frame_sequencer_ticks: self.apu.timing.ticks,
+            length_tick_count: self.apu.timing.length_tick_count,
+            sweep_tick_count: self.apu.timing.sweep_tick_count,
+            envelope_tick_count: self.apu.timing.envelope_tick_count,
+            last_mixed_sample: self.apu.analog.last_mixed_sample,
+            last_mixed_sample_left: self.apu.analog.last_mixed_sample_left,
+            last_mixed_sample_right: self.apu.analog.last_mixed_sample_right,
             square2_envelope_volume: self.apu.square2.envelope.volume,
             square2_envelope_timer: self.apu.square2.envelope.timer,
             square2_length_counter: self.apu.square2.length_counter,
