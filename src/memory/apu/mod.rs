@@ -5,7 +5,10 @@ mod bus;
 mod channels;
 mod core;
 mod mix;
+mod register_dispatch;
 mod sequencer;
+#[cfg(test)]
+mod test_helpers;
 use channels::{NoiseChannel, SquareChannel, WaveChannel};
 
 const NR10_INDEX: usize = 0x10;
