@@ -1,4 +1,7 @@
+use super::channels::{NoiseChannel, WaveChannel};
 use super::*;
+use crate::audio::AnalogCalibrationProfile;
+use crate::hardware::HardwareModel;
 
 impl ApuState {
     pub(super) fn from_boot_registers(io: &[u8; 0x80], model: HardwareModel) -> Self {
