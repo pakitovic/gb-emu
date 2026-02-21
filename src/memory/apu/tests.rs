@@ -1,4 +1,5 @@
-use super::{HardwareModel, make_test_bus, make_test_bus_with_model};
+use super::super::test_utils::{make_test_bus, make_test_bus_with_model};
+use crate::hardware::HardwareModel;
 
 #[test]
 fn apu_boot_nr52_channel_status_bit_is_stable_after_first_tick() {
