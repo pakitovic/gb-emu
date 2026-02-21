@@ -1,4 +1,6 @@
 use super::*;
+use crate::audio::AnalogCalibrationProfile;
+use crate::hardware::HardwareModel;
 
 impl ApuState {
     pub(crate) fn from_boot_state(io: &[u8; 0x80], model: HardwareModel) -> Self {
