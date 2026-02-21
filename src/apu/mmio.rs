@@ -21,7 +21,7 @@ impl ApuState {
             ApuRegister::Nr50 => self.write_nr50(io, value),
             ApuRegister::Nr51 => self.write_nr51(io, value),
             ApuRegister::Nr52 => self.write_nr52_power(io, value),
-            ApuRegister::WaveRam(index) => io[index] = value,
+            ApuRegister::WaveRam(index) => self.write_register_mirror(io, index, value),
             _ => self.write_channel_register(io, register, value),
         }
     }
@@ -34,13 +34,18 @@ impl ApuState {
         if !self.enabled {
             return;
         }
-        io[NR50_INDEX] = value;
+        self.write_register_mirror(io, NR50_INDEX, value);
     }
 
     fn write_nr51(&mut self, io: &mut [u8; 0x80], value: u8) {
         if !self.enabled {
             return;
         }
-        io[NR51_INDEX] = value;
+        self.write_register_mirror(io, NR51_INDEX, value);
+    }
+
+    pub(super) fn write_register_mirror(&mut self, io: &mut [u8; 0x80], index: usize, value: u8) {
+        self.registers.write_index(index, value);
+        io[index] = value;
     }
 }

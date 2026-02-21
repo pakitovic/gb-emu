@@ -12,7 +12,7 @@ impl ApuState {
             return;
         }
 
-        io[register.io_index()] = value;
+        self.write_register_mirror(io, register.io_index(), value);
         let length_clocks_next = self.timing.length_clocks_on_next_step();
         let envelope_clocks_next = self.timing.envelope_clocks_on_next_step();
 

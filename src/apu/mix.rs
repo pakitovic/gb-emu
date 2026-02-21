@@ -4,7 +4,7 @@ mod analog_path;
 mod core_mix;
 
 impl ApuState {
-    pub(super) fn step_tcycle(&mut self, io: &[u8; 0x80]) {
+    pub(super) fn step_tcycle(&mut self, _io: &[u8; 0x80]) {
         if !self.enabled {
             self.analog.last_mixed_sample_left = 0.0;
             self.analog.last_mixed_sample_right = 0.0;
@@ -17,14 +17,14 @@ impl ApuState {
 
         self.square1.step_tcycle();
         self.square2.step_tcycle();
-        self.wave.step_tcycle(io);
+        self.wave.step_tcycle(&self.registers);
         self.noise.step_tcycle();
         self.refresh_channel_on_mask();
         let should_mix_sample = self.stream.capture_tcycle_stream || cfg!(test);
         if !should_mix_sample {
             return;
         }
-        let (mixed_left, mixed_right) = self.mix_sample(io);
+        let (mixed_left, mixed_right) = self.mix_sample();
         let (filtered_left, filtered_right) = self.apply_analog_path(mixed_left, mixed_right);
         self.analog.last_mixed_sample_left = filtered_left.clamp(-1.0, 1.0);
         self.analog.last_mixed_sample_right = filtered_right.clamp(-1.0, 1.0);

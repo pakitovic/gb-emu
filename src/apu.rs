@@ -4,6 +4,7 @@ mod core;
 mod interface;
 mod mix;
 mod mmio;
+mod registers;
 mod sequencer;
 mod state;
 #[cfg(test)]

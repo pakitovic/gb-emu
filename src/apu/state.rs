@@ -1,4 +1,5 @@
 use super::channels::{NoiseChannel, SquareChannel, WaveChannel};
+use super::registers::ApuRegisters;
 use crate::audio::AnalogCalibrationProfile;
 use crate::hardware::HardwareModel;
 
@@ -54,6 +55,7 @@ pub(crate) struct ApuState {
     pub(in crate::apu) square2: SquareChannel,
     pub(in crate::apu) wave: WaveChannel,
     pub(in crate::apu) noise: NoiseChannel,
+    pub(in crate::apu) registers: ApuRegisters,
     pub(in crate::apu) analog: AnalogPathState,
     pub(in crate::apu) stream: StreamCaptureState,
 }
@@ -69,6 +71,7 @@ impl Default for ApuState {
             square2: SquareChannel::default(),
             wave: WaveChannel::default(),
             noise: NoiseChannel::default(),
+            registers: ApuRegisters::default(),
             analog: AnalogPathState::default(),
             stream: StreamCaptureState::default(),
         }
