@@ -1,43 +1,39 @@
 use super::super::{MAX_FREQUENCY, MAX_WAVE_LENGTH, WAVE_RAM_START_INDEX};
 
 #[derive(Clone, Copy, Default)]
-pub(in crate::memory::apu) struct WaveChannel {
-    pub(in crate::memory::apu) enabled: bool,
-    pub(in crate::memory::apu) dac_enabled: bool,
-    pub(in crate::memory::apu) length_counter: u16,
-    pub(in crate::memory::apu) length_enabled: bool,
-    pub(in crate::memory::apu) output_level: u8,
-    pub(in crate::memory::apu) frequency: u16,
-    pub(in crate::memory::apu) frequency_timer: u16,
-    pub(in crate::memory::apu) wave_position: u8,
-    pub(in crate::memory::apu) sample_buffer: u8,
+pub(in crate::apu) struct WaveChannel {
+    pub(in crate::apu) enabled: bool,
+    pub(in crate::apu) dac_enabled: bool,
+    pub(in crate::apu) length_counter: u16,
+    pub(in crate::apu) length_enabled: bool,
+    pub(in crate::apu) output_level: u8,
+    pub(in crate::apu) frequency: u16,
+    pub(in crate::apu) frequency_timer: u16,
+    pub(in crate::apu) wave_position: u8,
+    pub(in crate::apu) sample_buffer: u8,
 }
 
 impl WaveChannel {
-    pub(in crate::memory::apu) fn write_dac_enable(&mut self, value: u8) {
+    pub(in crate::apu) fn write_dac_enable(&mut self, value: u8) {
         self.dac_enabled = (value & 0x80) != 0;
         if !self.dac_enabled {
             self.enabled = false;
         }
     }
 
-    pub(in crate::memory::apu) fn write_length(&mut self, value: u8) {
+    pub(in crate::apu) fn write_length(&mut self, value: u8) {
         self.length_counter = MAX_WAVE_LENGTH - (value as u16);
     }
 
-    pub(in crate::memory::apu) fn write_output_level(&mut self, value: u8) {
+    pub(in crate::apu) fn write_output_level(&mut self, value: u8) {
         self.output_level = (value >> 5) & 0x03;
     }
 
-    pub(in crate::memory::apu) fn write_frequency_low(&mut self, value: u8) {
+    pub(in crate::apu) fn write_frequency_low(&mut self, value: u8) {
         self.frequency = (self.frequency & 0x0700) | (value as u16);
     }
 
-    pub(in crate::memory::apu) fn write_frequency_high(
-        &mut self,
-        value: u8,
-        length_clocks_next: bool,
-    ) {
+    pub(in crate::apu) fn write_frequency_high(&mut self, value: u8, length_clocks_next: bool) {
         self.frequency = (self.frequency & 0x00FF) | (((value & 0x07) as u16) << 8);
         let old_length_enabled = self.length_enabled;
         self.length_enabled = (value & 0x40) != 0;
@@ -48,7 +44,7 @@ impl WaveChannel {
         }
     }
 
-    pub(in crate::memory::apu) fn apply_length_enable_edge(
+    pub(in crate::apu) fn apply_length_enable_edge(
         &mut self,
         old_length_enabled: bool,
         length_clocks_next: bool,
@@ -67,7 +63,7 @@ impl WaveChannel {
         }
     }
 
-    pub(in crate::memory::apu) fn trigger(&mut self, length_clocks_next: bool) {
+    pub(in crate::apu) fn trigger(&mut self, length_clocks_next: bool) {
         if !self.dac_enabled {
             self.enabled = false;
             return;
@@ -84,13 +80,13 @@ impl WaveChannel {
         self.wave_position = 0;
     }
 
-    pub(in crate::memory::apu) fn period_from_frequency(&self) -> u16 {
+    pub(in crate::apu) fn period_from_frequency(&self) -> u16 {
         let freq = self.frequency.min(MAX_FREQUENCY);
         let period = (MAX_FREQUENCY + 1 - freq).saturating_mul(2);
         period.max(2)
     }
 
-    pub(in crate::memory::apu) fn step_tcycle(&mut self, io: &[u8; 0x80]) {
+    pub(in crate::apu) fn step_tcycle(&mut self, io: &[u8; 0x80]) {
         if self.frequency_timer <= 1 {
             self.frequency_timer = self.period_from_frequency();
             self.wave_position = (self.wave_position + 1) & 0x1F;
@@ -100,7 +96,7 @@ impl WaveChannel {
         }
     }
 
-    pub(in crate::memory::apu) fn clock_length(&mut self) {
+    pub(in crate::apu) fn clock_length(&mut self) {
         if !self.length_enabled || self.length_counter == 0 {
             return;
         }
@@ -111,7 +107,7 @@ impl WaveChannel {
         }
     }
 
-    pub(in crate::memory::apu) fn output_amplitude(&self, _io: &[u8; 0x80]) -> i16 {
+    pub(in crate::apu) fn output_amplitude(&self, _io: &[u8; 0x80]) -> i16 {
         if !self.enabled || !self.dac_enabled {
             return 0;
         }

@@ -15,8 +15,8 @@ mod scheduler;
 mod serial;
 mod timer;
 
+use crate::apu::ApuState;
 use crate::cartridge::Cartridge;
-use apu::ApuState;
 use dma::DmaState;
 use joypad::JoypadState;
 use ppu::PpuState;

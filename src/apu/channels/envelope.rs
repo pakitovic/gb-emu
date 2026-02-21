@@ -1,20 +1,20 @@
 #[derive(Clone, Copy, Default)]
-pub(in crate::memory::apu) struct EnvelopeState {
-    pub(in crate::memory::apu) initial_volume: u8,
-    pub(in crate::memory::apu) volume: u8,
-    pub(in crate::memory::apu) period: u8,
-    pub(in crate::memory::apu) increase: bool,
-    pub(in crate::memory::apu) timer: u8,
+pub(in crate::apu) struct EnvelopeState {
+    pub(in crate::apu) initial_volume: u8,
+    pub(in crate::apu) volume: u8,
+    pub(in crate::apu) period: u8,
+    pub(in crate::apu) increase: bool,
+    pub(in crate::apu) timer: u8,
 }
 
 impl EnvelopeState {
-    pub(in crate::memory::apu) fn write_register(&mut self, value: u8) {
+    pub(in crate::apu) fn write_register(&mut self, value: u8) {
         self.initial_volume = (value >> 4) & 0x0F;
         self.period = value & 0x07;
         self.increase = (value & 0x08) != 0;
     }
 
-    pub(in crate::memory::apu) fn trigger(&mut self, envelope_clocks_next: bool) {
+    pub(in crate::apu) fn trigger(&mut self, envelope_clocks_next: bool) {
         self.volume = self.initial_volume;
         let base_timer = if self.period == 0 { 8 } else { self.period };
         self.timer = if envelope_clocks_next {
@@ -24,7 +24,7 @@ impl EnvelopeState {
         };
     }
 
-    pub(in crate::memory::apu) fn clock(&mut self) {
+    pub(in crate::apu) fn clock(&mut self) {
         if self.period == 0 {
             return;
         }
