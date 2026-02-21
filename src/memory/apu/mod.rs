@@ -3,6 +3,7 @@ use crate::hardware::HardwareModel;
 
 mod bus;
 mod channels;
+mod constants;
 mod core;
 mod mix;
 mod register_dispatch;
@@ -12,47 +13,7 @@ mod test_helpers;
 #[cfg(test)]
 mod tests;
 use channels::{NoiseChannel, SquareChannel, WaveChannel};
-
-const NR10_INDEX: usize = 0x10;
-const NR11_INDEX: usize = 0x11;
-const NR12_INDEX: usize = 0x12;
-const NR13_INDEX: usize = 0x13;
-const NR14_INDEX: usize = 0x14;
-const NR21_INDEX: usize = 0x16;
-const NR22_INDEX: usize = 0x17;
-const NR23_INDEX: usize = 0x18;
-const NR24_INDEX: usize = 0x19;
-const NR30_INDEX: usize = 0x1A;
-const NR31_INDEX: usize = 0x1B;
-const NR32_INDEX: usize = 0x1C;
-const NR33_INDEX: usize = 0x1D;
-const NR34_INDEX: usize = 0x1E;
-const NR41_INDEX: usize = 0x20;
-const NR42_INDEX: usize = 0x21;
-const NR43_INDEX: usize = 0x22;
-const NR44_INDEX: usize = 0x23;
-const NR50_INDEX: usize = 0x24;
-const NR51_INDEX: usize = 0x25;
-const NR52_INDEX: usize = 0x26;
-const WAVE_RAM_START_INDEX: usize = 0x30;
-const WAVE_RAM_END_INDEX: usize = 0x3F;
-const MAX_PENDING_AUDIO_TCYCLE_FRAMES: usize = 262_144;
-
-const DIV_APU_BIT: u16 = 1 << 12;
-const CHANNEL_COUNT: usize = 4;
-const MAX_SQUARE_LENGTH: u8 = 64;
-const MAX_NOISE_LENGTH: u8 = 64;
-const MAX_WAVE_LENGTH: u16 = 256;
-const MAX_FREQUENCY: u16 = 2_047;
-
-const DUTY_PATTERNS: [[u8; 8]; 4] = [
-    [0, 0, 0, 0, 0, 0, 0, 1], // 12.5%
-    [1, 0, 0, 0, 0, 0, 0, 1], // 25%
-    [1, 0, 0, 0, 0, 1, 1, 1], // 50%
-    [0, 1, 1, 1, 1, 1, 1, 0], // 75%
-];
-
-const NOISE_DIVISORS: [u16; 8] = [8, 16, 32, 48, 64, 80, 96, 112];
+pub(in crate::memory::apu) use constants::*;
 
 pub(super) struct ApuState {
     analog_profile: AnalogCalibrationProfile,
