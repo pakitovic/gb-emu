@@ -2,29 +2,29 @@ use super::super::{DUTY_PATTERNS, MAX_FREQUENCY, MAX_SQUARE_LENGTH};
 use super::{EnvelopeState, SweepState};
 
 #[derive(Clone, Copy, Default)]
-pub(in crate::memory::apu) struct SquareChannel {
-    pub(in crate::memory::apu) enabled: bool,
-    pub(in crate::memory::apu) dac_enabled: bool,
-    pub(in crate::memory::apu) duty: u8,
-    pub(in crate::memory::apu) duty_position: u8,
-    pub(in crate::memory::apu) length_counter: u8,
-    pub(in crate::memory::apu) length_enabled: bool,
-    pub(in crate::memory::apu) frequency: u16,
-    pub(in crate::memory::apu) frequency_timer: u16,
-    pub(in crate::memory::apu) envelope: EnvelopeState,
-    pub(in crate::memory::apu) sweep: SweepState,
-    pub(in crate::memory::apu) has_sweep: bool,
+pub(in crate::apu) struct SquareChannel {
+    pub(in crate::apu) enabled: bool,
+    pub(in crate::apu) dac_enabled: bool,
+    pub(in crate::apu) duty: u8,
+    pub(in crate::apu) duty_position: u8,
+    pub(in crate::apu) length_counter: u8,
+    pub(in crate::apu) length_enabled: bool,
+    pub(in crate::apu) frequency: u16,
+    pub(in crate::apu) frequency_timer: u16,
+    pub(in crate::apu) envelope: EnvelopeState,
+    pub(in crate::apu) sweep: SweepState,
+    pub(in crate::apu) has_sweep: bool,
 }
 
 impl SquareChannel {
-    pub(in crate::memory::apu) fn with_sweep() -> Self {
+    pub(in crate::apu) fn with_sweep() -> Self {
         Self {
             has_sweep: true,
             ..Self::default()
         }
     }
 
-    pub(in crate::memory::apu) fn reset(&mut self, has_sweep: bool) {
+    pub(in crate::apu) fn reset(&mut self, has_sweep: bool) {
         *self = if has_sweep {
             Self::with_sweep()
         } else {
@@ -32,12 +32,12 @@ impl SquareChannel {
         };
     }
 
-    pub(in crate::memory::apu) fn write_duty_length(&mut self, value: u8) {
+    pub(in crate::apu) fn write_duty_length(&mut self, value: u8) {
         self.duty = (value >> 6) & 0x03;
         self.length_counter = MAX_SQUARE_LENGTH - (value & 0x3F);
     }
 
-    pub(in crate::memory::apu) fn write_envelope(&mut self, value: u8) {
+    pub(in crate::apu) fn write_envelope(&mut self, value: u8) {
         self.envelope.write_register(value);
         self.dac_enabled = (value & 0xF8) != 0;
         if !self.dac_enabled {
@@ -45,11 +45,11 @@ impl SquareChannel {
         }
     }
 
-    pub(in crate::memory::apu) fn write_frequency_low(&mut self, value: u8) {
+    pub(in crate::apu) fn write_frequency_low(&mut self, value: u8) {
         self.frequency = (self.frequency & 0x0700) | (value as u16);
     }
 
-    pub(in crate::memory::apu) fn write_frequency_high(
+    pub(in crate::apu) fn write_frequency_high(
         &mut self,
         value: u8,
         length_clocks_next: bool,
@@ -65,7 +65,7 @@ impl SquareChannel {
         }
     }
 
-    pub(in crate::memory::apu) fn apply_length_enable_edge(
+    pub(in crate::apu) fn apply_length_enable_edge(
         &mut self,
         old_length_enabled: bool,
         length_clocks_next: bool,
@@ -84,11 +84,7 @@ impl SquareChannel {
         }
     }
 
-    pub(in crate::memory::apu) fn trigger(
-        &mut self,
-        length_clocks_next: bool,
-        envelope_clocks_next: bool,
-    ) {
+    pub(in crate::apu) fn trigger(&mut self, length_clocks_next: bool, envelope_clocks_next: bool) {
         if !self.dac_enabled {
             self.enabled = false;
             return;
@@ -117,13 +113,13 @@ impl SquareChannel {
         }
     }
 
-    pub(in crate::memory::apu) fn period_from_frequency(&self) -> u16 {
+    pub(in crate::apu) fn period_from_frequency(&self) -> u16 {
         let freq = self.frequency.min(MAX_FREQUENCY);
         let period = (MAX_FREQUENCY + 1 - freq).saturating_mul(4);
         period.max(4)
     }
 
-    pub(in crate::memory::apu) fn step_tcycle(&mut self) {
+    pub(in crate::apu) fn step_tcycle(&mut self) {
         if self.frequency_timer <= 1 {
             self.frequency_timer = self.period_from_frequency();
             self.duty_position = (self.duty_position + 1) & 0x07;
@@ -132,7 +128,7 @@ impl SquareChannel {
         }
     }
 
-    pub(in crate::memory::apu) fn clock_length(&mut self) {
+    pub(in crate::apu) fn clock_length(&mut self) {
         if !self.length_enabled || self.length_counter == 0 {
             return;
         }
@@ -143,11 +139,11 @@ impl SquareChannel {
         }
     }
 
-    pub(in crate::memory::apu) fn clock_envelope(&mut self) {
+    pub(in crate::apu) fn clock_envelope(&mut self) {
         self.envelope.clock();
     }
 
-    pub(in crate::memory::apu) fn clock_sweep(&mut self) {
+    pub(in crate::apu) fn clock_sweep(&mut self) {
         if !self.has_sweep {
             return;
         }
@@ -176,7 +172,7 @@ impl SquareChannel {
         }
     }
 
-    pub(in crate::memory::apu) fn output_amplitude(&self) -> i16 {
+    pub(in crate::apu) fn output_amplitude(&self) -> i16 {
         if !self.enabled || !self.dac_enabled {
             return 0;
         }
