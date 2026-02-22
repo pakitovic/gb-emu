@@ -689,11 +689,23 @@ impl PpuState {
     }
 
     fn mode3_bg_takeover_boundary(bus: &Bus) -> bool {
+        let push_stalled_boundary = bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
+            && bus.ppu.mode3_fifo.bg_push_stalled_for_fifo
+            && !bus.ppu.mode3_fifo.can_push_8();
+        let push_ready_boundary = bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
+            && !bus.ppu.mode3_fifo.bg_push_stalled_for_fifo
+            && bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0;
         (bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::TileIndex
             && bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0)
-            || (bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
-                && (bus.ppu.mode3_fifo.bg_push_stalled_for_fifo
-                    || bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0))
+            || push_stalled_boundary
+            || push_ready_boundary
+    }
+
+    #[cfg(test)]
+    fn mode3_bg_push_recovery_sleep_pending(bus: &Bus) -> bool {
+        bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
+            && bus.ppu.mode3_fifo.bg_push_stalled_for_fifo
+            && bus.ppu.mode3_fifo.can_push_8()
     }
 
     fn mode3_obj_takeover_boundary(bus: &Bus) -> bool {
@@ -1350,5 +1362,10 @@ impl Bus {
     #[cfg(test)]
     pub(super) fn mode3_bg_push_stalled_for_fifo(&self) -> bool {
         self.ppu.mode3_fifo.bg_push_stalled_for_fifo
+    }
+
+    #[cfg(test)]
+    pub(super) fn mode3_bg_push_recovery_sleep_pending(&self) -> bool {
+        PpuState::mode3_bg_push_recovery_sleep_pending(self)
     }
 }

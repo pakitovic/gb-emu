@@ -1543,6 +1543,152 @@ fn mode3_bg_push_stall_recovery_consumes_sleep_dot_before_push() {
 }
 
 #[test]
+fn mode3_window_trigger_does_not_restart_on_fifo_recovery_sleep_dot() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+    bus.write_byte(0xFF41, 0x08); // mode0 STAT source
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+
+    // BG tile map row (9C00) uses white tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x12); // VRAM probe byte
+    bus.write_byte(0x8001, 0x00);
+
+    // Window map row uses black tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on, window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut reached_sleep_dot = false;
+    for _ in 0..256 {
+        bus.tick(1);
+        if bus.mode3_bg_push_recovery_sleep_pending() && bus.mode3_output_x() > 0 {
+            reached_sleep_dot = true;
+            break;
+        }
+    }
+    assert!(
+        reached_sleep_dot,
+        "expected to observe Push recovery sleep dot"
+    );
+    assert!(!bus.mode3_window_takeover_boundary());
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window mid-line on sleep dot
+
+    bus.tick(1);
+    assert!(
+        !bus.mode3_window_triggered_this_line(),
+        "window restart must stay queued on FIFO recovery sleep dot"
+    );
+    assert!(bus.mode3_window_trigger_pending());
+    assert_eq!(bus.read_byte(0xFF41) & 0x03, 3);
+    assert_eq!(bus.interrupt_flags() & (1 << 1), 0);
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0xFF,
+        "VRAM should remain blocked in mode3"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should remain blocked in mode3"
+    );
+
+    let mut triggered = false;
+    for _ in 0..4 {
+        bus.tick(1);
+        if bus.mode3_window_triggered_this_line() {
+            triggered = true;
+            break;
+        }
+    }
+    assert!(
+        triggered,
+        "queued window restart should fire on a later valid Push boundary after sleep"
+    );
+}
+
+#[test]
+fn mode3_obj_fetch_does_not_start_on_fifo_recovery_sleep_dot() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+
+    // Sprite positioned so it becomes eligible mid-line.
+    bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    bus.write_byte(0xFE01, 32); // X => left edge at x=24
+    bus.write_byte(0xFE02, 0x00); // tile
+    bus.write_byte(0xFE03, 0x00); // attrs
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on, OBJ disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut reached_sleep_with_obj_eligible = false;
+    for _ in 0..256 {
+        bus.tick(1);
+        if bus.mode3_bg_push_recovery_sleep_pending()
+            && bus.mode3_obj_next_sprite_index() == 0
+            && bus.mode3_output_x() >= 18
+        {
+            reached_sleep_with_obj_eligible = true;
+            break;
+        }
+    }
+    assert!(
+        reached_sleep_with_obj_eligible,
+        "expected FIFO recovery sleep dot with OBJ eligible soon after"
+    );
+
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x02); // enable OBJ on sleep dot
+    bus.tick(1);
+    assert_eq!(
+        bus.mode3_obj_next_sprite_index(),
+        0,
+        "OBJ fetch must not start on FIFO recovery sleep dot"
+    );
+    assert_eq!(bus.mode3_obj_fetch_dots_remaining(), 0);
+
+    let mut started = false;
+    for _ in 0..4 {
+        bus.tick(1);
+        if bus.mode3_obj_next_sprite_index() == 1 || bus.mode3_obj_fetch_dots_remaining() > 0 {
+            started = true;
+            break;
+        }
+    }
+    assert!(
+        started,
+        "OBJ fetch should start on a later valid boundary after recovery sleep"
+    );
+}
+
+#[test]
 fn mode3_window_trigger_queues_until_obj_fetch_finishes() {
     let mut bus = make_test_bus();
 
@@ -1830,6 +1976,7 @@ fn mode3_stalled_push_boundary_window_and_obj_same_dot_prefers_obj_then_queues_w
         bus.tick(1);
         if bus.mode3_bg_fetch_phase() == 3
             && bus.mode3_bg_push_stalled_for_fifo()
+            && !bus.mode3_bg_push_recovery_sleep_pending()
             && bus.mode3_output_x() >= 24
         {
             reached_stalled_push_with_obj_eligible = true;
