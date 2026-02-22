@@ -1323,6 +1323,7 @@ fn mode3_obj_fetch_can_start_from_fifo_stall_boundary() {
         if bus.mode3_bg_fetch_phase() == 0
             && bus.mode3_bg_fetch_dots_remaining() == 0
             && bus.mode3_bg_fifo_len() > 8
+            && !bus.mode3_window_takeover_boundary()
             && bus.mode3_obj_next_sprite_index() == 0
         {
             reached_fifo_stall_boundary = true;
@@ -1335,6 +1336,12 @@ fn mode3_obj_fetch_can_start_from_fifo_stall_boundary() {
     );
 
     bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x02); // enable OBJ mid-line
+    bus.tick(1);
+    assert_eq!(
+        bus.mode3_obj_next_sprite_index(),
+        0,
+        "expected stalled-push boundary cooldown to defer OBJ fetch by one dot"
+    );
     bus.tick(1);
     assert_eq!(
         bus.mode3_obj_next_sprite_index(),
@@ -1377,6 +1384,8 @@ fn mode3_window_trigger_can_restart_from_fifo_stall_boundary() {
         if bus.mode3_bg_fetch_phase() == 0
             && bus.mode3_bg_fetch_dots_remaining() == 0
             && bus.mode3_bg_fifo_len() > 8
+            && !bus.mode3_window_takeover_boundary()
+            && bus.mode3_output_x() > 0
         {
             reached_fifo_stall_boundary = true;
             break;
@@ -1388,16 +1397,99 @@ fn mode3_window_trigger_can_restart_from_fifo_stall_boundary() {
     );
 
     let output_x = bus.mode3_output_x();
-    let wx = output_x.saturating_add(7).min(166);
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
     bus.write_byte(0xFF4B, wx);
     bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window mid-line
 
     bus.tick(1);
     assert!(
+        !bus.mode3_window_triggered_this_line(),
+        "expected stalled-push boundary cooldown to defer window restart by one dot"
+    );
+    assert!(bus.mode3_window_trigger_pending());
+
+    bus.tick(1);
+    assert!(
         bus.mode3_window_triggered_this_line(),
-        "expected window to restart from FIFO stall takeover boundary (output_x={output_x}, wx={wx})"
+        "expected window to restart from FIFO stall takeover boundary after cooldown (output_x={output_x}, wx={wx})"
     );
     assert!(!bus.mode3_window_trigger_pending());
+}
+
+#[test]
+fn mode3_fifo_stall_window_cooldown_delays_stat_mode0_and_bus_release() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+    bus.write_byte(0xFF41, 0x08); // mode0 STAT source
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+
+    // BG tile map row (9C00) uses white tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+
+    // Window map row uses black tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on, window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut reached_fifo_stall_boundary = false;
+    for _ in 0..128 {
+        bus.tick(1);
+        if bus.mode3_bg_fetch_phase() == 0
+            && bus.mode3_bg_fetch_dots_remaining() == 0
+            && bus.mode3_bg_fifo_len() > 8
+            && !bus.mode3_window_takeover_boundary()
+            && bus.mode3_output_x() > 0
+        {
+            reached_fifo_stall_boundary = true;
+            break;
+        }
+    }
+    assert!(reached_fifo_stall_boundary);
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+    assert_eq!(bus.interrupt_flags() & (1 << 1), 0);
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window mid-line
+
+    bus.tick(1);
+    assert_eq!(
+        bus.read_byte(0xFF41) & 0x03,
+        3,
+        "expected mode3 to remain active"
+    );
+    assert_eq!(
+        bus.interrupt_flags() & (1 << 1),
+        0,
+        "expected STAT mode0 IRQ to remain pending until the delayed HBlank boundary"
+    );
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0xFF,
+        "VRAM should remain blocked in mode3"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should remain blocked in mode3"
+    );
 }
 
 #[test]
