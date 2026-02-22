@@ -12,6 +12,8 @@ pub(in crate::apu) struct WaveChannel {
     pub(in crate::apu) frequency_timer: u16,
     pub(in crate::apu) wave_position: u8,
     pub(in crate::apu) sample_buffer: u8,
+    pub(in crate::apu) wave_ram_access_open: bool,
+    pub(in crate::apu) wave_ram_last_read_byte_index: u8,
 }
 
 impl WaveChannel {
@@ -79,6 +81,7 @@ impl WaveChannel {
         }
         self.frequency_timer = self.period_from_frequency();
         self.wave_position = 0;
+        self.wave_ram_access_open = false;
     }
 
     pub(in crate::apu) fn period_from_frequency(&self) -> u16 {
@@ -88,12 +91,29 @@ impl WaveChannel {
     }
 
     pub(in crate::apu) fn step_tcycle(&mut self, registers: &ApuRegisters) {
+        self.wave_ram_access_open = false;
         if self.frequency_timer <= 1 {
             self.frequency_timer = self.period_from_frequency();
             self.wave_position = (self.wave_position + 1) & 0x1F;
             self.sample_buffer = registers.wave_sample_byte(self.wave_position);
+            if self.enabled {
+                self.wave_ram_access_open = true;
+                self.wave_ram_last_read_byte_index = self.wave_position / 2;
+            }
         } else {
             self.frequency_timer -= 1;
+        }
+    }
+
+    pub(in crate::apu) fn cpu_can_access_wave_ram_now(&self) -> bool {
+        !self.enabled || self.wave_ram_access_open
+    }
+
+    pub(in crate::apu) fn retrigger_wave_ram_corruption_source_byte_index(&self) -> Option<u8> {
+        if self.enabled && self.wave_ram_access_open {
+            Some(self.wave_ram_last_read_byte_index)
+        } else {
+            None
         }
     }
 

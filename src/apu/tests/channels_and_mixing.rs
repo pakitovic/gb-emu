@@ -1,4 +1,15 @@
-use super::common::{make_test_bus, tick_n};
+use super::common::{ApuHarness, make_test_bus, tick_n};
+
+fn tick_until_wave_fetch_window(bus: &mut ApuHarness, byte_index: u8, max_ticks: usize) {
+    for _ in 0..max_ticks {
+        bus.tick(1);
+        let state = bus.apu_test_state();
+        if state.wave_ram_access_open && state.wave_ram_last_read_byte_index == byte_index {
+            return;
+        }
+    }
+    panic!("timed out waiting for CH3 fetch window on wave byte {byte_index}");
+}
 
 #[test]
 fn apu_square_channels_generate_dynamic_mixed_output() {
@@ -291,6 +302,9 @@ fn apu_wave_retrigger_keeps_previous_sample_buffer_until_next_fetch() {
     let buffer_before_retrigger = bus.apu_test_state().wave_sample_buffer;
     assert_eq!(buffer_before_retrigger, 0xE4);
 
+    if bus.apu_test_state().wave_ram_access_open {
+        bus.tick(1); // move retrigger off the fetch window to avoid DMG wave-RAM corruption path
+    }
     bus.write_byte(0xFF1E, 0x87); // retrigger while channel is active
     assert_eq!(bus.apu_test_state().wave_position, 0);
     assert_eq!(
@@ -306,6 +320,76 @@ fn apu_wave_retrigger_keeps_previous_sample_buffer_until_next_fetch() {
     }
     assert_eq!(bus.apu_test_state().wave_position, 1);
     assert_eq!(bus.apu_test_state().wave_sample_buffer, 0x12);
+}
+
+#[test]
+fn apu_wave_ram_access_is_blocked_while_active_outside_fetch_window() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+    bus.write_byte(0xFF30, 0x12);
+    bus.write_byte(0xFF31, 0x34);
+    bus.write_byte(0xFF1A, 0x80); // DAC on
+    bus.write_byte(0xFF1C, 0x20); // 100%
+    bus.write_byte(0xFF1D, 0xFF); // short period to reach fetch windows quickly
+    bus.write_byte(0xFF1E, 0x87); // trigger
+
+    tick_until_wave_fetch_window(&mut bus, 0, 64);
+    bus.tick(1); // move off the fetch-access cycle
+    assert!(!bus.apu_test_state().wave_ram_access_open);
+
+    bus.write_byte(0xFF30, 0xAB); // should be ignored while CH3 is active outside fetch
+    assert_eq!(bus.read_byte(0xFF30), 0xFF);
+
+    bus.write_byte(0xFF1A, 0x00); // DAC off => channel disabled, normal access resumes
+    assert_eq!(bus.read_byte(0xFF30), 0x12);
+}
+
+#[test]
+fn apu_wave_ram_access_during_fetch_window_allows_read_and_write() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+    bus.write_byte(0xFF30, 0x12);
+    bus.write_byte(0xFF1A, 0x80); // DAC on
+    bus.write_byte(0xFF1C, 0x20); // 100%
+    bus.write_byte(0xFF1D, 0xFF);
+    bus.write_byte(0xFF1E, 0x87); // trigger
+
+    tick_until_wave_fetch_window(&mut bus, 0, 64);
+    assert!(bus.apu_test_state().wave_ram_access_open);
+    assert_eq!(bus.read_byte(0xFF30), 0x12);
+
+    bus.write_byte(0xFF30, 0xAB);
+    assert_eq!(bus.read_byte(0xFF30), 0xAB);
+
+    bus.write_byte(0xFF1A, 0x00);
+    assert_eq!(bus.read_byte(0xFF30), 0xAB);
+}
+
+#[test]
+fn apu_wave_retrigger_during_fetch_corrupts_first_wave_ram_block() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+
+    for i in 0..16u8 {
+        bus.write_byte(0xFF30 + (i as u16), 0x40 + i);
+    }
+
+    bus.write_byte(0xFF1A, 0x80); // DAC on
+    bus.write_byte(0xFF1C, 0x20); // 100%
+    bus.write_byte(0xFF1D, 0xFF); // high frequency
+    bus.write_byte(0xFF1E, 0x87); // trigger
+
+    tick_until_wave_fetch_window(&mut bus, 5, 256);
+    bus.write_byte(0xFF1E, 0x87); // retrigger during fetch window => DMG corruption
+
+    bus.write_byte(0xFF1A, 0x00); // stop channel so Wave RAM reads are not gated
+    assert_eq!(bus.read_byte(0xFF30), 0x44);
+    assert_eq!(bus.read_byte(0xFF31), 0x45);
+    assert_eq!(bus.read_byte(0xFF32), 0x46);
+    assert_eq!(bus.read_byte(0xFF33), 0x47);
 }
 
 #[test]

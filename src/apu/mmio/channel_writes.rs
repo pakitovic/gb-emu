@@ -31,7 +31,7 @@ impl ApuState {
             | ApuRegister::Nr31
             | ApuRegister::Nr32
             | ApuRegister::Nr33
-            | ApuRegister::Nr34 => self.write_wave_reg(register, value, length_clocks_next),
+            | ApuRegister::Nr34 => self.write_wave_reg(io, register, value, length_clocks_next),
             ApuRegister::Nr41 | ApuRegister::Nr42 | ApuRegister::Nr43 | ApuRegister::Nr44 => {
                 self.write_noise_reg(register, value, length_clocks_next, envelope_clocks_next)
             }
@@ -84,13 +84,24 @@ impl ApuState {
         }
     }
 
-    fn write_wave_reg(&mut self, register: ApuRegister, value: u8, length_clocks_next: bool) {
+    fn write_wave_reg(
+        &mut self,
+        io: &mut [u8; 0x80],
+        register: ApuRegister,
+        value: u8,
+        length_clocks_next: bool,
+    ) {
         match register {
             ApuRegister::Nr30 => self.wave.write_dac_enable(value),
             ApuRegister::Nr31 => self.wave.write_length(value),
             ApuRegister::Nr32 => self.wave.write_output_level(value),
             ApuRegister::Nr33 => self.wave.write_frequency_low(value),
-            ApuRegister::Nr34 => self.wave.write_frequency_high(value, length_clocks_next),
+            ApuRegister::Nr34 => {
+                if (value & 0x80) != 0 {
+                    self.maybe_apply_wave_retrigger_corruption(io, value);
+                }
+                self.wave.write_frequency_high(value, length_clocks_next)
+            }
             _ => {}
         }
     }
@@ -111,6 +122,26 @@ impl ApuState {
                     .write_control(value, length_clocks_next, envelope_clocks_next)
             }
             _ => {}
+        }
+    }
+
+    fn maybe_apply_wave_retrigger_corruption(&mut self, io: &mut [u8; 0x80], _nr34_value: u8) {
+        let Some(source_byte_index) = self.wave.retrigger_wave_ram_corruption_source_byte_index()
+        else {
+            return;
+        };
+
+        let source_byte_index = source_byte_index as usize;
+        if source_byte_index < 4 {
+            let source = self.registers.wave_ram_byte(source_byte_index);
+            self.write_register_mirror(io, WAVE_RAM_START_INDEX, source);
+            return;
+        }
+
+        let block_start = source_byte_index & !0x03;
+        for offset in 0..4usize {
+            let source = self.registers.wave_ram_byte(block_start + offset);
+            self.write_register_mirror(io, WAVE_RAM_START_INDEX + offset, source);
         }
     }
 }
