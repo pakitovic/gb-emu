@@ -1553,9 +1553,13 @@ fn mode3_window_trigger_queues_until_obj_fetch_finishes() {
 
     // Sprite later on the line to keep OBJ fetch active while output_x > 0.
     bus.write_byte(0xFE00, 18); // Y => top at LY=2
-    bus.write_byte(0xFE01, 32); // X => left edge at x=24
+    bus.write_byte(0xFE01, 32); // X => left edge at x=24 (session 1)
     bus.write_byte(0xFE02, 0x00); // tile
     bus.write_byte(0xFE03, 0x00); // attrs
+    bus.write_byte(0xFE04, 18); // Y => top at LY=2
+    bus.write_byte(0xFE05, 80); // X => separated session 2 (forces shutdown penalty after session 1)
+    bus.write_byte(0xFE06, 0x00); // tile
+    bus.write_byte(0xFE07, 0x00); // attrs
 
     // BG tile map row (9C00) uses white tile.
     for i in 0..32u16 {
@@ -1627,6 +1631,14 @@ fn mode3_window_trigger_defers_to_obj_on_shared_takeover_boundary() {
     bus.write_byte(0xFE01, 32); // X => left edge at x=24
     bus.write_byte(0xFE02, 0x00); // tile
     bus.write_byte(0xFE03, 0x00); // attrs
+    bus.write_byte(0xFE04, 18); // Y => top at LY=2
+    bus.write_byte(0xFE05, 80); // X => second separated session (enables shutdown penalty after session 1)
+    bus.write_byte(0xFE06, 0x00); // tile
+    bus.write_byte(0xFE07, 0x00); // attrs
+    bus.write_byte(0xFE04, 18); // Y => top at LY=2
+    bus.write_byte(0xFE05, 80); // X => separated second session, forces shutdown penalty after session 1
+    bus.write_byte(0xFE06, 0x00); // tile
+    bus.write_byte(0xFE07, 0x00); // attrs
 
     // BG tile map row (9C00) uses white tile.
     for i in 0..32u16 {
@@ -1940,6 +1952,172 @@ fn mode3_stalled_push_boundary_window_and_obj_same_dot_keeps_stat_and_bus_blocke
         bus.read_byte(0xFE00),
         0xFF,
         "OAM should remain blocked in mode3"
+    );
+}
+
+#[test]
+fn mode3_window_trigger_stays_queued_through_obj_shutdown_boundary() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+
+    bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    bus.write_byte(0xFE01, 32); // X => left edge at x=24
+    bus.write_byte(0xFE02, 0x00); // tile
+    bus.write_byte(0xFE03, 0x00); // attrs
+    bus.write_byte(0xFE04, 18); // Y => top at LY=2
+    bus.write_byte(0xFE05, 80); // X => second separated session (forces shutdown penalty after session 1)
+    bus.write_byte(0xFE06, 0x00); // tile
+    bus.write_byte(0xFE07, 0x00); // attrs
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x93); // LCD on + BG + OBJ, window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+    let mut reached_obj_shutdown = false;
+    for _ in 0..512 {
+        bus.tick(1);
+        if bus.mode3_obj_shutdown_dots_remaining() > 0 && bus.mode3_output_x() > 0 {
+            reached_obj_shutdown = true;
+            break;
+        }
+    }
+    assert!(reached_obj_shutdown);
+    assert!(!bus.mode3_window_takeover_boundary());
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window mid-line
+
+    let mut saw_shutdown_release = false;
+    for _ in 0..8 {
+        bus.tick(1);
+        if bus.mode3_obj_shutdown_dots_remaining() > 0 {
+            assert!(
+                !bus.mode3_window_triggered_this_line(),
+                "window restart must remain queued while OBJ shutdown still owns the boundary"
+            );
+            assert!(bus.mode3_window_trigger_pending());
+            continue;
+        }
+        saw_shutdown_release = true;
+        break;
+    }
+    assert!(
+        saw_shutdown_release,
+        "expected OBJ shutdown to finish shortly"
+    );
+    assert!(
+        !bus.mode3_window_triggered_this_line(),
+        "window should still wait for a valid takeover boundary after OBJ shutdown release"
+    );
+    assert!(bus.mode3_window_trigger_pending());
+
+    let mut triggered = false;
+    for _ in 0..64 {
+        bus.tick(1);
+        if bus.mode3_window_triggered_this_line() {
+            triggered = true;
+            break;
+        }
+    }
+    assert!(triggered);
+}
+
+#[test]
+fn mode3_push_sleep_edge_does_not_raise_stat_mode0_before_hblank() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+    bus.write_byte(0xFF41, 0x00); // mode0 source disabled initially
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on
+    wait_for_ly_mode(&mut bus, 2, 3);
+    let target_ly = bus.read_byte(0xFF44);
+
+    let mut reached_push_sleep = false;
+    for _ in 0..256 {
+        bus.tick(1);
+        if bus.mode3_bg_fetch_phase() == 3 && bus.mode3_bg_push_stalled_for_fifo() {
+            for _ in 0..8 {
+                bus.tick(1);
+                if bus.mode3_bg_fetch_phase() == 3 && !bus.mode3_bg_push_stalled_for_fifo() {
+                    reached_push_sleep = true;
+                    break;
+                }
+            }
+            break;
+        }
+    }
+    assert!(reached_push_sleep);
+    assert_eq!(
+        bus.read_byte(0xFF41) & 0x03,
+        3,
+        "expected mode3 on Push sleep dot"
+    );
+
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+    bus.write_byte(0xFF41, 0x08); // arm mode0 source while still in mode3 Push sleep
+    assert_eq!(
+        bus.interrupt_flags() & (1 << 1),
+        0,
+        "STAT mode0 IRQ must not raise before actual HBlank entry"
+    );
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0xFF,
+        "VRAM should remain blocked in mode3"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should remain blocked in mode3"
+    );
+
+    let mut saw_hblank_and_irq = false;
+    for _ in 0..512 {
+        let ly = bus.read_byte(0xFF44);
+        let mode = bus.read_byte(0xFF41) & 0x03;
+        if ly == target_ly && mode == 0 {
+            saw_hblank_and_irq = (bus.interrupt_flags() & (1 << 1)) != 0;
+            break;
+        }
+        bus.tick(1);
+    }
+    assert!(
+        saw_hblank_and_irq,
+        "expected STAT mode0 IRQ only when HBlank starts after Push sleep edge"
     );
 }
 

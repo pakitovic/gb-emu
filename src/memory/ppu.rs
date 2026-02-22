@@ -1311,6 +1311,11 @@ impl Bus {
     }
 
     #[cfg(test)]
+    pub(super) fn mode3_obj_shutdown_dots_remaining(&self) -> u8 {
+        self.ppu.mode3_fifo.obj_shutdown_dots_remaining
+    }
+
+    #[cfg(test)]
     pub(super) fn mode3_obj_next_sprite_index(&self) -> usize {
         self.ppu.mode3_fifo.obj_next_sprite
     }
