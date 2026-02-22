@@ -2753,6 +2753,62 @@ fn framebuffer_window_wx_zero_applies_minus_seven_offset() {
 }
 
 #[test]
+fn framebuffer_window_at_x0_does_not_inherit_bg_scx_discard() {
+    fn render_top_line_with_scx(scx: u8) -> [u8; 160] {
+        let mut bus = make_test_bus();
+
+        bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+        bus.write_byte(0xFF42, 0x00); // SCY
+        bus.write_byte(0xFF43, scx); // SCX varies
+        bus.write_byte(0xFF47, 0xE4); // identity palette
+
+        // BG tiles vary so any visible coupling to SCX is easy to detect.
+        for i in 0..32u16 {
+            bus.write_byte(0x9800 + i, (i & 1) as u8);
+        }
+        // tile 0 => white
+        bus.write_byte(0x8000, 0x00);
+        bus.write_byte(0x8001, 0x00);
+        // tile 1 => black
+        bus.write_byte(0x8010, 0xFF);
+        bus.write_byte(0x8011, 0xFF);
+
+        // Window map: constant distinct pattern (tile 2 then 3 repeating), independent of BG.
+        for i in 0..32u16 {
+            bus.write_byte(0x9C00 + i, if (i & 1) == 0 { 2 } else { 3 });
+        }
+        // tile 2 row0 => color id 1 across row
+        bus.write_byte(0x8020, 0xFF);
+        bus.write_byte(0x8021, 0x00);
+        // tile 3 row0 => color id 2 across row
+        bus.write_byte(0x8030, 0x00);
+        bus.write_byte(0x8031, 0xFF);
+
+        bus.write_byte(0xFF4A, 0x00); // WY=0
+        bus.write_byte(0xFF4B, 0x07); // WX=7 => window starts at x=0
+
+        // LCD on + window + BG, use window map 9C00 and tile data 8000.
+        bus.write_byte(0xFF40, 0xF1);
+        wait_for_next_frame(&mut bus);
+        wait_for_next_frame(&mut bus);
+
+        let mut line = [0u8; 160];
+        line.copy_from_slice(&bus.framebuffer()[..160]);
+        line
+    }
+
+    let line_scx0 = render_top_line_with_scx(0);
+    let line_scx3 = render_top_line_with_scx(3);
+
+    for x in 0..32usize {
+        assert_eq!(
+            line_scx0[x], line_scx3[x],
+            "window pixels at x=0 (WX=7) must not inherit BG SCX discard (x={x})"
+        );
+    }
+}
+
+#[test]
 fn framebuffer_window_restart_mid_sprite_does_not_corrupt_obj_pixels_when_bg_matches_window() {
     fn render_line_with_window_enabled(window_enabled: bool) -> [u8; 160] {
         let mut bus = make_test_bus();

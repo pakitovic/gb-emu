@@ -173,6 +173,10 @@ impl Mode3FifoState {
     fn restart_for_window(&mut self, trigger_x: i16) {
         self.window_active = true;
         self.window_start_x = trigger_x;
+        // SCX fine-scroll discard applies only to the initial BG fetch path of the line.
+        // Once the window restarts, pixels come from window coordinates and must not
+        // inherit any remaining BG discard budget (Kirby HUD/window jitter case).
+        self.discard_pixels = 0;
         self.fetch_screen_x = trigger_x.max(0);
         self.head = 0;
         self.len = 0;
