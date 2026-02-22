@@ -1,7 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_BRANCH="${1:-main}"
+BASE_BRANCH="main"
+DRY_RUN=0
+
+while (($# > 0)); do
+  case "$1" in
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --help|-h)
+      cat <<'EOF'
+Usage: scripts/dev/create_pr.sh [--dry-run] [base-branch]
+
+Creates or updates a GitHub PR for the current branch using the latest commit
+subject/body as title/description.
+
+Options:
+  --dry-run   Print the resolved PR title/body and exit without pushing/editing.
+  -h, --help  Show this help.
+EOF
+      exit 0
+      ;;
+    -*)
+      printf "Unknown option: %s\n" "$1" >&2
+      exit 1
+      ;;
+    *)
+      if [ "$BASE_BRANCH" != "main" ]; then
+        printf "Unexpected extra argument: %s\n" "$1" >&2
+        exit 1
+      fi
+      BASE_BRANCH="$1"
+      shift
+      ;;
+  esac
+done
 
 require_cmd() {
   local cmd="$1"
@@ -16,6 +51,8 @@ normalize_pr_body() {
   local body_trimmed="$body"
   local escaped_lf='\n'
   local escaped_crlf='\r\n'
+  local escaped_lf_pattern='\\n'
+  local escaped_crlf_pattern='\\r\\n'
   local newline=$'\n'
 
   # If the commit body contains literal "\n" escapes (for example
@@ -32,19 +69,21 @@ normalize_pr_body() {
 
   if [[ "$body_trimmed" != *$'\n'* ]] &&
      [[ "$body" == *"$escaped_lf"* || "$body" == *"$escaped_crlf"* ]]; then
-    body="${body//$escaped_crlf/$newline}"
-    body="${body//$escaped_lf/$newline}"
+    body="${body//$escaped_crlf_pattern/$newline}"
+    body="${body//$escaped_lf_pattern/$newline}"
   fi
 
   printf '%s' "$body"
 }
 
 require_cmd git
-require_cmd gh
+if [ "$DRY_RUN" -eq 0 ]; then
+  require_cmd gh
 
-if ! gh auth status -h github.com >/dev/null 2>&1; then
-  printf "GitHub CLI is not authenticated. Run: gh auth login\n" >&2
-  exit 1
+  if ! gh auth status -h github.com >/dev/null 2>&1; then
+    printf "GitHub CLI is not authenticated. Run: gh auth login\n" >&2
+    exit 1
+  fi
 fi
 
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
@@ -78,6 +117,18 @@ fi
 BODY_FILE="$(mktemp)"
 trap 'rm -f "$BODY_FILE"' EXIT
 printf '%s' "$BODY" > "$BODY_FILE"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  printf "Dry run: no push / no GitHub API calls.\n"
+  printf "Base branch: %s\n" "$BASE_BRANCH"
+  printf "Head branch: %s\n" "$CURRENT_BRANCH"
+  printf "Title: %s\n" "$TITLE"
+  printf -- "----- PR body (begin) -----\n"
+  cat "$BODY_FILE"
+  printf '\n'
+  printf -- "----- PR body (end) -----\n"
+  exit 0
+fi
 
 git push -u origin "$CURRENT_BRANCH"
 
