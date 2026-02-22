@@ -28,6 +28,11 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
+      - name: Run audio micro-guard (core-apu-realtime)
+        env:
+          TIMEOUT_SECS: "60"
+        run: scripts/dev/run_audio_guard.sh
+
       - name: Fetch Blargg ROMs
         run: scripts/blargg/fetch_blargg_roms.sh
 

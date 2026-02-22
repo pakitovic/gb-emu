@@ -269,7 +269,7 @@ Notes:
 Workflows:
 - `.github/workflows/quality.yml`: format, lint, build, unit/integration tests.
 - `.github/workflows/rom-tests.yml`: two independent jobs/checks for branch protection:
-  - `rom-blargg` (includes `cpu_instrs` micro-guard before full Blargg suite)
+  - `rom-blargg` (includes a realtime audio micro-guard and the `cpu_instrs` micro-guard before the full Blargg suite)
   - `rom-gekkio` (runs `all` + `boot_models`)
 
 ## Test ROMs and Licensing Notes
