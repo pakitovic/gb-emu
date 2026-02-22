@@ -2122,6 +2122,172 @@ fn mode3_push_sleep_edge_does_not_raise_stat_mode0_before_hblank() {
 }
 
 #[test]
+fn mode3_window_trigger_stays_queued_when_obj_fetch_transitions_into_shutdown() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+    bus.write_byte(0xFF41, 0x08); // mode0 STAT source
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+
+    // Two separated sprite sessions so session 1 ends with shutdown dots.
+    bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    bus.write_byte(0xFE01, 32); // X => session 1
+    bus.write_byte(0xFE02, 0x00);
+    bus.write_byte(0xFE03, 0x00);
+    bus.write_byte(0xFE04, 18); // Y => top at LY=2
+    bus.write_byte(0xFE05, 80); // X => session 2, separated
+    bus.write_byte(0xFE06, 0x00);
+    bus.write_byte(0xFE07, 0x00);
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x12); // VRAM probe byte
+    bus.write_byte(0x8001, 0x00);
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x93); // LCD on + BG + OBJ, window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut reached_last_fetch_dot = false;
+    for _ in 0..512 {
+        bus.tick(1);
+        if bus.mode3_obj_fetch_dots_remaining() == 1 && bus.mode3_output_x() > 0 {
+            reached_last_fetch_dot = true;
+            break;
+        }
+    }
+    assert!(
+        reached_last_fetch_dot,
+        "expected to observe last OBJ fetch dot before shutdown transition"
+    );
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window mid-line
+
+    // This dot transitions OBJ fetch -> OBJ shutdown. Window must stay queued.
+    bus.tick(1);
+    assert_eq!(bus.mode3_obj_fetch_dots_remaining(), 0);
+    assert!(
+        bus.mode3_obj_shutdown_dots_remaining() > 0,
+        "expected OBJ fetch to hand over into shutdown ownership"
+    );
+    assert!(
+        !bus.mode3_window_triggered_this_line(),
+        "window restart must not trigger on OBJ fetch->shutdown transition dot"
+    );
+    assert!(bus.mode3_window_trigger_pending());
+    assert_eq!(
+        bus.read_byte(0xFF41) & 0x03,
+        3,
+        "mode3 should remain active"
+    );
+    assert_eq!(
+        bus.interrupt_flags() & (1 << 1),
+        0,
+        "STAT mode0 IRQ must remain clear while still in mode3"
+    );
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0xFF,
+        "VRAM should remain blocked in mode3"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should remain blocked in mode3"
+    );
+}
+
+#[test]
+fn mode3_window_trigger_does_not_fire_on_obj_shutdown_release_dot() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+
+    // Two separated sprite sessions so session 1 ends with shutdown dots.
+    bus.write_byte(0xFE00, 18);
+    bus.write_byte(0xFE01, 32);
+    bus.write_byte(0xFE02, 0x00);
+    bus.write_byte(0xFE03, 0x00);
+    bus.write_byte(0xFE04, 18);
+    bus.write_byte(0xFE05, 80);
+    bus.write_byte(0xFE06, 0x00);
+    bus.write_byte(0xFE07, 0x00);
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x93); // LCD on + BG + OBJ, window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut armed = false;
+    for _ in 0..512 {
+        bus.tick(1);
+        if bus.mode3_obj_shutdown_dots_remaining() == 1 && bus.mode3_output_x() > 0 {
+            let output_x = bus.mode3_output_x();
+            let wx = output_x.saturating_add(7).clamp(8, 166);
+            bus.write_byte(0xFF4B, wx);
+            bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window mid-line
+            armed = true;
+            break;
+        }
+    }
+    assert!(
+        armed,
+        "expected to arm window trigger while OBJ shutdown has one dot remaining"
+    );
+
+    // This dot decrements shutdown from 1 to 0. Window should still remain queued
+    // because takeover was checked before shutdown ownership was released.
+    bus.tick(1);
+    assert_eq!(bus.mode3_obj_shutdown_dots_remaining(), 0);
+    assert!(
+        !bus.mode3_window_triggered_this_line(),
+        "window restart must not fire on the same dot OBJ shutdown releases"
+    );
+    assert!(bus.mode3_window_trigger_pending());
+
+    let mut triggered = false;
+    for _ in 0..64 {
+        bus.tick(1);
+        if bus.mode3_window_triggered_this_line() {
+            triggered = true;
+            break;
+        }
+    }
+    assert!(
+        triggered,
+        "expected queued window restart after a later valid boundary following shutdown release"
+    );
+}
+
+#[test]
 fn mode3_obj_contention_delays_vram_and_oam_release_into_hblank() {
     let mut bus_no_obj = setup_line2_mode3_bus_with_hidden_obj(false);
     let mut bus_with_obj = setup_line2_mode3_bus_with_hidden_obj(true);
