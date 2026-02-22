@@ -1780,6 +1780,170 @@ fn mode3_shared_window_obj_boundary_keeps_stat_and_bus_blocked_when_obj_wins() {
 }
 
 #[test]
+fn mode3_stalled_push_boundary_window_and_obj_same_dot_prefers_obj_then_queues_window() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+
+    // Sprite later on the line so it becomes eligible after output has started.
+    bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    bus.write_byte(0xFE01, 32); // X => left edge at x=24
+    bus.write_byte(0xFE02, 0x00); // tile
+    bus.write_byte(0xFE03, 0x00); // attrs
+
+    // BG tile map row (9C00) uses white tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+
+    // Window map row uses black tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on, OBJ/window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut reached_stalled_push_with_obj_eligible = false;
+    for _ in 0..256 {
+        bus.tick(1);
+        if bus.mode3_bg_fetch_phase() == 3
+            && bus.mode3_bg_push_stalled_for_fifo()
+            && bus.mode3_output_x() >= 24
+        {
+            reached_stalled_push_with_obj_eligible = true;
+            break;
+        }
+    }
+    assert!(
+        reached_stalled_push_with_obj_eligible,
+        "expected stalled Push takeover boundary with OBJ becoming eligible"
+    );
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x22); // enable OBJ + window mid-line
+
+    bus.tick(1);
+    assert!(
+        !bus.mode3_window_triggered_this_line(),
+        "expected window restart to defer when OBJ is armed on the same stalled Push boundary"
+    );
+    assert!(bus.mode3_window_trigger_pending());
+    assert_eq!(
+        bus.mode3_obj_next_sprite_index(),
+        1,
+        "expected OBJ fetch to win the shared stalled Push boundary"
+    );
+
+    let mut window_triggered = false;
+    for _ in 0..64 {
+        bus.tick(1);
+        if bus.mode3_window_triggered_this_line() {
+            window_triggered = true;
+            break;
+        }
+    }
+    assert!(
+        window_triggered,
+        "expected queued window restart after OBJ fetch/shutdown releases shared stalled boundary"
+    );
+}
+
+#[test]
+fn mode3_stalled_push_boundary_window_and_obj_same_dot_keeps_stat_and_bus_blocked() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+    bus.write_byte(0xFF41, 0x08); // mode0 STAT source
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+
+    // Sprite later on the line so it becomes eligible after output has started.
+    bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    bus.write_byte(0xFE01, 32); // X => left edge at x=24
+    bus.write_byte(0xFE02, 0x00); // tile
+    bus.write_byte(0xFE03, 0x00); // attrs
+
+    // BG tile map row (9C00) uses white tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x12); // VRAM probe byte
+    bus.write_byte(0x8001, 0x00);
+
+    // Window map row uses black tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on, OBJ/window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut reached_stalled_push_with_obj_eligible = false;
+    for _ in 0..256 {
+        bus.tick(1);
+        if bus.mode3_bg_fetch_phase() == 3
+            && bus.mode3_bg_push_stalled_for_fifo()
+            && bus.mode3_output_x() >= 24
+        {
+            reached_stalled_push_with_obj_eligible = true;
+            break;
+        }
+    }
+    assert!(reached_stalled_push_with_obj_eligible);
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x22); // enable OBJ + window mid-line
+
+    bus.tick(1);
+    assert!(
+        !bus.mode3_window_triggered_this_line(),
+        "expected queued window restart while OBJ wins shared stalled Push boundary"
+    );
+    assert!(bus.mode3_window_trigger_pending());
+    assert_eq!(
+        bus.read_byte(0xFF41) & 0x03,
+        3,
+        "mode3 should remain active"
+    );
+    assert_eq!(
+        bus.interrupt_flags() & (1 << 1),
+        0,
+        "STAT mode0 IRQ should remain clear while mode3 is still active"
+    );
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0xFF,
+        "VRAM should remain blocked in mode3"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should remain blocked in mode3"
+    );
+}
+
+#[test]
 fn mode3_obj_contention_delays_vram_and_oam_release_into_hblank() {
     let mut bus_no_obj = setup_line2_mode3_bus_with_hidden_obj(false);
     let mut bus_with_obj = setup_line2_mode3_bus_with_hidden_obj(true);
