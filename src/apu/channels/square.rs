@@ -1,4 +1,8 @@
 use super::super::{DUTY_PATTERNS, MAX_FREQUENCY, MAX_SQUARE_LENGTH};
+use super::common::{
+    apply_length_enable_edge_u8, clock_length_u8, reload_length_on_trigger_u8,
+    write_envelope_and_update_dac_state,
+};
 use super::{EnvelopeState, SweepState};
 
 #[derive(Clone, Copy, Default)]
@@ -38,11 +42,12 @@ impl SquareChannel {
     }
 
     pub(in crate::apu) fn write_envelope(&mut self, value: u8) {
-        self.envelope.write_register(value);
-        self.dac_enabled = (value & 0xF8) != 0;
-        if !self.dac_enabled {
-            self.enabled = false;
-        }
+        write_envelope_and_update_dac_state(
+            &mut self.envelope,
+            &mut self.enabled,
+            &mut self.dac_enabled,
+            value,
+        );
     }
 
     pub(in crate::apu) fn write_frequency_low(&mut self, value: u8) {
@@ -71,17 +76,14 @@ impl SquareChannel {
         length_clocks_next: bool,
         trigger_requested: bool,
     ) {
-        if old_length_enabled
-            || !self.length_enabled
-            || length_clocks_next
-            || self.length_counter == 0
-        {
-            return;
-        }
-        self.length_counter -= 1;
-        if self.length_counter == 0 && !trigger_requested {
-            self.enabled = false;
-        }
+        apply_length_enable_edge_u8(
+            &mut self.enabled,
+            &mut self.length_counter,
+            self.length_enabled,
+            old_length_enabled,
+            length_clocks_next,
+            trigger_requested,
+        );
     }
 
     pub(in crate::apu) fn trigger(&mut self, length_clocks_next: bool, envelope_clocks_next: bool) {
@@ -91,12 +93,12 @@ impl SquareChannel {
         }
 
         self.enabled = true;
-        if self.length_counter == 0 {
-            self.length_counter = MAX_SQUARE_LENGTH;
-            if self.length_enabled && !length_clocks_next {
-                self.length_counter = self.length_counter.saturating_sub(1);
-            }
-        }
+        reload_length_on_trigger_u8(
+            &mut self.length_counter,
+            self.length_enabled,
+            length_clocks_next,
+            MAX_SQUARE_LENGTH,
+        );
         self.frequency_timer = self.period_from_frequency();
         self.duty_position = 0;
         self.envelope.trigger(envelope_clocks_next);
@@ -129,14 +131,11 @@ impl SquareChannel {
     }
 
     pub(in crate::apu) fn clock_length(&mut self) {
-        if !self.length_enabled || self.length_counter == 0 {
-            return;
-        }
-
-        self.length_counter -= 1;
-        if self.length_counter == 0 {
-            self.enabled = false;
-        }
+        clock_length_u8(
+            &mut self.enabled,
+            &mut self.length_counter,
+            self.length_enabled,
+        );
     }
 
     pub(in crate::apu) fn clock_envelope(&mut self) {
