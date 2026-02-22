@@ -1,4 +1,5 @@
 use super::super::ApuState;
+use crate::apu::MAX_PENDING_AUDIO_TCYCLE_FRAMES;
 use crate::audio::AnalogCalibrationProfile;
 use crate::hardware::HardwareModel;
 
@@ -36,11 +37,13 @@ impl ApuHarness {
     pub(super) fn with_model(model: HardwareModel) -> Self {
         let io = [0; 0x80];
         let apu = ApuState::from_boot_state(&io, model);
-        Self {
+        let harness = Self {
             apu,
             io,
             div_counter: 0,
-        }
+        };
+        harness.assert_apu_invariants();
+        harness
     }
 
     pub(super) fn write_byte(&mut self, addr: u16, value: u8) {
@@ -49,9 +52,11 @@ impl ApuHarness {
             self.div_counter = 0;
             self.apu
                 .step_frame_sequencer_from_divider(old_div, self.div_counter);
+            self.assert_apu_invariants();
             return;
         }
         self.apu.write_io_register(&mut self.io, addr, value);
+        self.assert_apu_invariants();
     }
 
     pub(super) fn read_byte(&self, addr: u16) -> u8 {
@@ -68,19 +73,24 @@ impl ApuHarness {
             self.apu
                 .step_frame_sequencer_from_divider(old_div, self.div_counter);
             self.apu.step_tcycle_with_io(&self.io);
+            self.assert_apu_invariants();
         }
     }
 
     pub(super) fn set_audio_tcycle_stream_enabled(&mut self, enabled: bool) {
         self.apu.set_tcycle_stream_enabled(enabled);
+        self.assert_apu_invariants();
     }
 
     pub(super) fn drain_audio_tcycle_samples(&mut self) -> Vec<f32> {
-        self.apu.drain_tcycle_samples()
+        let samples = self.apu.drain_tcycle_samples();
+        self.assert_apu_invariants();
+        samples
     }
 
     pub(super) fn set_apu_analog_calibration(&mut self, calibration: AnalogCalibrationProfile) {
         self.apu.set_analog_calibration(calibration);
+        self.assert_apu_invariants();
     }
 
     pub(super) fn apu_test_state(&self) -> ApuTestDebugState {
@@ -106,6 +116,39 @@ impl ApuHarness {
             analog_low_pass_alpha: self.apu.analog_profile.low_pass_alpha,
             analog_soft_clip_drive: self.apu.analog_profile.soft_clip_drive,
         }
+    }
+
+    fn assert_apu_invariants(&self) {
+        let expected_mask = (self.apu.square1.enabled as u8)
+            | ((self.apu.square2.enabled as u8) << 1)
+            | ((self.apu.wave.enabled as u8) << 2)
+            | ((self.apu.noise.enabled as u8) << 3);
+        assert_eq!(self.apu.channel_on_mask & 0x0F, expected_mask);
+        assert!(self.apu.timing.step <= 7);
+
+        let pending_scalars = self.apu.stream.pending_tcycle_samples.len();
+        assert_eq!(
+            pending_scalars % 2,
+            0,
+            "stereo interleaved queue must be aligned"
+        );
+        assert!(
+            pending_scalars <= MAX_PENDING_AUDIO_TCYCLE_FRAMES.saturating_mul(2),
+            "pending tcycle sample queue exceeded cap"
+        );
+        if !self.apu.stream.capture_tcycle_stream {
+            assert!(
+                self.apu.stream.pending_tcycle_samples.is_empty(),
+                "queue should be empty when tcycle capture is disabled"
+            );
+        }
+
+        assert!(self.apu.analog.last_mixed_sample_left.is_finite());
+        assert!(self.apu.analog.last_mixed_sample_right.is_finite());
+        assert!(self.apu.analog.last_mixed_sample.is_finite());
+        assert!(self.apu.analog.last_mixed_sample_left.abs() <= 1.0 + f32::EPSILON);
+        assert!(self.apu.analog.last_mixed_sample_right.abs() <= 1.0 + f32::EPSILON);
+        assert!(self.apu.analog.last_mixed_sample.abs() <= 1.0 + f32::EPSILON);
     }
 }
 
