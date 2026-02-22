@@ -19,6 +19,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Mode 3 window trigger comparator now queues pending restarts until a valid BG takeover boundary when OBJ fetch ownership delays immediate window restart.
 - Mode 3 takeover arbitration now handles FIFO-stall boundaries and queued window-trigger release after active OBJ fetch windows, with regression coverage for VRAM/OAM blocking and STAT mode0 timing shifts under runtime contention.
 - Mode 3 fetcher bus-phase modeling now includes an explicit one-dot BG push-stall recovery sleep micro-op before push resumes after FIFO overfill (`>8`), reducing premature OBJ/window handover on FIFO-stall dots and tightening associated STAT/VRAM/OAM timing corner cases.
+- On shared Mode 3 takeover boundaries, queued window restarts now defer to an immediately-eligible OBJ fetch start, with regression coverage for the resulting STAT/VRAM/OAM blocking behavior on that arbitration edge.
 - Mode 3 line duration now grows from runtime OBJ fetch contention (including mid-line OBJ enable/disable effects), reducing reliance on static per-line penalty estimates.
 - Additional PPU/DMA timing edge cases: mode0 STAT source enabled during mode3 triggers on HBlank entry, and DMA restart keeps prior transfer running through the full restart-delay window.
 

@@ -1614,6 +1614,172 @@ fn mode3_window_trigger_queues_until_obj_fetch_finishes() {
 }
 
 #[test]
+fn mode3_window_trigger_defers_to_obj_on_shared_takeover_boundary() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+
+    // Sprite positioned so its fetch becomes eligible mid-line.
+    bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    bus.write_byte(0xFE01, 32); // X => left edge at x=24
+    bus.write_byte(0xFE02, 0x00); // tile
+    bus.write_byte(0xFE03, 0x00); // attrs
+
+    // BG tile map row (9C00) uses white tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+
+    // Window map row uses black tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x93); // LCD on + BG + OBJ, window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut reached_shared_boundary = false;
+    for _ in 0..256 {
+        bus.tick(1);
+        if bus.mode3_window_takeover_boundary()
+            && bus.mode3_obj_next_sprite_index() == 0
+            && bus.mode3_obj_fetch_dots_remaining() == 0
+            && bus.mode3_output_x() >= 24
+        {
+            reached_shared_boundary = true;
+            break;
+        }
+    }
+    assert!(
+        reached_shared_boundary,
+        "expected shared takeover boundary where window trigger and OBJ fetch can compete"
+    );
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window mid-line
+
+    bus.tick(1);
+    assert!(
+        !bus.mode3_window_triggered_this_line(),
+        "expected OBJ to win shared takeover boundary before queued window restart"
+    );
+    assert!(bus.mode3_window_trigger_pending());
+    assert_eq!(
+        bus.mode3_obj_next_sprite_index(),
+        1,
+        "expected OBJ fetch to start on shared takeover boundary"
+    );
+
+    let mut triggered = false;
+    for _ in 0..64 {
+        bus.tick(1);
+        if bus.mode3_window_triggered_this_line() {
+            triggered = true;
+            break;
+        }
+    }
+    assert!(
+        triggered,
+        "expected queued window trigger to fire after OBJ fetch/shutdown releases boundary"
+    );
+}
+
+#[test]
+fn mode3_shared_window_obj_boundary_keeps_stat_and_bus_blocked_when_obj_wins() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+    bus.write_byte(0xFF41, 0x08); // mode0 STAT source
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+
+    // Sprite positioned so its fetch becomes eligible mid-line.
+    bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    bus.write_byte(0xFE01, 32); // X => left edge at x=24
+    bus.write_byte(0xFE02, 0x00); // tile
+    bus.write_byte(0xFE03, 0x00); // attrs
+
+    // BG tile map row (9C00) uses white tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x12); // VRAM probe byte
+    bus.write_byte(0x8001, 0x00);
+
+    // Window map row uses black tile.
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x93); // LCD on + BG + OBJ, window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut reached_shared_boundary = false;
+    for _ in 0..256 {
+        bus.tick(1);
+        if bus.mode3_window_takeover_boundary()
+            && bus.mode3_obj_next_sprite_index() == 0
+            && bus.mode3_obj_fetch_dots_remaining() == 0
+            && bus.mode3_output_x() >= 24
+        {
+            reached_shared_boundary = true;
+            break;
+        }
+    }
+    assert!(reached_shared_boundary);
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window mid-line
+
+    bus.tick(1);
+    assert!(
+        !bus.mode3_window_triggered_this_line(),
+        "expected window restart to remain queued while OBJ wins shared boundary"
+    );
+    assert!(bus.mode3_window_trigger_pending());
+    assert_eq!(
+        bus.read_byte(0xFF41) & 0x03,
+        3,
+        "mode3 should remain active"
+    );
+    assert_eq!(
+        bus.interrupt_flags() & (1 << 1),
+        0,
+        "STAT mode0 IRQ should stay clear while mode3 remains active"
+    );
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0xFF,
+        "VRAM should remain blocked in mode3"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should remain blocked in mode3"
+    );
+}
+
+#[test]
 fn mode3_obj_contention_delays_vram_and_oam_release_into_hblank() {
     let mut bus_no_obj = setup_line2_mode3_bus_with_hidden_obj(false);
     let mut bus_with_obj = setup_line2_mode3_bus_with_hidden_obj(true);
