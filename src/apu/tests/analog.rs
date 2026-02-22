@@ -186,3 +186,48 @@ fn apu_low_pass_stage_softens_initial_attack() {
         "expected LPF attack ramp (first={first_abs}, later_peak={later_peak})"
     );
 }
+
+#[test]
+fn apu_output_headroom_soft_clip_limits_final_peak() {
+    fn measure_peak(output_headroom: f32) -> f32 {
+        let mut bus = make_test_bus_with_model(HardwareModel::Dmg);
+        bus.write_byte(0xFF26, 0x00);
+        bus.write_byte(0xFF26, 0x80);
+
+        let mut calibration = AnalogCalibrationProfile::for_model(HardwareModel::Dmg);
+        calibration.channel_gain = [4.0, 4.0, 4.0, 4.0];
+        calibration.left_gain = 2.0;
+        calibration.right_gain = 2.0;
+        calibration.low_pass_alpha = 1.0;
+        calibration.soft_clip_drive = 6.0;
+        calibration.output_headroom = output_headroom;
+        bus.set_apu_analog_calibration(calibration);
+
+        bus.write_byte(0xFF24, 0x77);
+        bus.write_byte(0xFF25, 0x11); // CH1 to both sides
+        bus.write_byte(0xFF11, 0x80);
+        bus.write_byte(0xFF12, 0xF0);
+        bus.write_byte(0xFF13, 0xFC);
+        bus.write_byte(0xFF14, 0x87); // trigger
+
+        let mut peak = 0.0f32;
+        for _ in 0..2048 {
+            bus.tick(1);
+            let state = bus.apu_test_state();
+            peak = peak
+                .max(state.last_mixed_sample_left.abs())
+                .max(state.last_mixed_sample_right.abs());
+        }
+        peak
+    }
+
+    let full_scale_peak = measure_peak(1.0);
+    let constrained_peak = measure_peak(0.30);
+
+    assert!(full_scale_peak > 0.4);
+    assert!(
+        constrained_peak < full_scale_peak * 0.75,
+        "expected output headroom to lower final peak (full={full_scale_peak}, constrained={constrained_peak})"
+    );
+    assert!(constrained_peak <= 0.35);
+}
