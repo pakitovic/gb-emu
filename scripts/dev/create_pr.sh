@@ -1,7 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_BRANCH="${1:-main}"
+BASE_BRANCH="main"
+DRY_RUN=0
+
+while (($# > 0)); do
+  case "$1" in
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --help|-h)
+      cat <<'EOF'
+Usage: scripts/dev/create_pr.sh [--dry-run] [base-branch]
+
+Creates or updates a GitHub PR for the current branch using the latest commit
+subject/body as title/description.
+
+Options:
+  --dry-run   Print the resolved PR title/body and exit without pushing/editing.
+  -h, --help  Show this help.
+EOF
+      exit 0
+      ;;
+    -*)
+      printf "Unknown option: %s\n" "$1" >&2
+      exit 1
+      ;;
+    *)
+      if [ "$BASE_BRANCH" != "main" ]; then
+        printf "Unexpected extra argument: %s\n" "$1" >&2
+        exit 1
+      fi
+      BASE_BRANCH="$1"
+      shift
+      ;;
+  esac
+done
 
 require_cmd() {
   local cmd="$1"
@@ -13,24 +48,42 @@ require_cmd() {
 
 normalize_pr_body() {
   local body="$1"
+  local body_trimmed="$body"
+  local escaped_lf='\n'
+  local escaped_crlf='\r\n'
+  local escaped_lf_pattern='\\n'
+  local escaped_crlf_pattern='\\r\\n'
+  local newline=$'\n'
 
-  # If the commit body was authored with literal "\n" escapes (for example
+  # If the commit body contains literal "\n" escapes (for example
   # `git commit -m "..." -m "Line1\nLine2"`), decode them so GitHub renders a
   # multiline PR description instead of showing the escape sequences verbatim.
-  if [[ "$body" != *$'\n'* ]] && [[ "$body" == *'\\n'* || "$body" == *'\\r\\n'* ]]; then
-    body="${body//\\r\\n/$'\n'}"
-    body="${body//\\n/$'\n'}"
+  #
+  # `git log --pretty=%b` commonly includes a trailing real newline even when
+  # the body content itself was authored as a single line with escaped newlines.
+  # Trim trailing newlines for detection so we still decode that case, but avoid
+  # rewriting commit bodies that are already multiline and merely mention "\n".
+  while [[ "$body_trimmed" == *$'\n' ]]; do
+    body_trimmed="${body_trimmed%$'\n'}"
+  done
+
+  if [[ "$body_trimmed" != *$'\n'* ]] &&
+     [[ "$body" == *"$escaped_lf"* || "$body" == *"$escaped_crlf"* ]]; then
+    body="${body//$escaped_crlf_pattern/$newline}"
+    body="${body//$escaped_lf_pattern/$newline}"
   fi
 
   printf '%s' "$body"
 }
 
 require_cmd git
-require_cmd gh
+if [ "$DRY_RUN" -eq 0 ]; then
+  require_cmd gh
 
-if ! gh auth status -h github.com >/dev/null 2>&1; then
-  printf "GitHub CLI is not authenticated. Run: gh auth login\n" >&2
-  exit 1
+  if ! gh auth status -h github.com >/dev/null 2>&1; then
+    printf "GitHub CLI is not authenticated. Run: gh auth login\n" >&2
+    exit 1
+  fi
 fi
 
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
@@ -64,6 +117,18 @@ fi
 BODY_FILE="$(mktemp)"
 trap 'rm -f "$BODY_FILE"' EXIT
 printf '%s' "$BODY" > "$BODY_FILE"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  printf "Dry run: no push / no GitHub API calls.\n"
+  printf "Base branch: %s\n" "$BASE_BRANCH"
+  printf "Head branch: %s\n" "$CURRENT_BRANCH"
+  printf "Title: %s\n" "$TITLE"
+  printf -- "----- PR body (begin) -----\n"
+  cat "$BODY_FILE"
+  printf '\n'
+  printf -- "----- PR body (end) -----\n"
+  exit 0
+fi
 
 git push -u origin "$CURRENT_BRANCH"
 
