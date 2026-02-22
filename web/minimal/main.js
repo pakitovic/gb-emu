@@ -56,6 +56,43 @@ let audioUnderrunSamplesTotal = 0;
 let audioQueueTargetSamples = AUDIO_QUEUE_TARGET_INITIAL_SAMPLES;
 let audioAdaptiveQueueState = createAdaptiveQueueState();
 
+function formatSerialOutputForDisplay(rawSerial) {
+  if (!rawSerial) {
+    return "";
+  }
+
+  const MAX_VISIBLE_CHARS = 4096;
+  let nonTextCount = 0;
+  let formatted = "";
+
+  for (const ch of rawSerial) {
+    const code = ch.codePointAt(0);
+    if (code === undefined) {
+      continue;
+    }
+    if (ch === "\n" || ch === "\r" || ch === "\t" || (code >= 0x20 && code <= 0x7e)) {
+      formatted += ch;
+      continue;
+    }
+    nonTextCount += 1;
+  }
+
+  if (formatted.length === 0 && nonTextCount > 0) {
+    return `[serial debug text hidden: received ${nonTextCount} non-text byte(s)]`;
+  }
+
+  if (formatted.length > MAX_VISIBLE_CHARS) {
+    formatted = formatted.slice(-MAX_VISIBLE_CHARS);
+    formatted = `[serial output truncated, showing last ${MAX_VISIBLE_CHARS} chars]\n${formatted}`;
+  }
+
+  if (nonTextCount > 0) {
+    formatted += `\n[filtered ${nonTextCount} non-text byte(s)]`;
+  }
+
+  return formatted;
+}
+
 function setStatus(message) {
   statusLabel.textContent = message;
 }
@@ -160,7 +197,7 @@ function stepFrame(nowMs) {
   try {
     emulator.run_for_elapsed_micros(Math.floor(clampedMs * 1000));
     drawFrame();
-    serialPre.textContent = emulator.serial_output();
+    serialPre.textContent = formatSerialOutputForDisplay(emulator.serial_output());
   } catch (error) {
     console.error(error);
     setStatus(`Runtime error: ${error}`);
