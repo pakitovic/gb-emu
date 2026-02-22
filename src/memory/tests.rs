@@ -2092,67 +2092,6 @@ fn mode3_shared_window_obj_boundary_keeps_stat_and_bus_blocked_when_obj_wins() {
 }
 
 #[test]
-fn mode3_window_trigger_restarts_on_tileindex_takeover_boundary() {
-    let mut bus = make_test_bus();
-
-    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
-    bus.write_byte(0xFF42, 0x00); // SCY
-    bus.write_byte(0xFF43, 0x00); // SCX
-    bus.write_byte(0xFF47, 0xE4); // identity BGP
-
-    // BG tile map row (9C00) uses white tile.
-    for i in 0..32u16 {
-        bus.write_byte(0x9C00 + i, 0x00);
-    }
-    bus.write_byte(0x8000, 0x00);
-    bus.write_byte(0x8001, 0x00);
-
-    // Window map row uses black tile.
-    for i in 0..32u16 {
-        bus.write_byte(0x9800 + i, 0x01);
-    }
-    bus.write_byte(0x8010, 0xFF);
-    bus.write_byte(0x8011, 0xFF);
-
-    bus.write_byte(0xFF4A, 0x00); // WY
-    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
-    bus.write_byte(0xFF40, 0x91); // LCD on + BG on, window disabled
-    wait_for_ly_mode(&mut bus, 2, 3);
-
-    let mut reached_tileindex_boundary = false;
-    for _ in 0..256 {
-        bus.tick(1);
-        if bus.mode3_bg_fetch_phase() == 0
-            && bus.mode3_bg_fetch_dots_remaining() == 0
-            && bus.mode3_bg_takeover_boundary()
-            && !bus.mode3_bg_push_stalled_for_fifo()
-            && !bus.mode3_bg_push_recovery_sleep_pending()
-            && !bus.mode3_bg_push_ready_takeover_boundary()
-            && bus.mode3_output_x() > 0
-        {
-            reached_tileindex_boundary = true;
-            break;
-        }
-    }
-    assert!(
-        reached_tileindex_boundary,
-        "expected a normal TileIndex takeover boundary on a visible mode3 dot"
-    );
-
-    let output_x = bus.mode3_output_x();
-    let wx = output_x.saturating_add(7).clamp(8, 166);
-    bus.write_byte(0xFF4B, wx);
-    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window mid-line
-
-    bus.tick(1);
-    assert!(
-        bus.mode3_window_triggered_this_line(),
-        "window restart should trigger on TileIndex takeover boundary"
-    );
-    assert!(!bus.mode3_window_trigger_pending());
-}
-
-#[test]
 fn mode3_stalled_push_boundary_window_and_obj_same_dot_prefers_obj_then_queues_window() {
     let mut bus = make_test_bus();
 

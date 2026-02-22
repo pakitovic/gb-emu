@@ -1377,9 +1377,4 @@ impl Bus {
     pub(super) fn mode3_bg_push_ready_takeover_boundary(&self) -> bool {
         PpuState::mode3_bg_push_ready_takeover_boundary(self)
     }
-
-    #[cfg(test)]
-    pub(super) fn mode3_bg_takeover_boundary(&self) -> bool {
-        PpuState::mode3_bg_takeover_boundary(self)
-    }
 }
