@@ -1,4 +1,4 @@
-use crate::audio::{AudioMixer, MixerSource};
+use crate::audio::{AudioMixer, AudioResamplerQuality, MixerSource};
 use crate::cartridge::Cartridge;
 use crate::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::hardware::HardwareModel;
@@ -8,6 +8,14 @@ use std::time::Duration;
 use wasm_bindgen::prelude::*;
 
 const FRAME_STEP_LIMIT: usize = 250_000;
+
+fn parse_audio_resampler_quality(quality: &str) -> Option<AudioResamplerQuality> {
+    match quality {
+        "linear" => Some(AudioResamplerQuality::Linear),
+        "cubic" => Some(AudioResamplerQuality::Cubic),
+        _ => None,
+    }
+}
 
 #[wasm_bindgen]
 pub struct WebEmulator {
@@ -103,6 +111,24 @@ impl WebEmulator {
 
     pub fn set_audio_sample_rate(&mut self, sample_rate_hz: u32) {
         self.audio_mixer.set_sample_rate_hz(sample_rate_hz.max(1));
+    }
+
+    pub fn audio_resampler_quality(&self) -> String {
+        match self.audio_mixer.core_resampler_quality() {
+            AudioResamplerQuality::Linear => "linear",
+            AudioResamplerQuality::Cubic => "cubic",
+        }
+        .to_string()
+    }
+
+    pub fn set_audio_resampler_quality(&mut self, quality: &str) -> Result<(), JsValue> {
+        let Some(quality) = parse_audio_resampler_quality(quality) else {
+            return Err(JsValue::from_str(
+                "Invalid audio resampler quality (expected 'linear' or 'cubic')",
+            ));
+        };
+        self.audio_mixer.set_core_resampler_quality(quality);
+        Ok(())
     }
 
     pub fn set_audio_test_tone_enabled(&mut self, enabled: bool) {
@@ -223,6 +249,25 @@ mod tests {
             after.iter().any(|sample| sample.abs() > 0.0),
             "expected queued core APU audio to survive sample-rate change"
         );
+    }
+
+    #[test]
+    fn web_audio_resampler_quality_defaults_to_cubic_and_can_change() {
+        let rom = make_rom_32kb();
+        let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
+
+        assert_eq!(web.audio_resampler_quality(), "cubic");
+        web.set_audio_resampler_quality("linear")
+            .expect("linear should be accepted");
+        assert_eq!(web.audio_resampler_quality(), "linear");
+        web.set_audio_resampler_quality("cubic")
+            .expect("cubic should be accepted");
+        assert_eq!(web.audio_resampler_quality(), "cubic");
+    }
+
+    #[test]
+    fn parse_audio_resampler_quality_rejects_invalid_values() {
+        assert_eq!(parse_audio_resampler_quality("nearest"), None);
     }
 
     #[test]

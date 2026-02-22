@@ -1,5 +1,5 @@
 use gb_emu::audio::{
-    AdaptiveQueueController, AdaptiveQueueOptions, AudioMixer, MixerSource,
+    AdaptiveQueueController, AdaptiveQueueOptions, AudioMixer, AudioResamplerQuality, MixerSource,
     estimate_playback_underrun_samples,
 };
 use gb_emu::cartridge::Cartridge;
@@ -90,12 +90,24 @@ fn run() -> Result<(), Box<dyn Error>> {
     audio_queue.resume();
     let mut audio_mixer = AudioMixer::new(audio_queue.spec().freq.max(1) as u32);
     audio_mixer.set_source(MixerSource::CoreApu);
+    let resampler_quality = parse_audio_resampler_quality_from_env()?;
+    audio_mixer.set_core_resampler_quality(resampler_quality);
     if env::var("GB_AUDIO_TEST_TONE")
         .map(|value| value == "1")
         .unwrap_or(false)
     {
         audio_mixer.set_source(MixerSource::TestTone);
     }
+    println!(
+        "Audio config: source={} | sample_rate={} Hz | resampler={}",
+        match audio_mixer.source() {
+            MixerSource::Silence => "silence",
+            MixerSource::TestTone => "test-tone",
+            MixerSource::CoreApu => "core-apu",
+        },
+        audio_mixer.sample_rate_hz(),
+        audio_resampler_quality_name(audio_mixer.core_resampler_quality())
+    );
 
     let mut event_pump = sdl.event_pump().map_err(io::Error::other)?;
     let mut pacer = FramePacer::default();
@@ -356,4 +368,56 @@ where
     }
 
     Ok((rom_path, model))
+}
+
+fn audio_resampler_quality_name(quality: AudioResamplerQuality) -> &'static str {
+    match quality {
+        AudioResamplerQuality::Linear => "linear",
+        AudioResamplerQuality::Cubic => "cubic",
+    }
+}
+
+fn parse_audio_resampler_quality(value: &str) -> Result<AudioResamplerQuality, io::Error> {
+    match value {
+        "linear" => Ok(AudioResamplerQuality::Linear),
+        "cubic" => Ok(AudioResamplerQuality::Cubic),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Invalid GB_AUDIO_RESAMPLER='{value}' (expected 'linear' or 'cubic')"),
+        )),
+    }
+}
+
+fn parse_audio_resampler_quality_from_env() -> Result<AudioResamplerQuality, io::Error> {
+    match env::var("GB_AUDIO_RESAMPLER") {
+        Ok(value) => parse_audio_resampler_quality(value.trim()),
+        Err(env::VarError::NotPresent) => Ok(AudioResamplerQuality::Cubic),
+        Err(err) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Failed to read GB_AUDIO_RESAMPLER: {err}"),
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_audio_resampler_quality_accepts_supported_values() {
+        assert_eq!(
+            parse_audio_resampler_quality("linear").expect("linear should parse"),
+            AudioResamplerQuality::Linear
+        );
+        assert_eq!(
+            parse_audio_resampler_quality("cubic").expect("cubic should parse"),
+            AudioResamplerQuality::Cubic
+        );
+    }
+
+    #[test]
+    fn parse_audio_resampler_quality_rejects_invalid_values() {
+        let err = parse_audio_resampler_quality("nearest").expect_err("invalid value should fail");
+        assert!(err.to_string().contains("GB_AUDIO_RESAMPLER"));
+    }
 }
