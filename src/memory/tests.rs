@@ -1665,7 +1665,7 @@ fn mode3_window_trigger_defers_to_obj_on_shared_takeover_boundary() {
         if bus.mode3_window_takeover_boundary()
             && bus.mode3_obj_next_sprite_index() == 0
             && bus.mode3_obj_fetch_dots_remaining() == 0
-            && bus.mode3_output_x() >= 24
+            && bus.mode3_output_x() >= 16
         {
             reached_shared_boundary = true;
             break;
@@ -1749,7 +1749,7 @@ fn mode3_shared_window_obj_boundary_keeps_stat_and_bus_blocked_when_obj_wins() {
         if bus.mode3_window_takeover_boundary()
             && bus.mode3_obj_next_sprite_index() == 0
             && bus.mode3_obj_fetch_dots_remaining() == 0
-            && bus.mode3_output_x() >= 24
+            && bus.mode3_output_x() >= 16
         {
             reached_shared_boundary = true;
             break;
@@ -2750,6 +2750,137 @@ fn framebuffer_window_wx_zero_applies_minus_seven_offset() {
     // then x=1 samples next tile's pixel x=0 (white).
     assert_eq!(frame[0], 0x00);
     assert_eq!(frame[1], 0xFF);
+}
+
+#[test]
+fn framebuffer_window_restart_mid_sprite_does_not_corrupt_obj_pixels_when_bg_matches_window() {
+    fn render_line_with_window_enabled(window_enabled: bool) -> [u8; 160] {
+        let mut bus = make_test_bus();
+
+        bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+        bus.write_byte(0xFF42, 0x00); // SCY
+        bus.write_byte(0xFF43, 0x00); // SCX
+        bus.write_byte(0xFF47, 0xE4); // identity BGP
+        bus.write_byte(0xFF48, 0xE4); // identity OBP0
+
+        // BG and window both use the same white tiles so any visible difference
+        // around WX restart must come from OBJ corruption, not background content.
+        for i in 0..64u16 {
+            bus.write_byte(0x9800 + i, 0x00);
+            bus.write_byte(0x9C00 + i, 0x00);
+        }
+        bus.write_byte(0x8000, 0x00);
+        bus.write_byte(0x8001, 0x00);
+
+        // Sprite tile with distinct per-column pattern (non-zero colors across row0).
+        // low = 1010_1010, high = 1100_1100
+        bus.write_byte(0x8020, 0xAA);
+        bus.write_byte(0x8021, 0xCC);
+
+        // Sprite visible at y=0, x=20..27, so WX=31 (x=24) crosses the sprite.
+        bus.write_byte(0xFE00, 16); // Y => top at row 0
+        bus.write_byte(0xFE01, 28); // X => left at x=20
+        bus.write_byte(0xFE02, 2); // tile
+        bus.write_byte(0xFE03, 0x00); // attrs
+
+        bus.write_byte(0xFF4A, 0x00); // WY
+        bus.write_byte(0xFF4B, 31); // WX => window starts at x=24
+
+        let mut lcdc = 0x93; // LCD on + BG + OBJ
+        if window_enabled {
+            lcdc |= 0x20; // window enable
+        }
+        // Use BG map 9C00 + tile data 8000 for consistency with earlier window tests.
+        lcdc |= 0x08 | 0x10;
+        bus.write_byte(0xFF40, lcdc);
+
+        // Render a stable frame (skip LCD-on startup quirks frame).
+        wait_for_next_frame(&mut bus);
+        wait_for_next_frame(&mut bus);
+
+        let mut line = [0u8; 160];
+        let frame = bus.framebuffer();
+        line.copy_from_slice(&frame[..160]);
+        line
+    }
+
+    let line_no_window = render_line_with_window_enabled(false);
+    let line_with_window = render_line_with_window_enabled(true);
+
+    // Compare a small span around the sprite/window overlap.
+    for x in 16..32usize {
+        assert_eq!(
+            line_with_window[x], line_no_window[x],
+            "window restart at WX boundary should not corrupt overlapping OBJ pixels when BG/window content matches (x={x})"
+        );
+    }
+}
+
+#[test]
+fn framebuffer_window_restart_mid_multisprite_obj_does_not_split_columns_when_bg_matches_window() {
+    fn render_line_with_window_enabled(window_enabled: bool) -> [u8; 160] {
+        let mut bus = make_test_bus();
+
+        bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+        bus.write_byte(0xFF42, 0x00); // SCY
+        bus.write_byte(0xFF43, 0x00); // SCX
+        bus.write_byte(0xFF47, 0xE4); // identity BGP
+        bus.write_byte(0xFF48, 0xE4); // identity OBP0
+
+        for i in 0..64u16 {
+            bus.write_byte(0x9800 + i, 0x00);
+            bus.write_byte(0x9C00 + i, 0x00);
+        }
+        bus.write_byte(0x8000, 0x00);
+        bus.write_byte(0x8001, 0x00);
+
+        // Two sprite tiles with different column patterns to catch column splits.
+        // Tile 2 row0 pattern: 1,2,1,2,1,2,1,2
+        bus.write_byte(0x8020, 0xAA); // low
+        bus.write_byte(0x8021, 0x00); // high
+        // Tile 3 row0 pattern: 3,1,3,1,3,1,3,1
+        bus.write_byte(0x8030, 0xFF); // low
+        bus.write_byte(0x8031, 0xAA); // high
+
+        // 16px-wide object composed from 2 sprites spanning x=20..35.
+        // WX=31 => window starts at x=24, crossing inside sprite 0 and before sprite 1.
+        bus.write_byte(0xFE00, 16); // Y
+        bus.write_byte(0xFE01, 28); // X => left=20
+        bus.write_byte(0xFE02, 2); // tile 2
+        bus.write_byte(0xFE03, 0x00);
+
+        bus.write_byte(0xFE04, 16); // Y
+        bus.write_byte(0xFE05, 36); // X => left=28
+        bus.write_byte(0xFE06, 3); // tile 3
+        bus.write_byte(0xFE07, 0x00);
+
+        bus.write_byte(0xFF4A, 0x00); // WY
+        bus.write_byte(0xFF4B, 31); // WX => x=24
+
+        let mut lcdc = 0x93 | 0x08 | 0x10; // LCD+BG+OBJ + 9C00 map + 8000 tile data
+        if window_enabled {
+            lcdc |= 0x20;
+        }
+        bus.write_byte(0xFF40, lcdc);
+
+        wait_for_next_frame(&mut bus);
+        wait_for_next_frame(&mut bus);
+
+        let mut line = [0u8; 160];
+        let frame = bus.framebuffer();
+        line.copy_from_slice(&frame[..160]);
+        line
+    }
+
+    let line_no_window = render_line_with_window_enabled(false);
+    let line_with_window = render_line_with_window_enabled(true);
+
+    for x in 18..38usize {
+        assert_eq!(
+            line_with_window[x], line_no_window[x],
+            "window restart should not split multi-sprite OBJ columns when BG/window content matches (x={x})"
+        );
+    }
 }
 
 #[test]

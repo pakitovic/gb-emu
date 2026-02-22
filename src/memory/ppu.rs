@@ -688,7 +688,8 @@ impl PpuState {
         (bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::TileIndex
             && bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0)
             || (bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
-                && bus.ppu.mode3_fifo.bg_push_stalled_for_fifo)
+                && (bus.ppu.mode3_fifo.bg_push_stalled_for_fifo
+                    || bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0))
     }
 
     fn mode3_obj_takeover_boundary(bus: &Bus) -> bool {
@@ -720,7 +721,8 @@ impl PpuState {
             return false;
         }
         let sprite = bus.ppu.mode3_fifo.obj_sprites[bus.ppu.mode3_fifo.obj_next_sprite];
-        sprite.x_left <= screen_x
+        let obj_fetch_lookahead = sprite.fetch_dots as i16;
+        sprite.x_left <= screen_x + obj_fetch_lookahead
     }
 
     fn mode3_maybe_trigger_window(bus: &mut Bus, ly: u8, startup_line: bool, screen_x: i16) {
@@ -1097,7 +1099,8 @@ impl PpuState {
 
         if bus.ppu.mode3_fifo.obj_next_sprite < bus.ppu.mode3_fifo.obj_sprite_count {
             let sprite = bus.ppu.mode3_fifo.obj_sprites[bus.ppu.mode3_fifo.obj_next_sprite];
-            if sprite.x_left <= screen_x {
+            let obj_fetch_lookahead = sprite.fetch_dots as i16;
+            if sprite.x_left <= screen_x + obj_fetch_lookahead {
                 bus.ppu.mode3_fifo.obj_next_sprite += 1;
                 bus.ppu.mode3_fifo.obj_active_sprite = Some(sprite);
                 bus.ppu.mode3_fifo.obj_fetch_dots_remaining = sprite.fetch_dots.max(1);
