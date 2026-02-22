@@ -1,6 +1,6 @@
 use super::super::{DUTY_PATTERNS, MAX_FREQUENCY, MAX_SQUARE_LENGTH};
 use super::common::{
-    apply_length_enable_edge_u8, clock_length_u8, reload_length_on_trigger_u8, step_periodic_timer,
+    apply_length_enable_edge_u8, clock_length_u8, reload_length_on_trigger_u8,
     write_envelope_and_update_dac_state,
 };
 use super::{EnvelopeState, SweepState};
@@ -122,9 +122,11 @@ impl SquareChannel {
     }
 
     pub(in crate::apu) fn step_tcycle(&mut self) {
-        let reload_period = self.period_from_frequency();
-        if step_periodic_timer(&mut self.frequency_timer, reload_period) {
+        if self.frequency_timer <= 1 {
+            self.frequency_timer = self.period_from_frequency();
             self.duty_position = (self.duty_position + 1) & 0x07;
+        } else {
+            self.frequency_timer -= 1;
         }
     }
 

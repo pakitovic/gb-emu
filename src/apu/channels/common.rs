@@ -60,16 +60,6 @@ pub(in crate::apu) fn clock_length_u8(
     }
 }
 
-pub(in crate::apu) fn step_periodic_timer(timer: &mut u16, reload_period: u16) -> bool {
-    if *timer <= 1 {
-        *timer = reload_period;
-        true
-    } else {
-        *timer -= 1;
-        false
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,15 +108,5 @@ mod tests {
         reload_length_on_trigger_u8(&mut length_counter, true, false, 64);
 
         assert_eq!(length_counter, 63);
-    }
-
-    #[test]
-    fn periodic_timer_helper_reloads_and_signals_tick() {
-        let mut timer = 1u16;
-
-        assert!(step_periodic_timer(&mut timer, 16));
-        assert_eq!(timer, 16);
-        assert!(!step_periodic_timer(&mut timer, 16));
-        assert_eq!(timer, 15);
     }
 }

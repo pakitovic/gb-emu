@@ -1,7 +1,7 @@
 use super::super::{MAX_NOISE_LENGTH, NOISE_DIVISORS};
 use super::EnvelopeState;
 use super::common::{
-    apply_length_enable_edge_u8, clock_length_u8, reload_length_on_trigger_u8, step_periodic_timer,
+    apply_length_enable_edge_u8, clock_length_u8, reload_length_on_trigger_u8,
     write_envelope_and_update_dac_state,
 };
 
@@ -95,8 +95,8 @@ impl NoiseChannel {
     }
 
     pub(in crate::apu) fn step_tcycle(&mut self) {
-        let reload_period = self.period_from_registers();
-        if step_periodic_timer(&mut self.frequency_timer, reload_period) {
+        if self.frequency_timer <= 1 {
+            self.frequency_timer = self.period_from_registers();
             if self.clock_shift >= 14 {
                 return;
             }
@@ -105,6 +105,8 @@ impl NoiseChannel {
             if self.width_mode_7bit {
                 self.lfsr = (self.lfsr & !(1 << 6)) | (xor_bit << 6);
             }
+        } else {
+            self.frequency_timer -= 1;
         }
     }
 
