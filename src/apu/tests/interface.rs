@@ -1,5 +1,5 @@
 use super::common::{make_test_bus, tick_n};
-use crate::audio::AnalogCalibrationProfile;
+use crate::apu::AnalogCalibrationProfile;
 use crate::hardware::HardwareModel;
 
 #[test]

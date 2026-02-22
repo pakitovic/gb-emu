@@ -1,6 +1,6 @@
 use super::channels::{NoiseChannel, SquareChannel, WaveChannel};
 use super::registers::ApuRegisters;
-use crate::audio::AnalogCalibrationProfile;
+use crate::apu::AnalogCalibrationProfile;
 use crate::hardware::HardwareModel;
 
 #[derive(Default)]

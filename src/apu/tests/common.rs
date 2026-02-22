@@ -1,6 +1,6 @@
 use super::super::ApuState;
+use crate::apu::AnalogCalibrationProfile;
 use crate::apu::MAX_PENDING_AUDIO_TCYCLE_FRAMES;
-use crate::audio::AnalogCalibrationProfile;
 use crate::hardware::HardwareModel;
 
 #[derive(Clone, Copy)]

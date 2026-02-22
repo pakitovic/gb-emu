@@ -1,4 +1,4 @@
-use crate::audio::AnalogCalibrationProfile;
+use crate::apu::AnalogCalibrationProfile;
 use crate::hardware::HardwareModel;
 
 mod analog;
