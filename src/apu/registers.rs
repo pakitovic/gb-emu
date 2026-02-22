@@ -55,4 +55,8 @@ impl ApuRegisters {
     pub(in crate::apu) fn wave_sample_byte(&self, wave_position: u8) -> u8 {
         self.wave_ram[(wave_position as usize) / 2]
     }
+
+    pub(in crate::apu) fn wave_ram_byte(&self, byte_index: usize) -> u8 {
+        self.wave_ram[byte_index]
+    }
 }

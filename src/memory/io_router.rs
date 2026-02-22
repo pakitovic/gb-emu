@@ -38,7 +38,7 @@ impl Bus {
             0xFF00 => self.read_p1(),
             0xFF04 => self.read_div(),
             0xFF41 => self.stat_read_value(),
-            0xFF26 => self
+            0xFF26 | 0xFF30..=0xFF3F => self
                 .read_apu_io_register(addr)
                 .unwrap_or(self.io[(addr - 0xFF00) as usize]),
             _ => self.io[(addr - 0xFF00) as usize],
