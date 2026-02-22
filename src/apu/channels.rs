@@ -1,3 +1,4 @@
+mod common;
 mod envelope;
 mod noise;
 mod square;
