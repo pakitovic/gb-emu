@@ -196,6 +196,7 @@ Before considering a task complete, all of the following must hold:
 - Parallel requests can use separate branches created from `main`; resolve conflicts later if they appear.
 - Keep each branch incremental and small to minimize merge/rebase conflicts.
 - Prepare commit title, PR title, and PR description in English.
+- Default to a single-line commit message (subject only). Avoid extended commit descriptions unless explicitly requested; keep detailed documentation in the PR description.
 - PR title must match the latest/main commit subject of the branch.
 - For PR creation/update, use `scripts/dev/create_pr.sh` (default base: `main`), which pushes the branch and creates or updates the PR automatically.
 - If the latest commit has no body, PR description should be initialized from `.github/pull_request_template.md`.
