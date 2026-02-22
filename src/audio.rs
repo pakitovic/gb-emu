@@ -10,6 +10,22 @@ const AUDIO_OUTPUT_CHANNELS: usize = 2;
 const MAX_PENDING_CORE_TCYCLE_FRAMES: usize = 524_288;
 const APU_MIX_CHANNELS: usize = 4;
 
+#[inline]
+fn linear_interpolate(a: f32, b: f32, frac: f32) -> f32 {
+    a + (b - a) * frac
+}
+
+// Catmull-Rom cubic interpolation. We use it only when the CoreApu resampler
+// has one neighboring sample on each side; edges fall back to linear interpolation.
+#[inline]
+fn catmull_rom_interpolate(p0: f32, p1: f32, p2: f32, p3: f32, frac: f32) -> f32 {
+    let a = (-0.5 * p0) + (1.5 * p1) - (1.5 * p2) + (0.5 * p3);
+    let b = p0 - (2.5 * p1) + (2.0 * p2) - (0.5 * p3);
+    let c = (-0.5 * p0) + (0.5 * p2);
+    let d = p1;
+    (((a * frac) + b) * frac + c) * frac + d
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MixerSource {
     Silence,
@@ -482,8 +498,24 @@ impl AudioMixer {
             let Some(&s1) = self.core_tcycle_samples.get(base_index + 1) else {
                 break;
             };
-            let interpolated_left = s0[0] + (s1[0] - s0[0]) * frac;
-            let interpolated_right = s0[1] + (s1[1] - s0[1]) * frac;
+            let (interpolated_left, interpolated_right) =
+                if base_index > 0 && (base_index + 2) < self.core_tcycle_samples.len() {
+                    let Some(&sprev) = self.core_tcycle_samples.get(base_index - 1) else {
+                        break;
+                    };
+                    let Some(&snext) = self.core_tcycle_samples.get(base_index + 2) else {
+                        break;
+                    };
+                    (
+                        catmull_rom_interpolate(sprev[0], s0[0], s1[0], snext[0], frac),
+                        catmull_rom_interpolate(sprev[1], s0[1], s1[1], snext[1], frac),
+                    )
+                } else {
+                    (
+                        linear_interpolate(s0[0], s1[0], frac),
+                        linear_interpolate(s0[1], s1[1], frac),
+                    )
+                };
             samples.push(interpolated_left.clamp(-1.0, 1.0));
             samples.push(interpolated_right.clamp(-1.0, 1.0));
             self.core_resample_position += step;
@@ -715,6 +747,42 @@ mod tests {
         let samples = mixer.drain_samples(10_000);
         assert_eq!(samples.len(), expected * AUDIO_OUTPUT_CHANNELS);
         assert!(samples.iter().all(|sample| (*sample - 0.5).abs() < 0.001));
+    }
+
+    #[test]
+    fn catmull_rom_interpolator_preserves_linear_ramp() {
+        let sample = catmull_rom_interpolate(0.0, 1.0, 2.0, 3.0, 0.25);
+        assert!((sample - 1.25).abs() < 0.000_01);
+    }
+
+    #[test]
+    fn core_apu_source_uses_cubic_interpolation_when_neighbor_context_exists() {
+        let mut mixer = AudioMixer::new((DMG_T_CYCLES_PER_SECOND * 2) as u32); // step = 0.5
+        mixer.set_source(MixerSource::CoreApu);
+
+        let frames = [
+            [0.0f32, 0.0f32],
+            [0.0f32, 0.0f32],
+            [1.0f32, -1.0f32],
+            [0.0f32, 0.0f32],
+            [0.0f32, 0.0f32],
+        ];
+        let mut tcycle_samples = Vec::with_capacity(frames.len() * AUDIO_OUTPUT_CHANNELS);
+        for frame in frames {
+            tcycle_samples.push(frame[0]);
+            tcycle_samples.push(frame[1]);
+        }
+        mixer.push_core_tcycle_samples(&tcycle_samples);
+
+        let samples = mixer.drain_samples(4);
+        assert_eq!(samples.len(), 8);
+
+        let cubic_halfway_left = samples[6];
+        let cubic_halfway_right = samples[7];
+        assert!((cubic_halfway_left - 0.5625).abs() < 0.001);
+        assert!((cubic_halfway_right + 0.5625).abs() < 0.001);
+        assert!(cubic_halfway_left > 0.5);
+        assert!(cubic_halfway_right < -0.5);
     }
 
     #[test]
