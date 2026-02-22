@@ -1,13 +1,13 @@
 use super::super::*;
 
 impl ApuState {
-    pub(super) fn mix_sample(&self, io: &[u8; 0x80]) -> (f32, f32) {
-        let nr50 = io[NR50_INDEX];
-        let nr51 = io[NR51_INDEX];
+    pub(super) fn mix_sample(&self) -> (f32, f32) {
+        let nr50 = self.registers.nr50();
+        let nr51 = self.registers.nr51();
         let channel_output = [
             self.square1.output_amplitude(),
             self.square2.output_amplitude(),
-            self.wave.output_amplitude(io),
+            self.wave.output_amplitude(),
             self.noise.output_amplitude(),
         ];
 

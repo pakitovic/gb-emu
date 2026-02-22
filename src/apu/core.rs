@@ -1,4 +1,5 @@
 use super::channels::{NoiseChannel, WaveChannel};
+use super::registers::ApuRegisters;
 use super::*;
 use crate::audio::AnalogCalibrationProfile;
 use crate::hardware::HardwareModel;
@@ -10,6 +11,7 @@ impl ApuState {
         let boot_channel_mask = nr52 & 0x0F;
         let mut state = Self {
             analog_profile: AnalogCalibrationProfile::for_model(model).normalized(),
+            registers: ApuRegisters::from_io(io),
             ..Self::default()
         };
         state.reinitialize_power_state(power_enabled, boot_channel_mask);

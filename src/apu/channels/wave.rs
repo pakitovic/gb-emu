@@ -1,4 +1,5 @@
-use super::super::{MAX_FREQUENCY, MAX_WAVE_LENGTH, WAVE_RAM_START_INDEX};
+use super::super::registers::ApuRegisters;
+use super::super::{MAX_FREQUENCY, MAX_WAVE_LENGTH};
 
 #[derive(Clone, Copy, Default)]
 pub(in crate::apu) struct WaveChannel {
@@ -86,11 +87,11 @@ impl WaveChannel {
         period.max(2)
     }
 
-    pub(in crate::apu) fn step_tcycle(&mut self, io: &[u8; 0x80]) {
+    pub(in crate::apu) fn step_tcycle(&mut self, registers: &ApuRegisters) {
         if self.frequency_timer <= 1 {
             self.frequency_timer = self.period_from_frequency();
             self.wave_position = (self.wave_position + 1) & 0x1F;
-            self.sample_buffer = io[WAVE_RAM_START_INDEX + (self.wave_position as usize / 2)];
+            self.sample_buffer = registers.wave_sample_byte(self.wave_position);
         } else {
             self.frequency_timer -= 1;
         }
@@ -107,7 +108,7 @@ impl WaveChannel {
         }
     }
 
-    pub(in crate::apu) fn output_amplitude(&self, _io: &[u8; 0x80]) -> i16 {
+    pub(in crate::apu) fn output_amplitude(&self) -> i16 {
         if !self.enabled || !self.dac_enabled {
             return 0;
         }

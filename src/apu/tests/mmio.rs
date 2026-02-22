@@ -27,6 +27,22 @@ fn apu_boot_state_applies_nr52_mask_only_when_powered_on() {
 }
 
 #[test]
+fn apu_boot_state_copies_control_and_wave_ram_into_register_mirror() {
+    let mut io = [0u8; 0x80];
+    io[NR52_INDEX] = 0x80;
+    io[NR50_INDEX] = 0x77;
+    io[NR51_INDEX] = 0xF3;
+    io[WAVE_RAM_START_INDEX] = 0xAB;
+    io[WAVE_RAM_END_INDEX] = 0xCD;
+
+    let apu = ApuState::from_boot_state(&io, HardwareModel::Dmg);
+    assert_eq!(apu.registers.nr50(), 0x77);
+    assert_eq!(apu.registers.nr51(), 0xF3);
+    assert_eq!(apu.registers.wave_sample_byte(0), 0xAB);
+    assert_eq!(apu.registers.wave_sample_byte(30), 0xCD);
+}
+
+#[test]
 fn apu_mmio_decode_maps_channel_control_and_wave_registers() {
     assert_eq!(decode_register(0xFF10), Some(ApuRegister::Nr10));
     assert_eq!(decode_register(0xFF24), Some(ApuRegister::Nr50));
@@ -58,6 +74,7 @@ fn apu_mmio_power_gating_blocks_channel_writes_but_keeps_wave_ram_writable() {
 
     apu.write_io_register(&mut io, 0xFF30, 0xAB);
     assert_eq!(io[WAVE_RAM_START_INDEX], 0xAB);
+    assert_eq!(apu.registers.wave_sample_byte(0), 0xAB);
 }
 
 #[test]
@@ -68,21 +85,26 @@ fn apu_mmio_nr50_nr51_writes_require_apu_power() {
     apu.write_io_register(&mut io, 0xFF25, 0xF3);
     assert_eq!(io[NR50_INDEX], 0x00);
     assert_eq!(io[NR51_INDEX], 0x00);
+    assert_eq!(apu.registers.nr50(), 0x00);
+    assert_eq!(apu.registers.nr51(), 0x00);
 
     apu.write_io_register(&mut io, 0xFF26, 0x80);
     apu.write_io_register(&mut io, 0xFF24, 0x77);
     apu.write_io_register(&mut io, 0xFF25, 0xF3);
     assert_eq!(io[NR50_INDEX], 0x77);
     assert_eq!(io[NR51_INDEX], 0xF3);
+    assert_eq!(apu.registers.nr50(), 0x77);
+    assert_eq!(apu.registers.nr51(), 0xF3);
 }
 
 #[test]
 fn apu_mmio_nr52_power_toggle_clears_apu_register_window() {
     let (mut apu, mut io) = make_apu_with_power(true);
-    io[NR10_INDEX] = 0x11;
-    io[NR12_INDEX] = 0xF0;
-    io[NR50_INDEX] = 0x77;
-    io[NR51_INDEX] = 0xF3;
+    apu.write_io_register(&mut io, 0xFF10, 0x11);
+    apu.write_io_register(&mut io, 0xFF12, 0xF0);
+    apu.write_io_register(&mut io, 0xFF24, 0x77);
+    apu.write_io_register(&mut io, 0xFF25, 0xF3);
+    apu.write_io_register(&mut io, 0xFF30, 0xAB);
 
     apu.write_io_register(&mut io, 0xFF26, 0x00);
 
@@ -90,6 +112,9 @@ fn apu_mmio_nr52_power_toggle_clears_apu_register_window() {
     for register in io.iter().take(NR51_INDEX + 1).skip(NR10_INDEX) {
         assert_eq!(*register, 0x00);
     }
+    assert_eq!(apu.registers.nr50(), 0x00);
+    assert_eq!(apu.registers.nr51(), 0x00);
+    assert_eq!(apu.registers.wave_sample_byte(0), 0xAB);
 
     apu.write_io_register(&mut io, 0xFF26, 0x80);
     assert_eq!(io[NR52_INDEX], 0x80);
