@@ -11,6 +11,20 @@ require_cmd() {
   fi
 }
 
+normalize_pr_body() {
+  local body="$1"
+
+  # If the commit body was authored with literal "\n" escapes (for example
+  # `git commit -m "..." -m "Line1\nLine2"`), decode them so GitHub renders a
+  # multiline PR description instead of showing the escape sequences verbatim.
+  if [[ "$body" != *$'\n'* ]] && [[ "$body" == *'\\n'* || "$body" == *'\\r\\n'* ]]; then
+    body="${body//\\r\\n/$'\n'}"
+    body="${body//\\n/$'\n'}"
+  fi
+
+  printf '%s' "$body"
+}
+
 require_cmd git
 require_cmd gh
 
@@ -32,6 +46,7 @@ fi
 
 TITLE="$(git log -1 --pretty=%s)"
 BODY="$(git log -1 --pretty=%b)"
+BODY="$(normalize_pr_body "$BODY")"
 
 if [ -z "${TITLE//[[:space:]]/}" ]; then
   printf "Unable to derive PR title from the latest commit subject.\n" >&2
@@ -46,6 +61,10 @@ if [ -z "${BODY//[[:space:]]/}" ]; then
   BODY="Auto-generated PR for branch '$CURRENT_BRANCH'. Please add details before merge."
 fi
 
+BODY_FILE="$(mktemp)"
+trap 'rm -f "$BODY_FILE"' EXIT
+printf '%s' "$BODY" > "$BODY_FILE"
+
 git push -u origin "$CURRENT_BRANCH"
 
 EXISTING_PR_NUMBER="$(gh pr list \
@@ -58,12 +77,12 @@ EXISTING_PR_NUMBER="$(gh pr list \
 if [ -n "$EXISTING_PR_NUMBER" ]; then
   gh pr edit "$EXISTING_PR_NUMBER" \
     --title "$TITLE" \
-    --body "$BODY"
+    --body-file "$BODY_FILE"
   printf "Updated PR #%s for branch '%s'.\n" "$EXISTING_PR_NUMBER" "$CURRENT_BRANCH"
 else
   gh pr create \
     --base "$BASE_BRANCH" \
     --head "$CURRENT_BRANCH" \
     --title "$TITLE" \
-    --body "$BODY"
+    --body-file "$BODY_FILE"
 fi

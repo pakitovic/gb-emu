@@ -3,11 +3,15 @@
 Personal/hobby Game Boy emulator project written in Rust, focused on learning and incremental milestones.
 
 Current scope:
-- ROM-only/ROM+RAM plus expanded MBC1/MBC2/MBC3/MBC5 support.
+
+### Core Emulation (CPU / Bus / Timing / Input)
 - CPU core with growing opcode coverage.
 - Memory bus + timer/interrupt basics.
-- Blargg + Gekkio ROM test integration in local scripts and CI.
+- Joypad input API in core with P1 register behavior and joypad interrupt edges.
+- Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
+
+### PPU / Video (DMG)
 - DMG background layer rendering to a grayscale framebuffer.
 - DMG window + sprite (OBJ) composition with priority/palette/flip handling.
 - Mode 3 background/window pixel FIFO stepping per dot with a 6-dot BG fetch cadence and window trigger/restart timing (WX/WY mid-line writes affect only valid trigger windows).
@@ -16,21 +20,29 @@ Current scope:
 - Mode 3 takeover arbitration now handles FIFO-stall boundaries and queued window-trigger release after active OBJ fetch windows, with regression coverage for VRAM/OAM blocking and STAT mode0 timing shifts under runtime contention.
 - Mode 3 line duration now grows from runtime OBJ fetch contention (including mid-line OBJ enable/disable effects), reducing reliance on static per-line penalty estimates.
 - Additional PPU/DMA timing edge cases: mode0 STAT source enabled during mode3 triggers on HBlank entry, and DMA restart keeps prior transfer running through the full restart-delay window.
+
+### APU / Audio Emulation
 - APU core channel state-machine scaffolding: NR52 power control, NR50/NR51 mixer register gating, CH1/CH2/CH3/CH4 trigger/state progression, and DIV-driven frame sequencer stepping (length/sweep/envelope clocks).
 - APU output path now supports real-device analog calibration profiles (model defaults plus custom per-device overrides) with per-channel DAC shaping/bias, routing matrix gains, stereo mixer drive, post-analog soft-clip/headroom limiting, low-pass + DC-blocking high-pass filtering, and selectable linear/cubic (Catmull-Rom with linear edge fallback) t-cycle-to-PCM resampling.
 - APU frontend output now preserves stereo channel routing (NR50/NR51 left/right masks) end-to-end for SDL2 and WebAudio.
 - APU length-enable edge behavior now includes immediate length clocking on non-length frame-sequencer steps when enabling length mid-playback.
 - APU DMG quirk coverage now includes CH1 sweep overflow/negate-clear disable behavior, trigger+length-zero reload/decrement edges, envelope trigger reload offset on envelope-clock steps, documented/common envelope "zombie mode" writes (`NRx2` while active), CH3 wave sample-buffer retrigger semantics plus Wave RAM fetch-window access/retrigger corruption behavior, and CH4 `clock_shift >= 14` no-clock behavior.
-- Joypad input API in core with P1 register behavior and joypad interrupt edges.
-- Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
-- Core audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
-- Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
+
+### Cartridge / Save Persistence / Metadata
+- ROM-only/ROM+RAM plus expanded MBC1/MBC2/MBC3/MBC5 support.
 - Cartridge header ROM size decoding across standard size codes, mapper-specific RAM enable/banking behavior (including MBC5 rumble register semantics), and battery-backed persistence (`.sav`, plus `.rtc` for MBC3 timer cartridges) with atomic file replace writes.
 - Cartridge header diagnostics for Nintendo logo/header checksum/global checksum, exposed as non-blocking warnings in cartridge metadata.
 - Cartridge metadata debug report consumed by CLI (`--cart-info`) and frontends (SDL2 `F1` cart-info panel, web debug panel).
+
+### Audio Output Pipeline / Frontend Audio Integration
+- Core audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
+- Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
 - SDL2 frontend adaptive audio queue targeting with underrun estimation from queue depth and host time.
 - Minimal browser demo (`web/minimal`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
 - Minimal browser demo audio telemetry plus adaptive queue targeting for underrun recovery and latency tuning.
+
+### Validation / CI
+- Blargg + Gekkio ROM test integration in local scripts and CI.
 
 ## Project Structure
 
@@ -99,6 +111,7 @@ Supported models for `--model`:
 
 ## Current Limitations
 
+### Cartridge / Mapper / Persistence Limits
 - Supported cartridge types:
   - ROM-only / ROM+RAM / ROM+RAM+BATTERY (0x00/0x08/0x09).
   - MBC1 family (0x01/0x02/0x03) with RAM enable and RAM banking mode support.
@@ -111,9 +124,20 @@ Supported models for `--model`:
 - ROM-only and ROM+RAM cartridge family (no MBC) is limited to 32KB ROM by hardware design.
 - Unsupported mappers (for example MBC6/MBC7/HuC variants, camera/tama) still fail fast when loading the ROM.
 - MBC3 RTC persistence currently uses a sidecar `.rtc` file; this is emulator-specific metadata and not a hardware cartridge dump format.
+
+### Cartridge Header Diagnostics
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.
+
+### CPU / Core Fidelity
+- CPU correctness and timing confidence are currently driven by the included Blargg + Gekkio suites and project integration tests; untested instruction/interrupt corner cases may still remain.
+- The emulator is currently DMG-family focused (`dmg0`, `dmg`, `mgb`, `sgb`, `sgb2`); CGB-specific CPU/platform behavior (for example double-speed mode and CGB-only hardware interactions) is out of scope.
+- Cross-subsystem cycle accuracy (CPU vs PPU/APU/DMA/bus contention) is implemented incrementally and is only guaranteed for the timing cases explicitly covered by current tests and documented PPU/DMA behavior.
+
+### PPU / Rendering / Timing Fidelity
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 - Dot-stepped OBJ fetch contention now extends Mode 3 at runtime and takeover boundaries include FIFO-stall arbitration; some DMG fetcher bus-phase details (for example full hardware sleep/push micro-ops) are still approximated.
+
+### APU / Audio Fidelity
 - Built-in analog calibration profiles are model-level references; full per-device fidelity requires supplying measured calibration values via `GameBoy::set_audio_analog_calibration(...)`.
 - Envelope "zombie mode" (`NRx2` writes while a channel is active) is implemented using documented/common behavior; full unit/model-specific DMG variants are still not exhaustively modeled.
 - CH3 Wave RAM active-access timing is modeled with a t-cycle fetch window approximation (sufficient for common DMG edge-cases), not a fully cycle-accurate bus arbitration model.
