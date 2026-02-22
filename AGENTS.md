@@ -44,28 +44,67 @@ Recommended references:
 - Respect lint rules (`clippy -D warnings`) and formatting (`rustfmt`).
 - Avoid host-side I/O side effects inside the core (windowing, audio backend, stdout rendering); expose data through APIs for frontend adapters.
 
-## Rust Module Organization and Visibility Policy
-- Rust supports both `foo.rs` and `foo/mod.rs`; behavior is equivalent. This repository must use one consistent rule for new/refactored production modules.
-- For new or refactored production modules with children, use:
-  - Entry file: `<module>.rs`
-  - Children: `<module>/...`
-- Do not introduce new production `mod.rs` files.
-- Existing legacy `mod.rs` files can remain as-is unless the task explicitly includes module layout migration.
-- Do not partially migrate a module layout in behavior work:
-  - If a module is touched for behavior, keep its current layout.
+## Rust Module, Test, and Visibility Organization Policy
+- Rust supports both `foo.rs` and `foo/mod.rs`; they are functionally equivalent. Module layout choice does not change runtime performance, generated behavior, binary output, or portability by itself.
+- Current Rust trend for large/modern projects (and the convention for this repository):
+  - Use `foo.rs` for small modules.
+  - Migrate to `foo.rs` + `foo/` when the module grows.
+  - Do not introduce new production `mod.rs` files.
+  - Keep legacy `mod.rs` files until a dedicated layout migration is justified.
+- Emulator-specific rationale:
+  - Module layout is not an aesthetic preference; it must reduce the risk of mixing hardware behavior changes with structural changes in timing-sensitive code.
+  - Use `foo.rs` + `foo/` as the canonical production pattern for growing subsystems (CPU/APU/PPU/MMIO/timing-related code).
+  - Treat `<module>.rs` as the subsystem facade:
+    - `mod ...;` declarations
+    - minimal re-exports
+    - subsystem API surface
+    - high-level wiring/orchestration
+  - Move hardware responsibilities into focused children (examples: `state.rs`, `mmio.rs`, `decode.rs`, `timing.rs`, `sequencer.rs`, `channel_writes.rs`).
+- Pattern tradeoffs (useful when planning refactors):
+  - `foo.rs` + `foo/` (recommended default for growth):
+    - clean incremental refactors
+    - explicit paths in code review
+    - scales well when subsystem growth is uneven
+    - no portability impact on the emulator core
+    - requires disciplined visibility boundaries
+  - `foo/mod.rs` (legacy-valid, but not the preferred growth pattern):
+    - valid and familiar
+    - keeps files visually grouped inside one directory
+    - becomes harder to scan as the codebase grows (many `mod.rs` files)
+    - increases risk of mixed styles when refactoring
+  - Large single-file `foo.rs` without splitting:
+    - fewer files at the start
+    - worse for timing-sensitive reviews
+    - more merge conflicts
+    - harder to isolate tests and responsibilities
+- Growth rule (production modules):
+  - Start with `foo.rs`.
+  - If complexity or responsibility count grows, refactor to `foo.rs` + `foo/`.
+  - Do not partially migrate layout during behavior work.
   - If layout migration is needed, do it as a dedicated structural refactor change.
-- Keep re-exports in the module entry file only (`<module>.rs` or legacy `mod.rs`), and avoid long re-export chains from nested children.
-- Visibility must be minimized and explicit:
+  - Keep re-exports in the module entry file only (`<module>.rs` or legacy `mod.rs`) and avoid long re-export chains from nested children.
+- Visibility rule:
   - Default to private items.
   - Use `pub(super)` for parent-only access.
   - Use `pub(in crate::<subsystem>)` for subsystem boundaries.
   - Use `pub(crate)` only when a cross-subsystem API is required.
   - Use `pub` only for intentionally public crate API surfaces.
+- Test placement and growth rule (local-first, no duplicated parallel test trees for unit-level coverage):
+  - Small unit tests start inline inside `foo.rs` with `#[cfg(test)] mod tests`.
+  - If tests grow, move them to a co-located `foo/tests.rs` and keep `#[cfg(test)] mod tests;` in `foo.rs`.
+  - If tests continue to grow, split into `foo/tests.rs` + `foo/tests/*.rs` (keep `foo/tests.rs` as the local test facade/entry file).
+  - When refactoring `foo.rs` to `foo.rs` + `foo/`, move growing tests to `foo/tests.rs` (and `foo/tests/*` when needed) in the same structural refactor if it remains behavior-neutral.
+  - Prefer local module tests over centralized `src/<subsystem>/tests/` trees for unit/module-level coverage.
+  - Keep top-level `tests/` for integration tests only.
+  - Existing legacy subsystem test trees may remain until a dedicated migration is requested.
 - Refactor safety rule:
   - Structural refactors (split/move/rename/visibility tightening) must not change behavior.
   - Behavior changes must be in a separate commit/PR unless explicitly requested to combine.
   - For CPU/PPU/APU/timer/interrupt/DMA paths, keep or add characterization tests before/with structural refactors.
-- Test-only module trees may keep using `mod.rs` when it improves fixture organization.
+- Portability note (core vs frontends):
+  - Module file layout does not affect core portability.
+  - Portability is affected by dependencies, crate/API boundaries, feature flags, visibility decisions, and type coupling.
+  - Keep the core/frontend boundary API-driven; if frontend adapters grow significantly, consider a multi-crate workspace split as a later architectural step.
 
 ## Testing Policy (Mandatory)
 For every behavior change:
