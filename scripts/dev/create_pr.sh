@@ -14,10 +14,14 @@ require_cmd() {
 normalize_pr_body() {
   local body="$1"
 
-  # If the commit body was authored with literal "\n" escapes (for example
+  # If the commit body contains literal "\n" escapes (for example
   # `git commit -m "..." -m "Line1\nLine2"`), decode them so GitHub renders a
   # multiline PR description instead of showing the escape sequences verbatim.
-  if [[ "$body" != *$'\n'* ]] && [[ "$body" == *'\\n'* || "$body" == *'\\r\\n'* ]]; then
+  #
+  # `git log --pretty=%b` can still include a real trailing newline even when
+  # the body content itself was authored as a single line with escaped newlines,
+  # so we cannot gate this on "no real newlines present".
+  if [[ "$body" == *'\\n'* || "$body" == *'\\r\\n'* ]]; then
     body="${body//\\r\\n/$'\n'}"
     body="${body//\\n/$'\n'}"
   fi
