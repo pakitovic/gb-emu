@@ -1,7 +1,7 @@
 use super::channels::{NoiseChannel, WaveChannel};
 use super::registers::ApuRegisters;
 use super::*;
-use crate::audio::AnalogCalibrationProfile;
+use crate::apu::AnalogCalibrationProfile;
 use crate::hardware::HardwareModel;
 
 impl ApuState {

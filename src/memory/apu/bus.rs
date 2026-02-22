@@ -1,6 +1,6 @@
 use super::super::Bus;
+use crate::apu::AnalogCalibrationProfile;
 use crate::apu::ApuState;
-use crate::audio::AnalogCalibrationProfile;
 use crate::hardware::HardwareModel;
 
 impl Bus {
