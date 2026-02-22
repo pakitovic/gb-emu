@@ -252,6 +252,24 @@ fn apu_envelope_period_zero_keeps_volume_constant() {
 }
 
 #[test]
+fn apu_envelope_zombie_mode_write_can_increment_active_square2_volume() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF26, 0x00);
+    bus.write_byte(0xFF26, 0x80);
+
+    bus.write_byte(0xFF16, 0x80);
+    bus.write_byte(0xFF17, 0xA8); // start vol=10, increase, period=0 (DAC on)
+    bus.write_byte(0xFF19, 0x80); // trigger
+    assert!(bus.apu_test_state().square2_enabled);
+    assert_eq!(bus.apu_test_state().square2_envelope_volume, 10);
+
+    bus.write_byte(0xFF17, 0x08); // active NRx2 write (zombie mode documented/common case)
+
+    assert!(bus.apu_test_state().square2_enabled);
+    assert_eq!(bus.apu_test_state().square2_envelope_volume, 11);
+}
+
+#[test]
 fn apu_wave_retrigger_keeps_previous_sample_buffer_until_next_fetch() {
     let mut bus = make_test_bus();
     bus.write_byte(0xFF26, 0x00);

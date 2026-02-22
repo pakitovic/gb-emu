@@ -6,6 +6,9 @@ pub(in crate::apu) fn write_envelope_and_update_dac_state(
     dac_enabled: &mut bool,
     value: u8,
 ) {
+    if *channel_enabled && *dac_enabled {
+        envelope.apply_zombie_mode_on_write(value);
+    }
     envelope.write_register(value);
     *dac_enabled = (value & 0xF8) != 0;
     if !*dac_enabled {
@@ -81,6 +84,30 @@ mod tests {
         assert!(!channel_enabled);
         assert_eq!(envelope.initial_volume, 0);
         assert_eq!(envelope.period, 0);
+    }
+
+    #[test]
+    fn envelope_write_applies_zombie_mode_when_channel_is_active() {
+        let mut envelope = EnvelopeState {
+            volume: 10,
+            period: 0,
+            increase: true,
+            timer: 8,
+            ..EnvelopeState::default()
+        };
+        let mut channel_enabled = true;
+        let mut dac_enabled = true;
+
+        write_envelope_and_update_dac_state(
+            &mut envelope,
+            &mut channel_enabled,
+            &mut dac_enabled,
+            0x08,
+        );
+
+        assert_eq!(envelope.volume, 11);
+        assert!(channel_enabled);
+        assert!(dac_enabled);
     }
 
     #[test]
