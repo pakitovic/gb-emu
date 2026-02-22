@@ -17,7 +17,7 @@ Current scope:
 - Mode 3 line duration now grows from runtime OBJ fetch contention (including mid-line OBJ enable/disable effects), reducing reliance on static per-line penalty estimates.
 - Additional PPU/DMA timing edge cases: mode0 STAT source enabled during mode3 triggers on HBlank entry, and DMA restart keeps prior transfer running through the full restart-delay window.
 - APU core channel state-machine scaffolding: NR52 power control, NR50/NR51 mixer register gating, CH1/CH2/CH3/CH4 trigger/state progression, and DIV-driven frame sequencer stepping (length/sweep/envelope clocks).
-- APU output path now supports real-device analog calibration profiles (model defaults plus custom per-device overrides) with per-channel DAC shaping/bias, routing matrix gains, stereo mixer drive, post-analog soft-clip/headroom limiting, low-pass + DC-blocking high-pass filtering, and linear t-cycle-to-PCM resampling.
+- APU output path now supports real-device analog calibration profiles (model defaults plus custom per-device overrides) with per-channel DAC shaping/bias, routing matrix gains, stereo mixer drive, post-analog soft-clip/headroom limiting, low-pass + DC-blocking high-pass filtering, and cubic (Catmull-Rom, linear-edge fallback) t-cycle-to-PCM resampling.
 - APU frontend output now preserves stereo channel routing (NR50/NR51 left/right masks) end-to-end for SDL2 and WebAudio.
 - APU length-enable edge behavior now includes immediate length clocking on non-length frame-sequencer steps when enabling length mid-playback.
 - APU DMG quirk coverage now includes CH1 sweep overflow/negate-clear disable behavior, trigger+length-zero reload/decrement edges, envelope trigger reload offset on envelope-clock steps, documented/common envelope "zombie mode" writes (`NRx2` while active), CH3 wave sample-buffer retrigger semantics plus Wave RAM fetch-window access/retrigger corruption behavior, and CH4 `clock_shift >= 14` no-clock behavior.
@@ -117,6 +117,7 @@ Supported models for `--model`:
 - Built-in analog calibration profiles are model-level references; full per-device fidelity requires supplying measured calibration values via `GameBoy::set_audio_analog_calibration(...)`.
 - Envelope "zombie mode" (`NRx2` writes while a channel is active) is implemented using documented/common behavior; full unit/model-specific DMG variants are still not exhaustively modeled.
 - CH3 Wave RAM active-access timing is modeled with a t-cycle fetch window approximation (sufficient for common DMG edge-cases), not a fully cycle-accurate bus arbitration model.
+- Audio resampling remains interpolation-based (cubic with edge linear fallback), not a band-limited/FIR resampler.
 
 ## Mapper Coverage Examples
 
