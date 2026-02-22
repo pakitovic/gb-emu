@@ -102,9 +102,7 @@ impl WebEmulator {
     }
 
     pub fn set_audio_sample_rate(&mut self, sample_rate_hz: u32) {
-        let source = self.audio_mixer.source();
-        self.audio_mixer = AudioMixer::new(sample_rate_hz.max(1));
-        self.audio_mixer.set_source(source);
+        self.audio_mixer.set_sample_rate_hz(sample_rate_hz.max(1));
     }
 
     pub fn set_audio_test_tone_enabled(&mut self, enabled: bool) {
@@ -194,6 +192,37 @@ mod tests {
         let samples = web.drain_audio_samples_realtime(512);
         assert_eq!(samples.len(), 1_024);
         assert!(samples.iter().any(|sample| *sample != 0.0));
+    }
+
+    #[test]
+    fn set_audio_sample_rate_preserves_pending_core_apu_queue() {
+        let rom = make_rom_32kb();
+        let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
+
+        web.gb.bus.write_byte(0xFF26, 0x00);
+        web.gb.bus.write_byte(0xFF26, 0x80);
+        web.gb.bus.write_byte(0xFF24, 0x77);
+        web.gb.bus.write_byte(0xFF25, 0x11);
+        web.gb.bus.write_byte(0xFF11, 0x80);
+        web.gb.bus.write_byte(0xFF12, 0xF0);
+        web.gb.bus.write_byte(0xFF13, 0xFC);
+        web.gb.bus.write_byte(0xFF14, 0x87);
+
+        web.run_frame().expect("a frame should be produced");
+
+        let before = web.drain_audio_samples_realtime(64);
+        assert_eq!(before.len(), 128);
+        assert!(before.iter().any(|sample| sample.abs() > 0.0));
+
+        web.set_audio_sample_rate(44_100);
+
+        let after = web.drain_audio_samples_realtime(64);
+        assert_eq!(after.len(), 128);
+        assert!(after.iter().all(|sample| sample.is_finite()));
+        assert!(
+            after.iter().any(|sample| sample.abs() > 0.0),
+            "expected queued core APU audio to survive sample-rate change"
+        );
     }
 
     #[test]

@@ -34,6 +34,17 @@ impl ApuState {
         )
     }
 
+    pub(in crate::apu) fn apply_output_stage(
+        &self,
+        left_input: f32,
+        right_input: f32,
+    ) -> (f32, f32) {
+        (
+            self.apply_output_headroom_soft_clip(left_input),
+            self.apply_output_headroom_soft_clip(right_input),
+        )
+    }
+
     fn apply_hpf(&mut self, left_input: f32, right_input: f32) -> (f32, f32) {
         let hpf_coeff = self.analog_profile.hpf_coeff;
         let left_output = left_input - self.analog.hpf_input_prev_left
@@ -45,5 +56,18 @@ impl ApuState {
         self.analog.hpf_input_prev_right = right_input;
         self.analog.hpf_output_prev_right = right_output;
         (left_output, right_output)
+    }
+
+    fn apply_output_headroom_soft_clip(&self, sample: f32) -> f32 {
+        if !sample.is_finite() {
+            return 0.0;
+        }
+        let headroom = self.analog_profile.output_headroom.clamp(0.1, 1.0);
+        let normalized = self.apply_soft_clip(sample / headroom) * headroom;
+        if normalized.is_finite() {
+            normalized.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        }
     }
 }

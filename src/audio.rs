@@ -28,6 +28,7 @@ pub struct AnalogCalibrationProfile {
     pub routing_right: [f32; APU_MIX_CHANNELS],
     pub left_gain: f32,
     pub right_gain: f32,
+    pub output_headroom: f32,
     pub soft_clip_drive: f32,
     pub crossfeed: f32,
     pub output_bias_left: f32,
@@ -47,6 +48,7 @@ impl AnalogCalibrationProfile {
                 routing_right: [1.00, 1.00, 1.01, 0.99],
                 left_gain: 1.0,
                 right_gain: 1.0,
+                output_headroom: 0.97,
                 soft_clip_drive: 1.7,
                 crossfeed: 0.0,
                 output_bias_left: 0.0,
@@ -62,6 +64,7 @@ impl AnalogCalibrationProfile {
                 routing_right: [1.00, 1.00, 1.00, 1.00],
                 left_gain: 1.0,
                 right_gain: 1.0,
+                output_headroom: 0.97,
                 soft_clip_drive: 1.6,
                 crossfeed: 0.0,
                 output_bias_left: 0.0,
@@ -77,6 +80,7 @@ impl AnalogCalibrationProfile {
                 routing_right: [1.00, 0.99, 1.00, 1.00],
                 left_gain: 0.98,
                 right_gain: 0.98,
+                output_headroom: 0.98,
                 soft_clip_drive: 1.45,
                 crossfeed: 0.0,
                 output_bias_left: 0.0,
@@ -92,6 +96,7 @@ impl AnalogCalibrationProfile {
                 routing_right: [0.99, 0.98, 0.99, 0.99],
                 left_gain: 0.95,
                 right_gain: 0.95,
+                output_headroom: 0.99,
                 soft_clip_drive: 1.35,
                 crossfeed: 0.0,
                 output_bias_left: 0.0,
@@ -107,6 +112,7 @@ impl AnalogCalibrationProfile {
                 routing_right: [0.99, 0.99, 1.00, 0.99],
                 left_gain: 0.96,
                 right_gain: 0.96,
+                output_headroom: 0.99,
                 soft_clip_drive: 1.3,
                 crossfeed: 0.0,
                 output_bias_left: 0.0,
@@ -128,6 +134,7 @@ impl AnalogCalibrationProfile {
         self.low_pass_alpha = sanitize(self.low_pass_alpha, 0.0, 1.0, 0.004_6);
         self.left_gain = sanitize(self.left_gain, 0.0, 2.0, 1.0);
         self.right_gain = sanitize(self.right_gain, 0.0, 2.0, 1.0);
+        self.output_headroom = sanitize(self.output_headroom, 0.1, 1.0, 1.0);
         self.soft_clip_drive = sanitize(self.soft_clip_drive, 0.1, 8.0, 1.0);
         self.crossfeed = sanitize(self.crossfeed, 0.0, 0.5, 0.0);
         self.output_bias_left = sanitize(self.output_bias_left, -1.0, 1.0, 0.0);
@@ -341,6 +348,19 @@ impl AudioMixer {
         self.sample_rate_hz
     }
 
+    pub fn set_sample_rate_hz(&mut self, sample_rate_hz: u32) {
+        let next_rate = sample_rate_hz.max(1);
+        if self.sample_rate_hz == next_rate {
+            return;
+        }
+        self.sample_rate_hz = next_rate;
+
+        if self.source != MixerSource::CoreApu {
+            self.pending_sample_numerator = 0;
+            self.pending_samples = 0;
+        }
+    }
+
     pub fn set_source(&mut self, source: MixerSource) {
         if self.source == source {
             return;
@@ -533,6 +553,7 @@ mod tests {
         profile.routing_right = [9.0, -2.0, 1.0, 1.0];
         profile.left_gain = 10.0;
         profile.right_gain = -2.0;
+        profile.output_headroom = 9.0;
         profile.soft_clip_drive = 0.0;
         profile.crossfeed = 9.0;
         profile.output_bias_left = 2.0;
@@ -551,6 +572,7 @@ mod tests {
         assert_eq!(normalized.routing_left[1], 0.0);
         assert_eq!(normalized.left_gain, 2.0);
         assert_eq!(normalized.right_gain, 0.0);
+        assert_eq!(normalized.output_headroom, 1.0);
         assert_eq!(normalized.soft_clip_drive, 0.1);
         assert_eq!(normalized.crossfeed, 0.5);
         assert_eq!(normalized.output_bias_left, 1.0);
@@ -564,6 +586,7 @@ mod tests {
         profile.low_pass_alpha = f32::NAN;
         profile.left_gain = f32::NAN;
         profile.right_gain = f32::NAN;
+        profile.output_headroom = f32::NAN;
         profile.soft_clip_drive = f32::NAN;
         profile.crossfeed = f32::NAN;
         profile.output_bias_left = f32::NAN;
@@ -579,6 +602,7 @@ mod tests {
         assert_eq!(normalized.low_pass_alpha, 0.004_6);
         assert_eq!(normalized.left_gain, 1.0);
         assert_eq!(normalized.right_gain, 1.0);
+        assert_eq!(normalized.output_headroom, 1.0);
         assert_eq!(normalized.soft_clip_drive, 1.0);
         assert_eq!(normalized.crossfeed, 0.0);
         assert_eq!(normalized.output_bias_left, 0.0);
@@ -593,6 +617,7 @@ mod tests {
         assert!(normalized.low_pass_alpha.is_finite());
         assert!(normalized.left_gain.is_finite());
         assert!(normalized.right_gain.is_finite());
+        assert!(normalized.output_headroom.is_finite());
         assert!(normalized.soft_clip_drive.is_finite());
     }
 
@@ -747,6 +772,43 @@ mod tests {
                 .iter()
                 .all(|sample| *sample == 0.0)
         );
+    }
+
+    #[test]
+    fn core_apu_sample_rate_change_preserves_resampler_queue_continuity() {
+        let mut mixer = AudioMixer::new(48_000);
+        mixer.set_source(MixerSource::CoreApu);
+
+        let tcycles = (DMG_T_CYCLES_PER_SECOND / 120) as usize;
+        let mut tcycle_samples = Vec::with_capacity(tcycles * AUDIO_OUTPUT_CHANNELS);
+        for i in 0..tcycles {
+            let left = if (i / 8) % 2 == 0 { 0.4 } else { -0.35 };
+            let right = if (i / 16) % 2 == 0 { -0.2 } else { 0.25 };
+            tcycle_samples.push(left);
+            tcycle_samples.push(right);
+        }
+        mixer.push_core_tcycle_samples(&tcycle_samples);
+
+        let first = mixer.drain_samples(128);
+        assert_eq!(first.len(), 256);
+        assert!(first.iter().any(|sample| sample.abs() > 0.01));
+
+        let pending_before = mixer.pending_samples();
+        assert!(pending_before > 0);
+
+        mixer.set_sample_rate_hz(44_100);
+
+        let pending_after = mixer.pending_samples();
+        assert!(
+            pending_after > 0,
+            "expected queued tcycle audio to remain after rate change"
+        );
+
+        let second = mixer.drain_samples(128);
+        assert_eq!(second.len(), 256);
+        assert!(second.iter().all(|sample| sample.is_finite()));
+        assert!(second.iter().any(|sample| sample.abs() > 0.01));
+        assert_eq!(second.len() % AUDIO_OUTPUT_CHANNELS, 0);
     }
 
     #[test]

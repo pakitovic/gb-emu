@@ -33,9 +33,10 @@ impl ApuState {
         let mixed_right = post_volume_right
             + post_volume_left * self.analog_profile.crossfeed
             + self.analog_profile.output_bias_right;
-        let right = self.apply_soft_clip(mixed_right * self.analog_profile.right_gain);
-        let left = self.apply_soft_clip(mixed_left * self.analog_profile.left_gain);
-        (left, right)
+        (
+            mixed_left * self.analog_profile.left_gain,
+            mixed_right * self.analog_profile.right_gain,
+        )
     }
 
     fn shape_channel_dac(&self, channel_index: usize, amplitude: i16) -> f32 {
