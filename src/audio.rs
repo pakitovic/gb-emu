@@ -33,6 +33,13 @@ pub enum MixerSource {
     CoreApu,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum AudioResamplerQuality {
+    Linear,
+    #[default]
+    Cubic,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AnalogCalibrationProfile {
     pub hpf_coeff: f32,
@@ -340,6 +347,7 @@ fn clamp_target_samples(target_samples: usize, options: &AdaptiveQueueOptions) -
 pub struct AudioMixer {
     sample_rate_hz: u32,
     source: MixerSource,
+    core_resampler_quality: AudioResamplerQuality,
     pending_sample_numerator: u128,
     pending_samples: u64,
     tone_phase: f32,
@@ -352,6 +360,7 @@ impl AudioMixer {
         Self {
             sample_rate_hz: sample_rate_hz.max(1),
             source: MixerSource::Silence,
+            core_resampler_quality: AudioResamplerQuality::default(),
             pending_sample_numerator: 0,
             pending_samples: 0,
             tone_phase: 0.0,
@@ -362,6 +371,14 @@ impl AudioMixer {
 
     pub fn sample_rate_hz(&self) -> u32 {
         self.sample_rate_hz
+    }
+
+    pub fn core_resampler_quality(&self) -> AudioResamplerQuality {
+        self.core_resampler_quality
+    }
+
+    pub fn set_core_resampler_quality(&mut self, quality: AudioResamplerQuality) {
+        self.core_resampler_quality = quality;
     }
 
     pub fn set_sample_rate_hz(&mut self, sample_rate_hz: u32) {
@@ -498,8 +515,13 @@ impl AudioMixer {
             let Some(&s1) = self.core_tcycle_samples.get(base_index + 1) else {
                 break;
             };
-            let (interpolated_left, interpolated_right) =
-                if base_index > 0 && (base_index + 2) < self.core_tcycle_samples.len() {
+            let can_use_cubic = base_index > 0 && (base_index + 2) < self.core_tcycle_samples.len();
+            let (interpolated_left, interpolated_right) = match self.core_resampler_quality {
+                AudioResamplerQuality::Linear => (
+                    linear_interpolate(s0[0], s1[0], frac),
+                    linear_interpolate(s0[1], s1[1], frac),
+                ),
+                AudioResamplerQuality::Cubic if can_use_cubic => {
                     let Some(&sprev) = self.core_tcycle_samples.get(base_index - 1) else {
                         break;
                     };
@@ -510,12 +532,12 @@ impl AudioMixer {
                         catmull_rom_interpolate(sprev[0], s0[0], s1[0], snext[0], frac),
                         catmull_rom_interpolate(sprev[1], s0[1], s1[1], snext[1], frac),
                     )
-                } else {
-                    (
-                        linear_interpolate(s0[0], s1[0], frac),
-                        linear_interpolate(s0[1], s1[1], frac),
-                    )
-                };
+                }
+                AudioResamplerQuality::Cubic => (
+                    linear_interpolate(s0[0], s1[0], frac),
+                    linear_interpolate(s0[1], s1[1], frac),
+                ),
+            };
             samples.push(interpolated_left.clamp(-1.0, 1.0));
             samples.push(interpolated_right.clamp(-1.0, 1.0));
             self.core_resample_position += step;
@@ -750,6 +772,12 @@ mod tests {
     }
 
     #[test]
+    fn audio_mixer_core_resampler_quality_defaults_to_cubic() {
+        let mixer = AudioMixer::new(48_000);
+        assert_eq!(mixer.core_resampler_quality(), AudioResamplerQuality::Cubic);
+    }
+
+    #[test]
     fn catmull_rom_interpolator_preserves_linear_ramp() {
         let sample = catmull_rom_interpolate(0.0, 1.0, 2.0, 3.0, 0.25);
         assert!((sample - 1.25).abs() < 0.000_01);
@@ -783,6 +811,35 @@ mod tests {
         assert!((cubic_halfway_right + 0.5625).abs() < 0.001);
         assert!(cubic_halfway_left > 0.5);
         assert!(cubic_halfway_right < -0.5);
+    }
+
+    #[test]
+    fn core_apu_source_can_force_linear_interpolation_when_neighbors_exist() {
+        let mut mixer = AudioMixer::new((DMG_T_CYCLES_PER_SECOND * 2) as u32); // step = 0.5
+        mixer.set_source(MixerSource::CoreApu);
+        mixer.set_core_resampler_quality(AudioResamplerQuality::Linear);
+
+        let frames = [
+            [0.0f32, 0.0f32],
+            [0.0f32, 0.0f32],
+            [1.0f32, -1.0f32],
+            [0.0f32, 0.0f32],
+            [0.0f32, 0.0f32],
+        ];
+        let mut tcycle_samples = Vec::with_capacity(frames.len() * AUDIO_OUTPUT_CHANNELS);
+        for frame in frames {
+            tcycle_samples.push(frame[0]);
+            tcycle_samples.push(frame[1]);
+        }
+        mixer.push_core_tcycle_samples(&tcycle_samples);
+
+        let samples = mixer.drain_samples(4);
+        assert_eq!(samples.len(), 8);
+
+        let linear_halfway_left = samples[6];
+        let linear_halfway_right = samples[7];
+        assert!((linear_halfway_left - 0.5).abs() < 0.001);
+        assert!((linear_halfway_right + 0.5).abs() < 0.001);
     }
 
     #[test]

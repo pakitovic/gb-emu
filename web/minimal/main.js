@@ -34,6 +34,7 @@ const cartInfoPre = document.getElementById("cart-info");
 const serialPre = document.getElementById("serial");
 const testToneCheckbox = document.getElementById("test-tone");
 const audioEnableButton = document.getElementById("audio-enable");
+const audioResamplerSelect = document.getElementById("audio-resampler");
 
 const canvas = document.getElementById("screen");
 const ctx = canvas.getContext("2d");
@@ -99,8 +100,12 @@ function updateAudioTelemetry() {
   if (!audioTelemetryLabel) {
     return;
   }
+  const resamplerQuality =
+    emulator && typeof emulator.audio_resampler_quality === "function"
+      ? emulator.audio_resampler_quality()
+      : audioResamplerSelect?.value || "cubic";
   if (!audioContext || !audioNode) {
-    audioTelemetryLabel.textContent = "Audio: disabled";
+    audioTelemetryLabel.textContent = `Audio: disabled | resampler ${resamplerQuality}`;
     return;
   }
 
@@ -110,8 +115,21 @@ function updateAudioTelemetry() {
   const underrunMs = (audioUnderrunSamplesTotal * 1000) / sampleRate;
   const playedSeconds = audioConsumedSamplesTotal / sampleRate;
   audioTelemetryLabel.textContent =
-    `Audio: ${audioContext.state} | queued ${queuedMs.toFixed(1)}ms / target ${targetMs.toFixed(1)}ms | ` +
+    `Audio: ${audioContext.state} | resampler ${resamplerQuality} | queued ${queuedMs.toFixed(1)}ms / target ${targetMs.toFixed(1)}ms | ` +
     `underruns ${audioUnderrunSamplesTotal} samples (${underrunMs.toFixed(2)}ms) | played ${playedSeconds.toFixed(1)}s`;
+}
+
+function applyAudioResamplerQuality() {
+  if (!emulator || !audioResamplerSelect) {
+    return;
+  }
+  const quality = audioResamplerSelect.value || "cubic";
+  try {
+    emulator.set_audio_resampler_quality(quality);
+  } catch (error) {
+    console.error(error);
+    setStatus(`Audio resampler error: ${error}`);
+  }
 }
 
 function maybeAdjustAudioQueueTarget(nowMs) {
@@ -210,6 +228,7 @@ async function enableAudio() {
       throw new Error("AudioWorklet is not available in this browser");
     }
     emulator.set_audio_sample_rate(ac.sampleRate);
+    applyAudioResamplerQuality();
     emulator.set_audio_test_tone_enabled(testToneCheckbox.checked);
 
     disconnectAudioBackend();
@@ -287,6 +306,7 @@ async function loadRom(file) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const model = modelSelect.value || undefined;
   emulator = new WebEmulator(bytes, model);
+  applyAudioResamplerQuality();
   emulator.set_audio_test_tone_enabled(testToneCheckbox.checked);
 
   if (audioContext) {
@@ -324,6 +344,11 @@ function bindDomEvents() {
     if (emulator) {
       emulator.set_audio_test_tone_enabled(testToneCheckbox.checked);
     }
+  });
+
+  audioResamplerSelect?.addEventListener("change", () => {
+    applyAudioResamplerQuality();
+    updateAudioTelemetry();
   });
 
   audioEnableButton.addEventListener("click", () => {
