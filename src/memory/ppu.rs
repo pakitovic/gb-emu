@@ -97,7 +97,7 @@ struct Mode3FifoState {
     bg_fetch_tile_line_addr: usize,
     bg_fetch_low: u8,
     bg_fetch_high: u8,
-    bg_takeover_cooldown_dots: u8,
+    bg_push_stalled_for_fifo: bool,
     obj_head: usize,
     obj_len: usize,
     obj_pixels: [ObjFifoPixel; BG_FIFO_CAPACITY],
@@ -126,7 +126,7 @@ impl Mode3FifoState {
         self.bg_fetch_tile_line_addr = 0;
         self.bg_fetch_low = 0;
         self.bg_fetch_high = 0;
-        self.bg_takeover_cooldown_dots = 0;
+        self.bg_push_stalled_for_fifo = false;
         self.obj_head = 0;
         self.obj_len = 0;
         self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
@@ -154,7 +154,7 @@ impl Mode3FifoState {
         self.bg_fetch_tile_line_addr = 0;
         self.bg_fetch_low = 0;
         self.bg_fetch_high = 0;
-        self.bg_takeover_cooldown_dots = 0;
+        self.bg_push_stalled_for_fifo = false;
         self.obj_head = 0;
         self.obj_len = 0;
         self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
@@ -182,7 +182,7 @@ impl Mode3FifoState {
         self.bg_fetch_tile_line_addr = 0;
         self.bg_fetch_low = 0;
         self.bg_fetch_high = 0;
-        self.bg_takeover_cooldown_dots = 0;
+        self.bg_push_stalled_for_fifo = false;
     }
 
     fn push(&mut self, color_id: u8) {
@@ -686,9 +686,10 @@ impl PpuState {
     }
 
     fn mode3_bg_takeover_boundary(bus: &Bus) -> bool {
-        bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::TileIndex
-            && bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0
-            && bus.ppu.mode3_fifo.bg_takeover_cooldown_dots == 0
+        (bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::TileIndex
+            && bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0)
+            || (bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
+                && bus.ppu.mode3_fifo.bg_push_stalled_for_fifo)
     }
 
     fn mode3_obj_takeover_boundary(bus: &Bus) -> bool {
@@ -746,21 +747,8 @@ impl PpuState {
     }
 
     fn mode3_step_bg_fetch(bus: &mut Bus, lcdc: u8, y: usize) {
-        if bus.ppu.mode3_fifo.bg_takeover_cooldown_dots > 0 {
-            bus.ppu.mode3_fifo.bg_takeover_cooldown_dots -= 1;
-        }
-
         match bus.ppu.mode3_fifo.bg_fetch_phase {
             BgFetchPhase::TileIndex | BgFetchPhase::TileDataLow | BgFetchPhase::TileDataHigh => {
-                if bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::TileIndex
-                    && bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0
-                {
-                    if !bus.ppu.mode3_fifo.can_push_8() {
-                        return;
-                    }
-                    bus.ppu.mode3_fifo.bg_fetch_dots_remaining = BG_FETCH_PHASE_DOTS;
-                }
-
                 if bus.ppu.mode3_fifo.bg_fetch_dots_remaining > 0 {
                     bus.ppu.mode3_fifo.bg_fetch_dots_remaining -= 1;
                 }
@@ -793,6 +781,7 @@ impl PpuState {
                     BgFetchPhase::TileDataHigh => {
                         bus.ppu.mode3_fifo.bg_fetch_high =
                             bus.vram[bus.ppu.mode3_fifo.bg_fetch_tile_line_addr + 1];
+                        bus.ppu.mode3_fifo.bg_push_stalled_for_fifo = false;
                         bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::Push;
                     }
                     BgFetchPhase::Push => {}
@@ -805,6 +794,13 @@ impl PpuState {
             return;
         }
         if !bus.ppu.mode3_fifo.can_push_8() {
+            bus.ppu.mode3_fifo.bg_push_stalled_for_fifo = true;
+            return;
+        }
+        if bus.ppu.mode3_fifo.bg_push_stalled_for_fifo {
+            // Explicit one-dot "sleep" micro-op after a FIFO-full push stall. This
+            // keeps the fetcher in Push for one more dot before the actual push.
+            bus.ppu.mode3_fifo.bg_push_stalled_for_fifo = false;
             return;
         }
 
@@ -835,13 +831,6 @@ impl PpuState {
         bus.ppu.mode3_fifo.fetch_screen_x += 8;
         bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::TileIndex;
         bus.ppu.mode3_fifo.bg_fetch_dots_remaining = 0;
-        if !bus.ppu.mode3_fifo.can_push_8() {
-            // When a push fills the FIFO past the 8-pixel threshold, the next dot is
-            // a fetcher-side stall/retry boundary. Keep takeover arbitration blocked
-            // for one extra dot so OBJ/window handover does not happen on that same
-            // synthetic push-complete boundary.
-            bus.ppu.mode3_fifo.bg_takeover_cooldown_dots = 1;
-        }
     }
 
     fn extend_mode3_dots(bus: &mut Bus, ly: u8, startup_line: bool, dots: u16) {
@@ -1331,5 +1320,10 @@ impl Bus {
     #[cfg(test)]
     pub(super) fn mode3_output_x(&self) -> u8 {
         self.ppu.mode3_fifo.output_x
+    }
+
+    #[cfg(test)]
+    pub(super) fn mode3_bg_push_stalled_for_fifo(&self) -> bool {
+        self.ppu.mode3_fifo.bg_push_stalled_for_fifo
     }
 }

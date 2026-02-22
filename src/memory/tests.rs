@@ -1320,11 +1320,9 @@ fn mode3_obj_fetch_can_start_from_fifo_stall_boundary() {
     let mut reached_fifo_stall_boundary = false;
     for _ in 0..128 {
         bus.tick(1);
-        if bus.mode3_bg_fetch_phase() == 0
-            && bus.mode3_bg_fetch_dots_remaining() == 0
-            && bus.mode3_bg_fifo_len() > 8
-            && !bus.mode3_window_takeover_boundary()
+        if bus.mode3_bg_fetch_phase() == 3
             && bus.mode3_obj_next_sprite_index() == 0
+            && bus.mode3_bg_push_stalled_for_fifo()
         {
             reached_fifo_stall_boundary = true;
             break;
@@ -1339,14 +1337,8 @@ fn mode3_obj_fetch_can_start_from_fifo_stall_boundary() {
     bus.tick(1);
     assert_eq!(
         bus.mode3_obj_next_sprite_index(),
-        0,
-        "expected stalled-push boundary cooldown to defer OBJ fetch by one dot"
-    );
-    bus.tick(1);
-    assert_eq!(
-        bus.mode3_obj_next_sprite_index(),
         1,
-        "expected OBJ fetch to start from FIFO stall takeover boundary"
+        "expected OBJ fetch handover to start from stalled Push boundary on the next dot"
     );
 }
 
@@ -1381,11 +1373,9 @@ fn mode3_window_trigger_can_restart_from_fifo_stall_boundary() {
     let mut reached_fifo_stall_boundary = false;
     for _ in 0..128 {
         bus.tick(1);
-        if bus.mode3_bg_fetch_phase() == 0
-            && bus.mode3_bg_fetch_dots_remaining() == 0
-            && bus.mode3_bg_fifo_len() > 8
-            && !bus.mode3_window_takeover_boundary()
+        if bus.mode3_bg_fetch_phase() == 3
             && bus.mode3_output_x() > 0
+            && bus.mode3_bg_push_stalled_for_fifo()
         {
             reached_fifo_stall_boundary = true;
             break;
@@ -1402,23 +1392,23 @@ fn mode3_window_trigger_can_restart_from_fifo_stall_boundary() {
     bus.write_byte(0xFF4B, wx);
     bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window mid-line
 
-    bus.tick(1);
+    let mut window_triggered = false;
+    for _ in 0..2 {
+        bus.tick(1);
+        if bus.mode3_window_triggered_this_line() {
+            window_triggered = true;
+            break;
+        }
+    }
     assert!(
-        !bus.mode3_window_triggered_this_line(),
-        "expected stalled-push boundary cooldown to defer window restart by one dot"
-    );
-    assert!(bus.mode3_window_trigger_pending());
-
-    bus.tick(1);
-    assert!(
-        bus.mode3_window_triggered_this_line(),
-        "expected window to restart from FIFO stall takeover boundary after cooldown (output_x={output_x}, wx={wx})"
+        window_triggered,
+        "expected window to restart promptly from stalled Push boundary arbitration (output_x={output_x}, wx={wx})"
     );
     assert!(!bus.mode3_window_trigger_pending());
 }
 
 #[test]
-fn mode3_fifo_stall_window_cooldown_delays_stat_mode0_and_bus_release() {
+fn mode3_fifo_stall_window_recovery_sleep_delays_stat_mode0_and_bus_release() {
     let mut bus = make_test_bus();
 
     bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
@@ -1450,11 +1440,9 @@ fn mode3_fifo_stall_window_cooldown_delays_stat_mode0_and_bus_release() {
     let mut reached_fifo_stall_boundary = false;
     for _ in 0..128 {
         bus.tick(1);
-        if bus.mode3_bg_fetch_phase() == 0
-            && bus.mode3_bg_fetch_dots_remaining() == 0
-            && bus.mode3_bg_fifo_len() > 8
-            && !bus.mode3_window_takeover_boundary()
+        if bus.mode3_bg_fetch_phase() == 3
             && bus.mode3_output_x() > 0
+            && bus.mode3_bg_push_stalled_for_fifo()
         {
             reached_fifo_stall_boundary = true;
             break;
@@ -1473,7 +1461,7 @@ fn mode3_fifo_stall_window_cooldown_delays_stat_mode0_and_bus_release() {
     assert_eq!(
         bus.read_byte(0xFF41) & 0x03,
         3,
-        "expected mode3 to remain active"
+        "expected mode3 to remain active during stalled-push recovery"
     );
     assert_eq!(
         bus.interrupt_flags() & (1 << 1),
@@ -1490,6 +1478,68 @@ fn mode3_fifo_stall_window_cooldown_delays_stat_mode0_and_bus_release() {
         0xFF,
         "OAM should remain blocked in mode3"
     );
+}
+
+#[test]
+fn mode3_bg_push_stall_recovery_consumes_sleep_dot_before_push() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on, window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut reached_push_stall = false;
+    for _ in 0..128 {
+        bus.tick(1);
+        if bus.mode3_bg_fetch_phase() == 3
+            && bus.mode3_output_x() > 0
+            && bus.mode3_bg_push_stalled_for_fifo()
+        {
+            reached_push_stall = true;
+            break;
+        }
+    }
+    assert!(
+        reached_push_stall,
+        "expected to observe a BG push stall in mode3"
+    );
+
+    // The fetcher remains stalled in Push while FIFO drains, then spends one
+    // explicit non-stalled Push "sleep" dot before the actual push returns to TileIndex.
+    let mut observed_sleep_dot = false;
+    for _ in 0..8 {
+        bus.tick(1);
+        assert_eq!(bus.mode3_bg_fetch_phase(), 3);
+        if !bus.mode3_bg_push_stalled_for_fifo() {
+            observed_sleep_dot = true;
+            break;
+        }
+    }
+    assert!(
+        observed_sleep_dot,
+        "expected to observe non-stalled Push sleep dot after FIFO drain"
+    );
+
+    bus.tick(1);
+    assert_eq!(bus.mode3_bg_fetch_phase(), 0);
 }
 
 #[test]
