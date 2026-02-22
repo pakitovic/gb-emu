@@ -631,9 +631,8 @@ impl PpuState {
             return;
         }
 
-        Self::mode3_maybe_trigger_window(bus, ly, startup_line);
-
         let screen_x = Self::mode3_current_screen_x(bus);
+        Self::mode3_maybe_trigger_window(bus, ly, startup_line, screen_x);
         if Self::mode3_step_obj_fetch(bus, screen_x) {
             Self::extend_mode3_for_obj_contention(bus, ly, startup_line);
             return;
@@ -713,7 +712,18 @@ impl PpuState {
         trigger_x <= 0
     }
 
-    fn mode3_maybe_trigger_window(bus: &mut Bus, ly: u8, startup_line: bool) {
+    fn mode3_obj_can_takeover_now(bus: &Bus, screen_x: i16) -> bool {
+        if (bus.io[0x40] & 0x02) == 0 || !Self::mode3_obj_takeover_boundary(bus) {
+            return false;
+        }
+        if bus.ppu.mode3_fifo.obj_next_sprite >= bus.ppu.mode3_fifo.obj_sprite_count {
+            return false;
+        }
+        let sprite = bus.ppu.mode3_fifo.obj_sprites[bus.ppu.mode3_fifo.obj_next_sprite];
+        sprite.x_left <= screen_x
+    }
+
+    fn mode3_maybe_trigger_window(bus: &mut Bus, ly: u8, startup_line: bool, screen_x: i16) {
         if bus.ppu.window_triggered_this_line {
             return;
         }
@@ -740,6 +750,9 @@ impl PpuState {
         }
 
         if !Self::mode3_window_takeover_boundary(bus) {
+            return;
+        }
+        if Self::mode3_obj_can_takeover_now(bus, screen_x) {
             return;
         }
 
