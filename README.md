@@ -2,7 +2,7 @@
 
 Personal/hobby Game Boy emulator project written in Rust, focused on learning and incremental milestones.
 
-Current scope:
+## Current Scope
 
 ### Core Emulation (CPU / Bus / Timing / Input)
 - CPU core with growing opcode coverage.
@@ -136,11 +136,13 @@ Supported models for `--model`:
 ### PPU / Rendering / Timing Fidelity
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 - Dot-stepped OBJ fetch contention now extends Mode 3 at runtime and takeover boundaries include FIFO-stall arbitration; some DMG fetcher bus-phase details (for example full hardware sleep/push micro-ops) are still approximated.
+- Remaining high-impact PPU fidelity work is concentrated in timing-sensitive Mode 3 corner cases (finer fetcher micro-ops / bus-phase modeling and additional DMA/STAT contention edge cases beyond the currently covered regressions).
 
 ### APU / Audio Fidelity
 - Built-in analog calibration profiles are model-level references; full per-device fidelity requires supplying measured calibration values via `GameBoy::set_audio_analog_calibration(...)`.
 - Envelope "zombie mode" (`NRx2` writes while a channel is active) is implemented using documented/common behavior; full unit/model-specific DMG variants are still not exhaustively modeled.
 - CH3 Wave RAM active-access timing is modeled with a t-cycle fetch window approximation (sufficient for common DMG edge-cases), not a fully cycle-accurate bus arbitration model.
+- VIN / external audio input routing (`NR50` VIN bits) is not currently modeled.
 - Audio resampling remains interpolation-based (selectable `linear` or `cubic`, with linear fallback at cubic edges), not a band-limited/FIR resampler.
 
 ## Mapper Coverage Examples

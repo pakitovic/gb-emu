@@ -146,6 +146,12 @@ If any step cannot run (environment/time/resource constraints), explicitly repor
 ## Documentation Policy
 README must be kept up to date whenever relevant changes happen.
 
+README tracking sections must be treated as the primary project logbook for implemented scope and deferred follow-up work:
+- Keep `## Current Scope` and `## Current Limitations` present and maintained as first-class sections (with subsystem categories when the content grows).
+- When a new emulator feature/capability or other important project behavior is added, add/update the corresponding entry under `## Current Scope` in the appropriate subsystem category.
+- When that feature ships with known limitations, approximations, deferred quirks, or follow-up improvements/refactors worth tracking, add/update the corresponding entry under `## Current Limitations` in the appropriate subsystem category.
+- Prefer capturing these follow-ups in README instead of relying on external/local notes, so pending work remains visible and organized.
+
 Always update README when changes affect:
 - Features and current scope.
 - Requirements/prerequisites.
