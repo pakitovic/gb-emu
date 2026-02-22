@@ -2,7 +2,7 @@
 
 Personal/hobby Game Boy emulator project written in Rust, focused on learning and incremental milestones.
 
-Current scope:
+## Current Scope
 
 ### Core Emulation (CPU / Bus / Timing / Input)
 - CPU core with growing opcode coverage.
