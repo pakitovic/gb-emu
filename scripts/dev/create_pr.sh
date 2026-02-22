@@ -15,7 +15,9 @@ while (($# > 0)); do
 Usage: scripts/dev/create_pr.sh [--dry-run] [base-branch]
 
 Creates or updates a GitHub PR for the current branch using the latest commit
-subject/body as title/description.
+subject as title and:
+- commit body as PR description when present, or
+- .github/pull_request_template.md when the commit body is empty.
 
 Options:
   --dry-run   Print the resolved PR title/body and exit without pushing/editing.
@@ -100,6 +102,7 @@ fi
 TITLE="$(git log -1 --pretty=%s)"
 BODY="$(git log -1 --pretty=%b)"
 BODY="$(normalize_pr_body "$BODY")"
+BODY_SOURCE="latest commit body"
 
 if [ -z "${TITLE//[[:space:]]/}" ]; then
   printf "Unable to derive PR title from the latest commit subject.\n" >&2
@@ -108,10 +111,12 @@ fi
 
 if [ -z "${BODY//[[:space:]]/}" ] && [ -f ".github/pull_request_template.md" ]; then
   BODY="$(cat .github/pull_request_template.md)"
+  BODY_SOURCE=".github/pull_request_template.md"
 fi
 
 if [ -z "${BODY//[[:space:]]/}" ]; then
   BODY="Auto-generated PR for branch '$CURRENT_BRANCH'. Please add details before merge."
+  BODY_SOURCE="auto-generated fallback"
 fi
 
 BODY_FILE="$(mktemp)"
@@ -123,6 +128,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   printf "Base branch: %s\n" "$BASE_BRANCH"
   printf "Head branch: %s\n" "$CURRENT_BRANCH"
   printf "Title: %s\n" "$TITLE"
+  printf "Body source: %s\n" "$BODY_SOURCE"
   printf -- "----- PR body (begin) -----\n"
   cat "$BODY_FILE"
   printf '\n'
