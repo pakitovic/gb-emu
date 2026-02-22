@@ -1689,6 +1689,160 @@ fn mode3_obj_fetch_does_not_start_on_fifo_recovery_sleep_dot() {
 }
 
 #[test]
+fn mode3_window_trigger_restarts_on_push_ready_boundary_after_recovery_sleep() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on, window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut reached_sleep_dot = false;
+    for _ in 0..256 {
+        bus.tick(1);
+        if bus.mode3_bg_push_recovery_sleep_pending() && bus.mode3_output_x() > 0 {
+            reached_sleep_dot = true;
+            break;
+        }
+    }
+    assert!(reached_sleep_dot);
+    assert!(!bus.mode3_bg_push_ready_takeover_boundary());
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window on sleep dot
+
+    // Next dot is the recovery sleep dot: no takeover yet.
+    bus.tick(1);
+    assert!(!bus.mode3_window_triggered_this_line());
+    assert!(bus.mode3_window_trigger_pending());
+    assert!(bus.mode3_bg_push_ready_takeover_boundary());
+
+    // Following dot is the Push-ready takeover boundary after recovery sleep.
+    bus.tick(1);
+    assert!(
+        bus.mode3_window_triggered_this_line(),
+        "expected window restart exactly on push-ready boundary after recovery sleep"
+    );
+    assert!(!bus.mode3_window_trigger_pending());
+}
+
+#[test]
+fn mode3_push_ready_boundary_window_and_obj_same_dot_prefers_obj_then_queues_window() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+    bus.write_byte(0xFF41, 0x08); // mode0 STAT source
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+
+    // Sprite later on the line so it becomes eligible during visible output.
+    bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    bus.write_byte(0xFE01, 32); // X => left edge at x=24
+    bus.write_byte(0xFE02, 0x00); // tile
+    bus.write_byte(0xFE03, 0x00); // attrs
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x12); // VRAM probe byte
+    bus.write_byte(0x8001, 0x00);
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on, OBJ/window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut reached_sleep_with_obj_soon = false;
+    for _ in 0..256 {
+        bus.tick(1);
+        if bus.mode3_bg_push_recovery_sleep_pending() && bus.mode3_output_x() >= 18 {
+            reached_sleep_with_obj_soon = true;
+            break;
+        }
+    }
+    assert!(reached_sleep_with_obj_soon);
+    assert!(!bus.mode3_window_takeover_boundary());
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x22); // enable OBJ + window on sleep dot
+
+    // Next dot is the recovery sleep dot: shared takeover must still not happen.
+    bus.tick(1);
+    assert!(!bus.mode3_window_triggered_this_line());
+    assert!(bus.mode3_window_trigger_pending());
+    assert_eq!(bus.mode3_obj_next_sprite_index(), 0);
+    assert_eq!(bus.mode3_obj_fetch_dots_remaining(), 0);
+    assert!(bus.mode3_bg_push_ready_takeover_boundary());
+    assert_eq!(bus.read_byte(0xFF41) & 0x03, 3);
+    assert_eq!(bus.interrupt_flags() & (1 << 1), 0);
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0xFF,
+        "VRAM should remain blocked in mode3"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should remain blocked in mode3"
+    );
+
+    // Following dot is the Push-ready boundary: OBJ should win, window should queue.
+    bus.tick(1);
+    assert!(
+        !bus.mode3_window_triggered_this_line(),
+        "window restart should remain queued while OBJ wins shared push-ready boundary"
+    );
+    assert!(bus.mode3_window_trigger_pending());
+    assert_eq!(
+        bus.mode3_obj_next_sprite_index(),
+        1,
+        "expected OBJ fetch to start on shared push-ready boundary"
+    );
+    assert_eq!(bus.read_byte(0xFF41) & 0x03, 3);
+    assert_eq!(bus.interrupt_flags() & (1 << 1), 0);
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0xFF,
+        "VRAM should remain blocked in mode3"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should remain blocked in mode3"
+    );
+}
+
+#[test]
 fn mode3_window_trigger_queues_until_obj_fetch_finishes() {
     let mut bus = make_test_bus();
 
@@ -2060,6 +2214,7 @@ fn mode3_stalled_push_boundary_window_and_obj_same_dot_keeps_stat_and_bus_blocke
         bus.tick(1);
         if bus.mode3_bg_fetch_phase() == 3
             && bus.mode3_bg_push_stalled_for_fifo()
+            && !bus.mode3_bg_push_recovery_sleep_pending()
             && bus.mode3_output_x() >= 24
         {
             reached_stalled_push_with_obj_eligible = true;
