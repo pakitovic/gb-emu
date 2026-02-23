@@ -1,0 +1,11 @@
+[package]
+name = "frontend-cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "gb-emu"
+path = "src/main.rs"
+
+[dependencies]
+gb-emu = { path = "../.." }

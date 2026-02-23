@@ -34,3 +34,6 @@ jobs:
 
       - name: Unit tests
         run: cargo test --locked
+
+      - name: CLI frontend tests
+        run: cargo test --locked -p frontend-cli

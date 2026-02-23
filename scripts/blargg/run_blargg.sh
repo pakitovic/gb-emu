@@ -30,7 +30,7 @@ trap cleanup EXIT
 list_roms "$ROM_LIST_FILE" > "$suite_list"
 
 cd "$ROOT_DIR"
-cargo build >/dev/null
+cargo build -p frontend-cli --bin gb-emu >/dev/null
 
 pass=0
 fail=0
