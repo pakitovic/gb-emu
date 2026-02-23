@@ -10,7 +10,7 @@ cd "$ROOT_DIR"
 start_epoch="$(date +%s)"
 output="$(
   perl -e "alarm $TIMEOUT_SECS; exec @ARGV" \
-    cargo test --locked -p gb-emu --test integration_smoke "$TEST_NAME" -- --exact 2>&1 || true
+    cargo test --locked -p gb-runtime --test integration_smoke "$TEST_NAME" -- --exact 2>&1 || true
 )"
 end_epoch="$(date +%s)"
 elapsed_secs=$((end_epoch - start_epoch))

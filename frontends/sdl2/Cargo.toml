@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 gb-emu = { path = "../../systems/gb" }
+gb-runtime = { path = "../../runtime" }
 sdl2 = "0.38.0"

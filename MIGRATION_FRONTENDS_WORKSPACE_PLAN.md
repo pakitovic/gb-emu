@@ -628,7 +628,7 @@ Implementation summary:
 
 ### Phase 6 - Extract `runtime` (Shared Frontend/Host Utilities)
 
-Status: `TODO`
+Status: `DONE`
 
 Goal:
 
@@ -653,6 +653,28 @@ Acceptance criteria:
 
 - shared frontend utility logic is not duplicated across frontends
 - `systems/gb` no longer depends on platform-specific frontend packages
+
+### Phase 6 Runtime Extraction (Executed)
+
+Execution date:
+
+- `2026-02-23` (local workspace session)
+
+Working branch:
+
+- `codex/workspace-phase6-extract-runtime`
+
+Implementation summary:
+
+- Created `runtime/` workspace package (Cargo package `gb-runtime`) for frontend-shared host/runtime utilities
+- Moved host/runtime audio bridge and adaptive queue helpers into `runtime/src/audio.rs`
+- Moved `FramePacer` host pacing logic into `runtime/src/timing.rs`
+- Kept hardware timing constants (`DMG_T_CYCLES_PER_SECOND`, `DMG_T_CYCLES_PER_FRAME`) in `systems/gb/src/timing.rs`
+- Kept core-facing analog calibration API stable by leaving a minimal `systems/gb::audio` shim re-exporting `AnalogCalibrationProfile`
+- Updated `frontends/sdl2` and `frontends/wasm` to depend on and import from `gb-runtime`
+- Moved runtime integration coverage (`FramePacer` + realtime audio guard) to `runtime/tests/integration_smoke.rs`
+- Updated `scripts/dev/run_audio_guard.sh` and CI `quality.yml` to target `gb-runtime`
+- Preserved frontend/runtime behavior (structural split only)
 
 ### Phase 7 - Cleanup, Documentation, and Future-Proofing
 
@@ -754,8 +776,8 @@ Use this table as the migration source of truth.
 | 2 | Extract SDL2 frontend | DONE | `codex/workspace-phase2-extract-sdl2` | `#103` | SDL2 frontend moved to `frontends/sdl2`; root package SDL2 dependency/bin removed |
 | 3 | Extract WASM frontend | DONE | `codex/workspace-phase3-extract-wasm` | `#104` | Rust/WASM adapter moved to `frontends/wasm`; root package `frontend-web` feature and wasm deps removed |
 | 4 | Extract CLI frontend | DONE | `codex/workspace-phase4-extract-cli` | `#105` | CLI frontend moved to `frontends/cli`; root package no longer contains `src/main.rs` |
-| 5 | Move core to `systems/gb` | DONE | `codex/workspace-phase5-move-core-systems-gb` |  | Root converted to virtual workspace; core moved to `systems/gb` and frontends now depend on it |
-| 6 | Extract `runtime` | TODO |  |  |  |
+| 5 | Move core to `systems/gb` | DONE | `codex/workspace-phase5-move-core-systems-gb` | `#106` | Root converted to virtual workspace; core moved to `systems/gb` and frontends now depend on it |
+| 6 | Extract `runtime` | DONE | `codex/workspace-phase6-extract-runtime` |  | `gb-runtime` package added for pacing/audio frontend helpers; core keeps hardware semantics |
 | 7 | Cleanup and final docs | TODO |  |  |  |
 
 ## Implementation Checklist (Detailed)

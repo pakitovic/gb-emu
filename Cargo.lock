@@ -32,6 +32,7 @@ name = "frontend-sdl2"
 version = "0.1.0"
 dependencies = [
  "gb-emu",
+ "gb-runtime",
  "sdl2",
 ]
 
@@ -40,6 +41,7 @@ name = "frontend-wasm"
 version = "0.1.0"
 dependencies = [
  "gb-emu",
+ "gb-runtime",
  "js-sys",
  "wasm-bindgen",
 ]
@@ -47,6 +49,13 @@ dependencies = [
 [[package]]
 name = "gb-emu"
 version = "0.1.0"
+
+[[package]]
+name = "gb-runtime"
+version = "0.1.0"
+dependencies = [
+ "gb-emu",
+]
 
 [[package]]
 name = "js-sys"

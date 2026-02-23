@@ -8,7 +8,6 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - CPU core with growing opcode coverage.
 - Memory bus + timer/interrupt basics.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
-- Portable real-time pacing clock (shared by SDL2/Web) with audio-tcycle clock accumulation.
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
 
 ### PPU / Video (DMG)
@@ -43,7 +42,8 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Cartridge metadata debug report consumed by CLI (`--cart-info`) and frontends (SDL2 `F1` cart-info panel, web debug panel).
 
 ### Audio Output Pipeline / Frontend Audio Integration
-- Core audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
+- Shared `runtime/` host utilities for frontend frame pacing, realtime audio queueing, adaptive buffering, and t-cycle-to-PCM mixer bridging (SDL2/Web).
+- Shared runtime audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
 - Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
 - SDL2 frontend adaptive audio queue targeting with underrun estimation from queue depth and host time.
 - Minimal browser demo (`web/minimal`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
@@ -55,6 +55,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 ### Project Architecture / Workspace Migration
 - The repository root is now a virtual Cargo workspace (`default-members = ["systems/gb"]`) and no longer owns a Rust package directly.
 - Game Boy core/system package now lives in `systems/gb` (Cargo package name remains `gb-emu`).
+- Shared frontend/host runtime helpers now live in the `runtime` workspace package (Cargo package name `gb-runtime`).
 - Headless CLI frontend is extracted to `frontends/cli` (workspace package/path dependency on `systems/gb`) while preserving the CLI binary name `gb-emu`.
 - SDL2 desktop frontend is extracted to `frontends/sdl2` (workspace package/path dependency on `systems/gb`).
 - Rust/WASM frontend adapter is extracted to `frontends/wasm` (workspace package/path dependency on `systems/gb`), while `web/` remains the browser host assets/demo area.
@@ -76,6 +77,14 @@ systems/
       lib.rs
     tests/
       integration_smoke.rs
+runtime/
+  Cargo.toml
+  src/
+    audio.rs
+    timing.rs
+    lib.rs
+  tests/
+    integration_smoke.rs
 frontends/
   cli/
     Cargo.toml
@@ -140,8 +149,8 @@ Supported models for `--model`:
 ## Current Limitations
 
 ### Project Architecture / Packaging Migration
-- Workspace migration is in progress, but all current frontends (CLI, SDL2, Rust/WASM) are now split into dedicated workspace packages.
-- The GB system/core package has moved to `systems/gb`, but shared frontend/runtime helpers are still co-located there until later migration phases (notably `runtime` extraction) tracked in `MIGRATION_FRONTENDS_WORKSPACE_PLAN.md`.
+- Workspace migration is in progress, but the current split is now in place: `systems/gb`, `runtime`, and frontends (`cli`, `sdl2`, `wasm`) are dedicated workspace packages.
+- Remaining migration work is mostly cleanup/final documentation/future-proofing (tracked in `MIGRATION_FRONTENDS_WORKSPACE_PLAN.md` Phase 7).
 
 ### Cartridge / Mapper / Persistence Limits
 - Supported cartridge types:
@@ -223,6 +232,7 @@ Formatting/lint aliases are defined in `.cargo/config.toml`.
 cargo fmt-check
 cargo lint
 cargo test --locked
+cargo test --locked -p gb-runtime
 ```
 
 `cartridge` tests include a mapper conformance matrix for all currently supported cartridge type codes (`0x0147`) plus integration smoke coverage through `GameBoy`.

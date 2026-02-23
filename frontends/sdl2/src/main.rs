@@ -1,12 +1,12 @@
-use gb_emu::audio::{
-    AdaptiveQueueController, AdaptiveQueueOptions, AudioMixer, AudioResamplerQuality, MixerSource,
-    estimate_playback_underrun_samples,
-};
 use gb_emu::cartridge::Cartridge;
 use gb_emu::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
 use gb_emu::hardware::HardwareModel;
 use gb_emu::input::Button;
-use gb_emu::timing::FramePacer;
+use gb_runtime::audio::{
+    AdaptiveQueueController, AdaptiveQueueOptions, AudioMixer, AudioResamplerQuality, MixerSource,
+    estimate_playback_underrun_samples,
+};
+use gb_runtime::timing::FramePacer;
 use sdl2::audio::AudioSpecDesired;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
