@@ -38,6 +38,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 ### Cartridge / Save Persistence / Metadata
 - ROM-only/ROM+RAM plus expanded MBC1/MBC2/MBC3/MBC5 support.
 - Cartridge header ROM size decoding across standard size codes, mapper-specific RAM enable/banking behavior (including MBC5 rumble register semantics), and battery-backed persistence (`.sav`, plus `.rtc` for MBC3 timer cartridges) with atomic file replace writes.
+- Core cartridge APIs expose import/export of battery save RAM bytes and MBC3 RTC persistence bytes for host adapters/runtime integration.
 - Cartridge header diagnostics for Nintendo logo/header checksum/global checksum, exposed as non-blocking warnings in cartridge metadata.
 - Cartridge metadata debug report consumed by CLI (`--cart-info`) and frontends (SDL2 `F1` cart-info panel, web debug panel).
 
