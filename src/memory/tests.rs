@@ -1273,6 +1273,39 @@ fn mode3_bg_fetch_pipeline_pushes_first_tile_after_six_dots() {
 }
 
 #[test]
+fn mode3_normal_bg_push_path_does_not_expose_push_ready_takeover_boundary() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    // First 6 Mode3 dots are a non-stalled BG fetch/push block. The current model
+    // collapses the normal Push path into the same dot as TileDataHigh completion,
+    // so the post-recovery Push-ready takeover boundary must not appear here.
+    for dot in 1..=6 {
+        assert!(
+            !bus.mode3_bg_push_ready_takeover_boundary(),
+            "normal first-tile path must not classify a push-ready takeover boundary before dot {dot}"
+        );
+        assert!(
+            !bus.mode3_bg_push_recovery_sleep_pending(),
+            "normal first-tile path must not enter recovery-sleep before dot {dot}"
+        );
+        bus.tick(1);
+    }
+
+    assert_eq!(bus.mode3_bg_fifo_len(), 8);
+    assert_eq!(bus.mode3_bg_fetch_phase(), 0);
+    assert!(
+        !bus.mode3_bg_push_ready_takeover_boundary(),
+        "normal first-tile push should return to TileIndex without an observable push-ready boundary"
+    );
+}
+
+#[test]
 fn mode3_obj_fetch_waits_for_bg_fetch_boundary_before_starting() {
     let mut bus = make_test_bus();
 
