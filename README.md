@@ -47,7 +47,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Shared runtime audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
 - Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
 - SDL2 frontend adaptive audio queue targeting with underrun estimation from queue depth and host time.
-- Minimal browser demo (`web/minimal`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
+- Browser demo (`web/`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
 - Minimal browser demo audio telemetry plus adaptive queue targeting for underrun recovery and latency tuning.
 
 ### Validation / CI
@@ -215,6 +215,7 @@ Supported models for `--model`:
 
 ### Runtime / Host Utility Maintainability
 - `runtime/src/audio.rs` is intentionally kept as a single module for now, but if runtime audio helpers continue to grow it should be split into `runtime/src/audio.rs` + `runtime/src/audio/*` submodules (for example `mixer`, `adaptive_queue`, `resampler`) as a maintenance refactor without behavioral changes.
+- `web/audio-adaptive.mjs` and `gb_runtime` adaptive queue policy are intentionally separate today (browser demo tuning vs shared runtime helper tuning); if they continue to evolve, align tuning rules/tests or consolidate shared policy logic to avoid silent drift.
 
 ### PPU / Rendering / Timing Fidelity
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
@@ -282,7 +283,7 @@ cargo test --locked -p gb-runtime
 Optional web frontend unit test:
 
 ```bash
-node --test web/minimal/audio-adaptive.test.mjs
+node --test web/audio-adaptive.test.mjs
 ```
 
 ROM test suites:
@@ -352,7 +353,7 @@ Minimal browser demo (AudioWorklet + keyboard + ROM file loader):
 
 ```bash
 scripts/dev/run_web_demo.sh
-# Open http://localhost:8080/web/minimal/
+# Open http://localhost:8080/web/
 ```
 
 Notes:
@@ -381,8 +382,8 @@ Notes:
   - `drain_audio_samples_realtime(block_samples)` for callback-style fixed-size WebAudio blocks (`block_samples` = frames, returned buffer is stereo interleaved).
   - `set_audio_test_tone_enabled(enabled)` for pipeline/debug validation.
   - `cartridge_debug_report()` and `cartridge_warning_count()` for frontend cartridge diagnostics panels.
-- `web/minimal` is intentionally small and uses `AudioWorkletNode` for lower-latency callback-style audio.
-- `web/minimal` surfaces cartridge metadata/warnings plus audio telemetry (`queued ms`, cumulative underrun samples/ms, and current resampler mode) and auto-adjusts the refill target queue based on recent underrun windows.
+- `web/` is intentionally small and uses `AudioWorkletNode` for lower-latency callback-style audio.
+- `web/` surfaces cartridge metadata/warnings plus audio telemetry (`queued ms`, cumulative underrun samples/ms, and current resampler mode) and auto-adjusts the refill target queue based on recent underrun windows.
 
 ## CI
 
