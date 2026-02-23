@@ -2753,6 +2753,8 @@ fn mode3_window_trigger_does_not_fire_on_obj_shutdown_release_dot() {
     bus.write_byte(0xFF42, 0x00); // SCY
     bus.write_byte(0xFF43, 0x00); // SCX
     bus.write_byte(0xFF47, 0xE4); // identity BGP
+    bus.write_byte(0xFF41, 0x08); // mode0 STAT source
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
 
     // Two separated sprite sessions so session 1 ends with shutdown dots.
     bus.write_byte(0xFE00, 18);
@@ -2796,16 +2798,52 @@ fn mode3_window_trigger_does_not_fire_on_obj_shutdown_release_dot() {
         armed,
         "expected to arm window trigger while OBJ shutdown has one dot remaining"
     );
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
 
     // This dot decrements shutdown from 1 to 0. Window should still remain queued
     // because takeover was checked before shutdown ownership was released.
     bus.tick(1);
     assert_eq!(bus.mode3_obj_shutdown_dots_remaining(), 0);
+    let release_is_push_ready_boundary = bus.mode3_bg_push_ready_takeover_boundary();
+    let release_is_tileindex_boundary = bus.mode3_bg_fetch_phase() == 0
+        && bus.mode3_bg_fetch_dots_remaining() == 0
+        && bus.mode3_bg_takeover_boundary()
+        && !bus.mode3_bg_push_stalled_for_fifo()
+        && !bus.mode3_bg_push_recovery_sleep_pending()
+        && !release_is_push_ready_boundary;
     assert!(
         !bus.mode3_window_triggered_this_line(),
         "window restart must not fire on the same dot OBJ shutdown releases"
     );
     assert!(bus.mode3_window_trigger_pending());
+    assert_eq!(
+        bus.read_byte(0xFF41) & 0x03,
+        3,
+        "mode3 should remain active on the OBJ shutdown release dot"
+    );
+    assert_eq!(
+        bus.interrupt_flags() & (1 << 1),
+        0,
+        "STAT mode0 IRQ must remain clear while mode3 is still active"
+    );
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0xFF,
+        "VRAM should remain blocked in mode3 on the OBJ shutdown release dot"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should remain blocked in mode3 on the OBJ shutdown release dot"
+    );
+    assert!(
+        release_is_tileindex_boundary || release_is_push_ready_boundary,
+        "expected OBJ shutdown release dot to align with a classified BG boundary (tileindex or push-ready)"
+    );
+    assert_ne!(
+        release_is_tileindex_boundary, release_is_push_ready_boundary,
+        "OBJ shutdown release dot classification should be exactly one boundary class"
+    );
 
     let mut triggered = false;
     for _ in 0..64 {
