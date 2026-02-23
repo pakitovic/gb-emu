@@ -27,6 +27,8 @@ fn catmull_rom_interpolate(p0: f32, p1: f32, p2: f32, p3: f32, frac: f32) -> f32
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MixerSource {
     Silence,
+    // Shared runtime diagnostic source used by multiple frontends (SDL2/Web)
+    // to validate host audio pipelines without depending on core APU state.
     TestTone,
     CoreApu,
 }
