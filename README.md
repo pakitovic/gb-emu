@@ -55,6 +55,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 ### Project Architecture / Workspace Migration
 - Hybrid Cargo workspace root is active (`default-members = ["."]`) to stage the frontend/core package split while preserving current root-package default commands.
 - SDL2 desktop frontend is now extracted to `frontends/sdl2` (workspace package/path dependency on the root GB package), and the root package no longer contains the SDL2 binary target or `sdl2` dependency.
+- Rust/WASM frontend adapter is now extracted to `frontends/wasm` (workspace package/path dependency on the root GB package), while `web/` remains the browser host assets/demo area.
 
 ## Project Structure
 
@@ -67,7 +68,6 @@ src/
   hardware.rs
   memory/
   timing.rs
-  web.rs
   lib.rs
   main.rs
 frontends/
@@ -75,6 +75,10 @@ frontends/
     Cargo.toml
     src/
       main.rs
+  wasm/
+    Cargo.toml
+    src/
+      lib.rs
 tests/
   cli_cart_info.rs
   integration_smoke.rs
@@ -127,8 +131,8 @@ Supported models for `--model`:
 ## Current Limitations
 
 ### Project Architecture / Packaging Migration
-- Workspace migration is in progress: SDL2 is split out, but the CLI frontend (`src/main.rs`) and Rust/WASM adapter (`src/web.rs`) still live in the root package until later migration phases.
-- The root package still mixes system/core code with frontend-facing APIs required by the current CLI/WASM paths; further package extraction phases are tracked in `MIGRATION_FRONTENDS_WORKSPACE_PLAN.md`.
+- Workspace migration is in progress: SDL2 and Rust/WASM frontends are split out, but the CLI frontend (`src/main.rs`) still lives in the root package until later migration phases.
+- The root package still mixes system/core code with CLI/frontend-facing APIs required by the current CLI path; further package extraction phases are tracked in `MIGRATION_FRONTENDS_WORKSPACE_PLAN.md`.
 
 ### Cartridge / Mapper / Persistence Limits
 - Supported cartridge types:
@@ -277,7 +281,7 @@ scripts/dev/run_sdl2_frontend.sh --no-clean -- <path_to_rom.gb>
 Web frontend bindings (wasm):
 
 ```bash
-wasm-pack build --target web --features frontend-web
+wasm-pack build frontends/wasm --target web --out-name gb_emu
 ```
 
 Minimal browser demo (AudioWorklet + keyboard + ROM file loader):
@@ -291,8 +295,9 @@ Notes:
 - The core remains frontend-agnostic and can be embedded by multiple frontends.
 - MBC5 rumble status is exposed from core (`GameBoy::cartridge_has_rumble()`, `GameBoy::rumble_active()`), but no host haptics backend is wired yet.
 - Cartridge metadata is exposed from core via `Cartridge::metadata()` and `GameBoy::cartridge_metadata()` (type code, mapper, ROM/RAM size codes, bank counts, declared/effective RAM, battery/timer/rumble flags, and header diagnostics warnings).
-- Current web entrypoint is `WebEmulator` in `src/web.rs`.
-- Web builds use browser wall-clock time (`Date.now`) for MBC3 RTC state to avoid wasm host-time traps.
+- Current web entrypoint is `WebEmulator` in `frontends/wasm/src/lib.rs`.
+- `web/` contains browser host assets only; the Rust/WASM adapter crate lives in `frontends/wasm/`.
+- Web builds use the core RTC wall-clock source for MBC3 RTC state.
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
 - SDL2/Web pacing uses `timing::FramePacer` from the core to avoid frontend-specific timing drift.
