@@ -66,7 +66,7 @@ impl WebEmulator {
     pub fn run_frame(&mut self) -> Result<u64, JsValue> {
         let cycles = self
             .gb
-            .run_frame_with_limit(false, FRAME_STEP_LIMIT)
+            .run_frame_with_limit(FRAME_STEP_LIMIT)
             .ok_or_else(|| {
                 JsValue::from_str("PPU frame was not produced within the web frame step budget")
             })?;
@@ -84,7 +84,7 @@ impl WebEmulator {
         while self.pacer.has_frame_budget() {
             let cycles = self
                 .gb
-                .run_frame_with_limit(false, FRAME_STEP_LIMIT)
+                .run_frame_with_limit(FRAME_STEP_LIMIT)
                 .ok_or_else(|| {
                     JsValue::from_str("PPU frame was not produced within the web frame step budget")
                 })?;
