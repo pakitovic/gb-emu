@@ -573,7 +573,7 @@ Implementation summary:
 
 ### Phase 5 - Move System Core to `systems/gb`
 
-Status: `TODO`
+Status: `DONE`
 
 Goal:
 
@@ -596,6 +596,35 @@ Acceptance criteria:
 
 - all frontends build against `systems/gb`
 - ROM suites still pass (structural change only)
+
+### Phase 5 Core Move to `systems/gb` (Executed)
+
+Execution date:
+
+- `2026-02-23` (local workspace session)
+
+Working branch:
+
+- `codex/workspace-phase5-move-core-systems-gb`
+
+Implementation summary:
+
+- Converted the repository root `Cargo.toml` into a virtual workspace manifest:
+  - `members = ["systems/gb", "frontends/cli", "frontends/sdl2", "frontends/wasm"]`
+  - `default-members = ["systems/gb"]`
+- Created `systems/gb/Cargo.toml` and moved the GB core package there (keeping Cargo package name `gb-emu`)
+- Moved core source tree:
+  - `src/` -> `systems/gb/src/`
+- Moved core integration tests with the system package:
+  - `tests/integration_smoke.rs` -> `systems/gb/tests/integration_smoke.rs`
+- Updated all frontends to depend on `systems/gb` instead of the root package:
+  - `frontends/cli`
+  - `frontends/sdl2`
+  - `frontends/wasm`
+- Updated `scripts/dev/run_audio_guard.sh` to target the moved core package explicitly:
+  - `cargo test --locked -p gb-emu --test integration_smoke ...`
+- Updated `.cargo/config.toml` `cargo lint` alias to lint selected workspace packages without requiring SDL2 system libs in default environments
+- Preserved runtime behavior and public core API (`gb_emu` crate name/imports unchanged for frontends)
 
 ### Phase 6 - Extract `runtime` (Shared Frontend/Host Utilities)
 
@@ -724,8 +753,8 @@ Use this table as the migration source of truth.
 | 1 | Workspace root | DONE | `codex/workspace-phase1-root-hybrid` | `#102` | Hybrid workspace root (`Cargo.toml`) added with root package kept in place |
 | 2 | Extract SDL2 frontend | DONE | `codex/workspace-phase2-extract-sdl2` | `#103` | SDL2 frontend moved to `frontends/sdl2`; root package SDL2 dependency/bin removed |
 | 3 | Extract WASM frontend | DONE | `codex/workspace-phase3-extract-wasm` | `#104` | Rust/WASM adapter moved to `frontends/wasm`; root package `frontend-web` feature and wasm deps removed |
-| 4 | Extract CLI frontend | DONE | `codex/workspace-phase4-extract-cli` |  | CLI frontend moved to `frontends/cli`; root package no longer contains `src/main.rs` |
-| 5 | Move core to `systems/gb` | TODO |  |  |  |
+| 4 | Extract CLI frontend | DONE | `codex/workspace-phase4-extract-cli` | `#105` | CLI frontend moved to `frontends/cli`; root package no longer contains `src/main.rs` |
+| 5 | Move core to `systems/gb` | DONE | `codex/workspace-phase5-move-core-systems-gb` |  | Root converted to virtual workspace; core moved to `systems/gb` and frontends now depend on it |
 | 6 | Extract `runtime` | TODO |  |  |  |
 | 7 | Cleanup and final docs | TODO |  |  |  |
 

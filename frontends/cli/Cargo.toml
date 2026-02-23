@@ -8,4 +8,4 @@ name = "gb-emu"
 path = "src/main.rs"
 
 [dependencies]
-gb-emu = { path = "../.." }
+gb-emu = { path = "../../systems/gb" }
