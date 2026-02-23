@@ -165,7 +165,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
         let mut produced_frame = false;
         while pacer.has_frame_budget() {
-            let Some(cycles) = gb.run_frame_with_limit(false, FRAME_STEP_LIMIT) else {
+            let Some(cycles) = gb.run_frame_with_limit(FRAME_STEP_LIMIT) else {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     "PPU frame was not produced within the SDL frame step budget",

@@ -5,6 +5,8 @@ use std::env;
 use std::error::Error;
 use std::io;
 
+const MOONEYE_LOOP_WINDOW: usize = 8;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CliOptions {
     rom_path: String,
@@ -23,6 +25,139 @@ fn main() {
     }
 }
 
+fn looks_like_tight_loop(pc_window: &[u16; MOONEYE_LOOP_WINDOW]) -> bool {
+    let mut unique = [0u16; 4];
+    let mut unique_len = 0usize;
+
+    'outer: for &pc in pc_window {
+        for &seen in unique.iter().take(unique_len) {
+            if seen == pc {
+                continue 'outer;
+            }
+        }
+
+        if unique_len == unique.len() {
+            return false;
+        }
+        unique[unique_len] = pc;
+        unique_len += 1;
+    }
+
+    true
+}
+
+fn print_basic_trace(gb: &GameBoy, cycles: u8) {
+    println!(
+        "PC: {:04X}, A: {:02X}, cycles: {}",
+        gb.cpu.registers.pc, gb.cpu.registers.a, cycles
+    );
+}
+
+fn print_mooneye_trace(gb: &GameBoy, cycles: u8) {
+    println!(
+        "PC: {:04X}, A: {:02X}, B: {:02X}, C: {:02X}, D: {:02X}, E: {:02X}, H: {:02X}, L: {:02X}, cycles: {}",
+        gb.cpu.registers.pc,
+        gb.cpu.registers.a,
+        gb.cpu.registers.b,
+        gb.cpu.registers.c,
+        gb.cpu.registers.d,
+        gb.cpu.registers.e,
+        gb.cpu.registers.h,
+        gb.cpu.registers.l,
+        cycles
+    );
+}
+
+fn run_forever(gb: &mut GameBoy, trace: bool) -> ! {
+    println!("ROM: {}", gb.rom_title());
+    loop {
+        let cycles = gb.step();
+        if trace {
+            print_basic_trace(gb, cycles);
+        }
+    }
+}
+
+fn run_blargg(gb: &mut GameBoy, max_steps: usize, trace: bool) -> Option<&'static str> {
+    println!("ROM: {}", gb.rom_title());
+    for _ in 0..max_steps {
+        let cycles = gb.step();
+        if trace {
+            print_basic_trace(gb, cycles);
+        }
+
+        let serial = gb.serial_output();
+        if serial.contains("Passed") {
+            return Some("Passed");
+        }
+        if serial.contains("Failed") {
+            return Some("Failed");
+        }
+
+        // Blargg memory protocol fallback:
+        // A001..A003 == DE B0 61, A000 == status (0 pass, non-zero fail, 0x80 running).
+        let sig_ok = gb.bus.read_byte(0xA001) == 0xDE
+            && gb.bus.read_byte(0xA002) == 0xB0
+            && gb.bus.read_byte(0xA003) == 0x61;
+        if sig_ok {
+            let status = gb.bus.read_byte(0xA000);
+            if status == 0x00 {
+                return Some("Passed");
+            }
+            if status != 0x80 {
+                return Some("Failed");
+            }
+        }
+    }
+    None
+}
+
+fn run_mooneye(gb: &mut GameBoy, max_steps: usize, trace: bool) -> Option<&'static str> {
+    println!("ROM: {}", gb.rom_title());
+    let mut pc_window = [0u16; MOONEYE_LOOP_WINDOW];
+    let mut pc_window_len = 0usize;
+    let mut pc_window_pos = 0usize;
+
+    for _ in 0..max_steps {
+        let cycles = gb.step();
+        if trace {
+            print_mooneye_trace(gb, cycles);
+        }
+
+        let pc = gb.cpu.registers.pc;
+        pc_window[pc_window_pos] = pc;
+        pc_window_pos = (pc_window_pos + 1) % MOONEYE_LOOP_WINDOW;
+        if pc_window_len < MOONEYE_LOOP_WINDOW {
+            pc_window_len += 1;
+        }
+
+        // Mooneye acceptance convention:
+        // - Success signature in B,C,D,E,H,L: 3,5,8,13,21,34
+        // - Failure signature in B,C,D,E,H,L: 0x42,0x42,0x42,0x42,0x42,0x42
+        //
+        // Final signatures are expected to be observed in a tight loop.
+        // This avoids false negatives in tests where intermediate values
+        // can temporarily match the failure signature.
+        let regs = (
+            gb.cpu.registers.b,
+            gb.cpu.registers.c,
+            gb.cpu.registers.d,
+            gb.cpu.registers.e,
+            gb.cpu.registers.h,
+            gb.cpu.registers.l,
+        );
+        let in_tight_loop =
+            pc_window_len == MOONEYE_LOOP_WINDOW && looks_like_tight_loop(&pc_window);
+        if regs == (3, 5, 8, 13, 21, 34) && in_tight_loop {
+            return Some("Passed");
+        }
+        if regs == (0x42, 0x42, 0x42, 0x42, 0x42, 0x42) && in_tight_loop {
+            return Some("Failed");
+        }
+    }
+    None
+}
+
 fn run() -> Result<(), Box<dyn Error>> {
     let options = parse_args(env::args().skip(1))?;
 
@@ -35,7 +170,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut gb = GameBoy::new_with_model(cartridge, options.model);
 
     if options.blargg {
-        match gb.run_blargg(options.max_steps, options.trace).as_deref() {
+        match run_blargg(&mut gb, options.max_steps, options.trace) {
             Some("Passed") => {
                 println!("\nBlargg result: Passed");
             }
@@ -52,7 +187,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
         }
     } else if options.mooneye {
-        match gb.run_mooneye(options.max_steps, options.trace).as_deref() {
+        match run_mooneye(&mut gb, options.max_steps, options.trace) {
             Some("Passed") => {
                 println!("\nMooneye result: Passed");
             }
@@ -69,11 +204,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
         }
     } else {
-        gb.run(options.trace);
+        run_forever(&mut gb, options.trace);
     }
 
     gb.flush_battery_save()?;
-
     Ok(())
 }
 
@@ -225,5 +359,23 @@ mod tests {
         let error = parse(&["first.gb", "second.gb"]).expect_err("multiple ROM paths should fail");
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert_eq!(error.to_string(), "Only one ROM file can be provided");
+    }
+
+    #[test]
+    fn tight_loop_detector_accepts_small_repeating_pc_sets() {
+        let one_pc = [0x1234; MOONEYE_LOOP_WINDOW];
+        let two_pc = [
+            0x2000, 0x2001, 0x2000, 0x2001, 0x2000, 0x2001, 0x2000, 0x2001,
+        ];
+        assert!(looks_like_tight_loop(&one_pc));
+        assert!(looks_like_tight_loop(&two_pc));
+    }
+
+    #[test]
+    fn tight_loop_detector_rejects_wide_pc_ranges() {
+        let wide = [
+            0x1000, 0x1001, 0x1002, 0x1003, 0x1004, 0x1005, 0x1006, 0x1007,
+        ];
+        assert!(!looks_like_tight_loop(&wide));
     }
 }

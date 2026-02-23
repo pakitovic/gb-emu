@@ -157,7 +157,7 @@ fn gameboy_run_frame_with_limit_produces_frame() {
     let start = gb.frame_counter();
 
     let cycles = gb
-        .run_frame_with_limit(false, 50_000)
+        .run_frame_with_limit(50_000)
         .expect("frame should be produced within step budget");
 
     assert!(cycles > 0);
