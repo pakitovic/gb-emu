@@ -3647,6 +3647,55 @@ fn framebuffer_sprite_priority_uses_oam_order_when_x_matches() {
 }
 
 #[test]
+fn framebuffer_left_edge_sprite_does_not_shift_with_bg_scx_fine_scroll() {
+    fn render_top_line_with_scx(scx: u8) -> [u8; 160] {
+        let mut bus = make_test_bus();
+
+        bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+        bus.write_byte(0xFF42, 0x00); // SCY
+        bus.write_byte(0xFF43, scx); // SCX varies
+        bus.write_byte(0xFF47, 0xE4); // identity BGP
+        bus.write_byte(0xFF48, 0xE4); // identity OBP0
+
+        // White BG tile so any visible difference comes from OBJ placement.
+        bus.write_byte(0x9800, 0x00);
+        bus.write_byte(0x8000, 0x00);
+        bus.write_byte(0x8001, 0x00);
+
+        // Sprite tile 12 with non-zero per-column pattern across the row.
+        // Pattern (left->right): 3,1,3,1,3,1,3,1
+        bus.write_byte(0x80C0, 0xFF);
+        bus.write_byte(0x80C1, 0xAA);
+
+        // Place sprite partially off-screen on the left: x_left = -1.
+        bus.write_byte(0xFE00, 16); // Y => row 0
+        bus.write_byte(0xFE01, 7); // X => left = -1
+        bus.write_byte(0xFE02, 12); // tile
+        bus.write_byte(0xFE03, 0x00); // attrs
+
+        // LCD on + BG + OBJ.
+        bus.write_byte(0xFF40, 0x93);
+        // Skip LCD-on startup frame quirks; compare steady-state.
+        wait_for_next_frame(&mut bus);
+        wait_for_next_frame(&mut bus);
+
+        let mut line = [0u8; 160];
+        line.copy_from_slice(&bus.framebuffer()[..160]);
+        line
+    }
+
+    let line_scx0 = render_top_line_with_scx(0);
+    let line_scx3 = render_top_line_with_scx(3);
+
+    for x in 0..12usize {
+        assert_eq!(
+            line_scx0[x], line_scx3[x],
+            "left-edge OBJ pixels must not shift with BG fine scroll discard (x={x})"
+        );
+    }
+}
+
+#[test]
 fn framebuffer_window_wx_zero_applies_minus_seven_offset() {
     let mut bus = make_test_bus();
 
