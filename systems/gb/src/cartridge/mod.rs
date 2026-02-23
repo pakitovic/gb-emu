@@ -571,9 +571,8 @@ impl Cartridge {
         } else {
             ram.len().div_ceil(RAM_BANK_BYTES)
         };
-        let now_epoch_secs = clock.now_epoch_secs();
         let rtc = if spec.has_timer {
-            Some(Mbc3Rtc::new(now_epoch_secs))
+            Some(Mbc3Rtc::new(clock.now_epoch_secs()))
         } else {
             None
         };
@@ -1327,6 +1326,14 @@ mod tests {
         }
     }
 
+    struct PanicClock;
+
+    impl RtcClock for PanicClock {
+        fn now_epoch_secs(&self) -> u64 {
+            panic!("ROM loading without RTC support should not query the clock");
+        }
+    }
+
     #[derive(Clone, Copy)]
     struct MapperConformanceCase {
         name: &'static str,
@@ -1552,6 +1559,17 @@ mod tests {
                 has_rumble: true,
             },
         ]
+    }
+
+    #[test]
+    fn rom_only_loading_does_not_query_rtc_clock() {
+        let rom = make_rom(32 * 1024, ROM_ONLY, 0x00, 0x00);
+
+        let cart = Cartridge::from_bytes_with_clock(rom, Box::new(PanicClock))
+            .expect("ROM-only cartridge should load without consulting RTC clock");
+
+        assert_eq!(cart.mapper, MapperType::RomOnly);
+        assert!(!cart.has_timer);
     }
 
     #[test]
