@@ -325,6 +325,9 @@ SDL2 build/run helper (locks deps, prepares Homebrew SDL2 env on macOS, and clea
 # Build only (clean + locked SDL2 build)
 scripts/dev/run_sdl2_frontend.sh --no-run
 
+# Build and run in release mode (recommended for performance)
+scripts/dev/run_sdl2_frontend.sh --release --no-clean -- <path_to_rom.gb>
+
 # Build and run
 scripts/dev/run_sdl2_frontend.sh -- <path_to_rom.gb> [dmg0|dmg|mgb|sgb|sgb2]
 
@@ -358,7 +361,7 @@ Notes:
 - SDL2 audio uses the core mixer clock bridge and queues stereo interleaved PCM in real time (now from the `frontends/sdl2` workspace package).
 - SDL2 queue refill is driven by emulated audio t-cycles; underruns are padded with silence (no synthetic emulated cycles).
 - SDL2 queue target is auto-tuned over time windows (same policy as web) using estimated underruns from elapsed playback vs queued samples.
-- `scripts/dev/run_sdl2_frontend.sh` is the recommended local command for clean SDL2 rebuilds and consistent macOS/Homebrew linker env setup.
+- `scripts/dev/run_sdl2_frontend.sh` is the recommended local command for SDL2 builds/runs (including a `--release` mode for performance) and consistent macOS/Homebrew linker env setup.
 - Optional SDL2 debug tone: set `GB_AUDIO_TEST_TONE=1`.
 - Optional SDL2 core APU resampler quality override: set `GB_AUDIO_RESAMPLER=linear` or `GB_AUDIO_RESAMPLER=cubic` (default).
 - Battery-backed cartridges loaded via `Cartridge::from_file(...)` persist external RAM to a sibling `.sav` file; MBC3 timer carts also persist RTC metadata to `.rtc`. Save writes use atomic temp-file+rename replacement. Current CLI/SDL2 frontends flush saves on graceful exit.
