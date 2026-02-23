@@ -1746,6 +1746,139 @@ fn mode3_window_trigger_restarts_on_push_ready_boundary_after_recovery_sleep() {
 }
 
 #[test]
+fn mode3_push_ready_boundary_then_hblank_entry_with_dma_splits_vram_oam_release_and_stat_irq() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+    bus.write_byte(0xFF41, 0x08); // mode0 STAT source
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x12); // VRAM probe byte + DMA source byte
+    bus.write_byte(0x8001, 0x00);
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on, window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    // Keep DMA active across the later Mode3->HBlank release edge.
+    bus.write_byte(0xFF46, 0x80);
+    bus.tick(8);
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "DMA should block OAM after start delay"
+    );
+
+    let mut reached_sleep_dot = false;
+    for _ in 0..256 {
+        bus.tick(1);
+        if bus.mode3_bg_push_recovery_sleep_pending() && bus.mode3_output_x() > 0 {
+            reached_sleep_dot = true;
+            break;
+        }
+    }
+    assert!(reached_sleep_dot);
+    assert!(!bus.mode3_bg_push_ready_takeover_boundary());
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window on sleep dot
+
+    // Recovery sleep dot: no takeover yet, mode3 + bus blocking remain.
+    bus.tick(1);
+    assert!(!bus.mode3_window_triggered_this_line());
+    assert!(bus.mode3_window_trigger_pending());
+    assert!(bus.mode3_bg_push_ready_takeover_boundary());
+    assert_eq!(
+        bus.read_byte(0xFF41) & 0x03,
+        3,
+        "mode3 should remain active on recovery sleep dot"
+    );
+    assert_eq!(
+        bus.interrupt_flags() & (1 << 1),
+        0,
+        "STAT mode0 IRQ should stay clear before push-ready boundary"
+    );
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0xFF,
+        "VRAM should remain blocked in mode3 on recovery sleep dot"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should remain blocked in mode3 on recovery sleep dot"
+    );
+
+    // Push-ready takeover boundary dot: window restart happens but mode3 is still active.
+    bus.tick(1);
+    assert!(
+        bus.mode3_window_triggered_this_line(),
+        "expected window restart exactly on push-ready boundary after recovery sleep"
+    );
+    assert!(!bus.mode3_window_trigger_pending());
+    assert_eq!(
+        bus.read_byte(0xFF41) & 0x03,
+        3,
+        "mode3 should remain active on push-ready takeover dot"
+    );
+    assert_eq!(
+        bus.interrupt_flags() & (1 << 1),
+        0,
+        "STAT mode0 IRQ should stay clear before HBlank entry"
+    );
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0xFF,
+        "VRAM should remain blocked on the mode3 push-ready takeover dot"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should remain blocked on the mode3 push-ready takeover dot"
+    );
+
+    // On HBlank entry, STAT mode changes immediately and VRAM releases, but OAM stays blocked
+    // while DMA is still active.
+    wait_for_transition(&mut bus, 2, 3, 0);
+    assert_eq!(
+        bus.read_byte(0xFF41) & 0x03,
+        0,
+        "expected HBlank at mode3 release"
+    );
+    assert_ne!(
+        bus.interrupt_flags() & (1 << 1),
+        0,
+        "STAT mode0 IRQ should raise exactly on HBlank entry"
+    );
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0x12,
+        "VRAM should be readable again in HBlank even while DMA remains active"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should stay blocked in HBlank while DMA remains active"
+    );
+}
+
+#[test]
 fn mode3_push_ready_boundary_window_and_obj_same_dot_prefers_obj_then_queues_window() {
     let mut bus = make_test_bus();
 
@@ -2228,6 +2361,118 @@ fn mode3_tileindex_boundary_window_restart_keeps_stat_and_bus_blocked() {
         bus.read_byte(0xFE00),
         0xFF,
         "OAM should remain blocked in mode3 on the window-restart dot"
+    );
+}
+
+#[test]
+fn mode3_tileindex_boundary_then_hblank_entry_with_dma_splits_vram_oam_release_and_stat_irq() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+    bus.write_byte(0xFF41, 0x08); // mode0 STAT source
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x12); // VRAM probe byte + DMA source byte
+    bus.write_byte(0x8001, 0x00);
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9800 + i, 0x01);
+    }
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+
+    bus.write_byte(0xFF4A, 0x00); // WY
+    bus.write_byte(0xFF4B, 0xA7); // WX off-screen by default
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on, window disabled
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    // Keep DMA active across the later Mode3->HBlank release edge.
+    bus.write_byte(0xFF46, 0x80);
+    bus.tick(8);
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "DMA should block OAM after start delay"
+    );
+
+    let mut reached_tileindex_boundary = false;
+    for _ in 0..256 {
+        bus.tick(1);
+        if bus.mode3_bg_fetch_phase() == 0
+            && bus.mode3_bg_fetch_dots_remaining() == 0
+            && bus.mode3_bg_takeover_boundary()
+            && !bus.mode3_bg_push_stalled_for_fifo()
+            && !bus.mode3_bg_push_recovery_sleep_pending()
+            && !bus.mode3_bg_push_ready_takeover_boundary()
+            && bus.mode3_output_x() > 0
+        {
+            reached_tileindex_boundary = true;
+            break;
+        }
+    }
+    assert!(reached_tileindex_boundary);
+
+    let output_x = bus.mode3_output_x();
+    let wx = output_x.saturating_add(7).clamp(8, 166);
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 1));
+    bus.write_byte(0xFF4B, wx);
+    bus.write_byte(0xFF40, bus.read_byte(0xFF40) | 0x20); // enable window mid-line
+
+    // TileIndex takeover boundary dot: window restart happens but mode3 is still active.
+    bus.tick(1);
+    assert!(
+        bus.mode3_window_triggered_this_line(),
+        "window restart should trigger on TileIndex takeover boundary"
+    );
+    assert_eq!(
+        bus.read_byte(0xFF41) & 0x03,
+        3,
+        "mode3 should remain active"
+    );
+    assert_eq!(
+        bus.interrupt_flags() & (1 << 1),
+        0,
+        "STAT mode0 IRQ should stay clear before HBlank entry"
+    );
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0xFF,
+        "VRAM should remain blocked on the mode3 takeover dot"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should remain blocked on the mode3 takeover dot"
+    );
+
+    // On HBlank entry, STAT mode changes immediately and VRAM releases, but OAM stays blocked
+    // while DMA is still active.
+    wait_for_transition(&mut bus, 2, 3, 0);
+    assert_eq!(
+        bus.read_byte(0xFF41) & 0x03,
+        0,
+        "expected HBlank at mode3 release"
+    );
+    assert_ne!(
+        bus.interrupt_flags() & (1 << 1),
+        0,
+        "STAT mode0 IRQ should raise exactly on HBlank entry"
+    );
+    assert_eq!(
+        bus.read_byte(0x8000),
+        0x12,
+        "VRAM should be readable again in HBlank even while DMA remains active"
+    );
+    assert_eq!(
+        bus.read_byte(0xFE00),
+        0xFF,
+        "OAM should stay blocked in HBlank while DMA remains active"
     );
 }
 
