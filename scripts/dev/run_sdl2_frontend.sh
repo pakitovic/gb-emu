@@ -10,6 +10,7 @@ On macOS, when Homebrew SDL2 is detected, it exports linker/include/pkg-config
 paths for this command invocation.
 
 Options:
+  --release       Build/run the SDL2 frontend in release mode (target/release).
   --clean         Run `cargo clean -p gb-emu -p gb-runtime -p frontend-sdl2` before build (default).
   --no-clean      Skip clean step.
   --no-run        Build only, do not run even if ROM is provided.
@@ -17,17 +18,23 @@ Options:
 
 Examples:
   scripts/dev/run_sdl2_frontend.sh
+  scripts/dev/run_sdl2_frontend.sh --release --no-clean
   scripts/dev/run_sdl2_frontend.sh --no-clean
   scripts/dev/run_sdl2_frontend.sh -- path/to/game.gb
+  scripts/dev/run_sdl2_frontend.sh --release -- path/to/game.gb
   scripts/dev/run_sdl2_frontend.sh -- path/to/game.gb mgb
 EOF
 }
 
 clean=1
 run_after_build=1
+cargo_profile="debug"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --release)
+      cargo_profile="release"
+      ;;
     --clean)
       clean=1
       ;;
@@ -123,7 +130,11 @@ if [ "$clean" -eq 1 ]; then
 fi
 
 printf "Building SDL2 frontend...\n"
-cargo build --locked -p frontend-sdl2 --bin frontend-sdl2
+if [ "$cargo_profile" = "release" ]; then
+  cargo build --locked -p frontend-sdl2 --bin frontend-sdl2 --release
+else
+  cargo build --locked -p frontend-sdl2 --bin frontend-sdl2
+fi
 
 if [ "$run_after_build" -eq 0 ]; then
   printf "Build completed (run skipped).\n"
@@ -142,7 +153,8 @@ if [ ! -f "$rom_path" ]; then
 fi
 
 printf "Launching SDL2 frontend...\n"
+target_bin="$ROOT_DIR/target/$cargo_profile/frontend-sdl2"
 if [ -n "$model" ]; then
-  exec "$ROOT_DIR/target/debug/frontend-sdl2" "$rom_path" "$model"
+  exec "$target_bin" "$rom_path" "$model"
 fi
-exec "$ROOT_DIR/target/debug/frontend-sdl2" "$rom_path"
+exec "$target_bin" "$rom_path"
