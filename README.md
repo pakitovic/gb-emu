@@ -19,6 +19,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Mode 3 window trigger comparator now queues pending restarts until a valid BG takeover boundary when OBJ fetch ownership delays immediate window restart.
 - Mode 3 takeover arbitration now handles FIFO-stall boundaries and queued window-trigger release after active OBJ fetch windows, with regression coverage for VRAM/OAM blocking and STAT mode0 timing shifts under runtime contention.
 - Mode 3 fetcher bus-phase modeling now includes an explicit one-dot BG push-stall recovery sleep micro-op before push resumes after FIFO overfill (`>8`), reducing premature OBJ/window handover on FIFO-stall dots and tightening associated STAT/VRAM/OAM timing corner cases.
+- Mode 3 BG `Push` micro-op modeling now tracks an explicit latched `RecoverySleep` substate after FIFO stall resolution (before the later push-ready boundary), improving fetcher bus-phase state-machine clarity and tightening regression coverage for the `stalled -> recovery sleep -> push-ready -> TileIndex` sequence.
 - Mode 3 takeover arbitration now excludes the FIFO-recovery `Push` sleep dot as a valid BG/OBJ/window handover boundary (while still allowing the stalled `Push` boundary and later push-ready boundary), with regression coverage for window/OBJ timing and mode3 bus/STAT blocking on that edge.
 - Mode 3 `Push` substate corner coverage now explicitly checks the `stalled -> recovery sleep -> push-ready` sequence, including shared window/OBJ arbitration and delayed takeover behavior on the first valid post-sleep boundary.
 - On shared Mode 3 takeover boundaries, queued window restarts now defer to an immediately-eligible OBJ fetch start, with regression coverage for the resulting STAT/VRAM/OAM blocking behavior on that arbitration edge.
@@ -142,6 +143,7 @@ Supported models for `--model`:
 ### PPU / Rendering / Timing Fidelity
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 - Dot-stepped OBJ fetch contention now extends Mode 3 at runtime and takeover boundaries include FIFO-stall arbitration; some DMG fetcher bus-phase details (for example full hardware sleep/push micro-ops) are still approximated.
+- Recent Mode 3 BG `Push` fetcher work refines the internal state-machine (explicit latched `RecoverySleep` substate) and improves regression observability for the `stall/recovery` path, but it does not yet introduce additional hardware-visible micro-ops outside that `stall -> recovery sleep -> push-ready` flow.
 - Remaining high-impact PPU fidelity work is concentrated in timing-sensitive Mode 3 corner cases (finer fetcher micro-ops / bus-phase modeling and additional DMA/STAT contention edge cases beyond the currently covered regressions).
 
 ### APU / Audio Fidelity

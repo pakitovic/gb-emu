@@ -26,6 +26,14 @@ enum BgFetchPhase {
     Push = 3,
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum BgPushSubstate {
+    #[default]
+    Ready,
+    Stalled,
+    RecoverySleep,
+}
+
 #[derive(Clone, Copy)]
 struct ObjCandidate {
     x_raw: u8,
@@ -97,7 +105,7 @@ struct Mode3FifoState {
     bg_fetch_tile_line_addr: usize,
     bg_fetch_low: u8,
     bg_fetch_high: u8,
-    bg_push_stalled_for_fifo: bool,
+    bg_push_substate: BgPushSubstate,
     obj_head: usize,
     obj_len: usize,
     obj_pixels: [ObjFifoPixel; BG_FIFO_CAPACITY],
@@ -126,7 +134,7 @@ impl Mode3FifoState {
         self.bg_fetch_tile_line_addr = 0;
         self.bg_fetch_low = 0;
         self.bg_fetch_high = 0;
-        self.bg_push_stalled_for_fifo = false;
+        self.bg_push_substate = BgPushSubstate::Ready;
         self.obj_head = 0;
         self.obj_len = 0;
         self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
@@ -154,7 +162,7 @@ impl Mode3FifoState {
         self.bg_fetch_tile_line_addr = 0;
         self.bg_fetch_low = 0;
         self.bg_fetch_high = 0;
-        self.bg_push_stalled_for_fifo = false;
+        self.bg_push_substate = BgPushSubstate::Ready;
         self.obj_head = 0;
         self.obj_len = 0;
         self.obj_pixels.fill(ObjFifoPixel::TRANSPARENT);
@@ -186,7 +194,7 @@ impl Mode3FifoState {
         self.bg_fetch_tile_line_addr = 0;
         self.bg_fetch_low = 0;
         self.bg_fetch_high = 0;
-        self.bg_push_stalled_for_fifo = false;
+        self.bg_push_substate = BgPushSubstate::Ready;
     }
 
     fn push(&mut self, color_id: u8) {
@@ -656,6 +664,7 @@ impl PpuState {
         let Some(color_id) = color_id else {
             return;
         };
+        Self::mode3_latch_bg_push_recovery_sleep_after_pop(bus);
 
         if bus.ppu.mode3_fifo.discard_pixels > 0 {
             bus.ppu.mode3_fifo.discard_pixels -= 1;
@@ -677,6 +686,18 @@ impl PpuState {
         bus.ppu.mode3_fifo.output_x as i16 - bus.ppu.mode3_fifo.discard_pixels as i16
     }
 
+    fn mode3_latch_bg_push_recovery_sleep_after_pop(bus: &mut Bus) {
+        if bus.ppu.mode3_fifo.bg_fetch_phase != BgFetchPhase::Push {
+            return;
+        }
+        if bus.ppu.mode3_fifo.bg_push_substate != BgPushSubstate::Stalled {
+            return;
+        }
+        if bus.ppu.mode3_fifo.can_push_8() {
+            bus.ppu.mode3_fifo.bg_push_substate = BgPushSubstate::RecoverySleep;
+        }
+    }
+
     fn mode3_window_enabled_on_line(bus: &Bus, ly: u8) -> bool {
         let lcdc = bus.io[0x40];
         let wy = bus.io[0x4A];
@@ -690,7 +711,7 @@ impl PpuState {
 
     fn mode3_bg_takeover_boundary(bus: &Bus) -> bool {
         let push_stalled_boundary = bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
-            && bus.ppu.mode3_fifo.bg_push_stalled_for_fifo
+            && bus.ppu.mode3_fifo.bg_push_substate == BgPushSubstate::Stalled
             && !bus.ppu.mode3_fifo.can_push_8();
         let push_ready_boundary = Self::mode3_bg_push_ready_takeover_boundary(bus);
         (bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::TileIndex
@@ -702,13 +723,12 @@ impl PpuState {
     #[cfg(test)]
     fn mode3_bg_push_recovery_sleep_pending(bus: &Bus) -> bool {
         bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
-            && bus.ppu.mode3_fifo.bg_push_stalled_for_fifo
-            && bus.ppu.mode3_fifo.can_push_8()
+            && bus.ppu.mode3_fifo.bg_push_substate == BgPushSubstate::RecoverySleep
     }
 
     fn mode3_bg_push_ready_takeover_boundary(bus: &Bus) -> bool {
         bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
-            && !bus.ppu.mode3_fifo.bg_push_stalled_for_fifo
+            && bus.ppu.mode3_fifo.bg_push_substate == BgPushSubstate::Ready
             && bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0
     }
 
@@ -816,7 +836,7 @@ impl PpuState {
                     BgFetchPhase::TileDataHigh => {
                         bus.ppu.mode3_fifo.bg_fetch_high =
                             bus.vram[bus.ppu.mode3_fifo.bg_fetch_tile_line_addr + 1];
-                        bus.ppu.mode3_fifo.bg_push_stalled_for_fifo = false;
+                        bus.ppu.mode3_fifo.bg_push_substate = BgPushSubstate::Ready;
                         bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::Push;
                     }
                     BgFetchPhase::Push => {}
@@ -829,13 +849,19 @@ impl PpuState {
             return;
         }
         if !bus.ppu.mode3_fifo.can_push_8() {
-            bus.ppu.mode3_fifo.bg_push_stalled_for_fifo = true;
+            bus.ppu.mode3_fifo.bg_push_substate = BgPushSubstate::Stalled;
             return;
         }
-        if bus.ppu.mode3_fifo.bg_push_stalled_for_fifo {
+        if bus.ppu.mode3_fifo.bg_push_substate == BgPushSubstate::RecoverySleep {
             // Explicit one-dot "sleep" micro-op after a FIFO-full push stall. This
             // keeps the fetcher in Push for one more dot before the actual push.
-            bus.ppu.mode3_fifo.bg_push_stalled_for_fifo = false;
+            bus.ppu.mode3_fifo.bg_push_substate = BgPushSubstate::Ready;
+            return;
+        }
+        if bus.ppu.mode3_fifo.bg_push_substate == BgPushSubstate::Stalled {
+            // Fallback if the prior dot did not latch the explicit recovery-sleep
+            // substate after FIFO drain.
+            bus.ppu.mode3_fifo.bg_push_substate = BgPushSubstate::RecoverySleep;
             return;
         }
 
@@ -866,6 +892,7 @@ impl PpuState {
         bus.ppu.mode3_fifo.fetch_screen_x += 8;
         bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::TileIndex;
         bus.ppu.mode3_fifo.bg_fetch_dots_remaining = 0;
+        bus.ppu.mode3_fifo.bg_push_substate = BgPushSubstate::Ready;
     }
 
     fn extend_mode3_dots(bus: &mut Bus, ly: u8, startup_line: bool, dots: u16) {
@@ -1365,7 +1392,7 @@ impl Bus {
 
     #[cfg(test)]
     pub(super) fn mode3_bg_push_stalled_for_fifo(&self) -> bool {
-        self.ppu.mode3_fifo.bg_push_stalled_for_fifo
+        self.ppu.mode3_fifo.bg_push_substate == BgPushSubstate::Stalled
     }
 
     #[cfg(test)]
