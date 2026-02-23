@@ -7,7 +7,6 @@ const TEST_TONE_AMPLITUDE: f32 = 0.05;
 const NANOSECONDS_PER_SECOND: u128 = 1_000_000_000;
 const AUDIO_OUTPUT_CHANNELS: usize = 2;
 const MAX_PENDING_CORE_TCYCLE_FRAMES: usize = 524_288;
-pub use gb_emu::audio::AnalogCalibrationProfile;
 
 #[inline]
 fn linear_interpolate(a: f32, b: f32, frac: f32) -> f32 {
