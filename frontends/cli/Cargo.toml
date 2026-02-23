@@ -9,3 +9,4 @@ path = "src/main.rs"
 
 [dependencies]
 gb-emu = { path = "../../systems/gb" }
+gb-runtime = { path = "../../runtime" }

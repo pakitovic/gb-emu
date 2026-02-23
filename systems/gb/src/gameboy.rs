@@ -1,6 +1,5 @@
 use crate::audio::AnalogCalibrationProfile;
 use crate::cartridge::Cartridge;
-use crate::cartridge::CartridgeError;
 use crate::cartridge::CartridgeMetadata;
 use crate::cpu::Cpu;
 use crate::hardware::HardwareModel;
@@ -48,8 +47,20 @@ impl GameBoy {
         self.bus.framebuffer()
     }
 
-    pub fn flush_battery_save(&mut self) -> Result<(), CartridgeError> {
-        self.bus.flush_battery_save()
+    pub fn cartridge_battery_save_dirty(&self) -> bool {
+        self.bus.cartridge_battery_save_dirty()
+    }
+
+    pub fn export_cartridge_save_ram_bytes(&self) -> Option<Vec<u8>> {
+        self.bus.export_cartridge_save_ram_bytes()
+    }
+
+    pub fn export_cartridge_rtc_persistence_bytes(&mut self) -> Option<Vec<u8>> {
+        self.bus.export_cartridge_rtc_persistence_bytes()
+    }
+
+    pub fn mark_cartridge_persistence_clean(&mut self) {
+        self.bus.mark_cartridge_persistence_clean();
     }
 
     pub fn cartridge_metadata(&self) -> CartridgeMetadata {

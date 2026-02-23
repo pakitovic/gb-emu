@@ -1,12 +1,9 @@
 use std::fmt::{Display, Formatter};
-use std::path::PathBuf;
 
 mod clock;
 mod persistence;
 
 use self::clock::{RtcClock, SystemRtcClock};
-#[cfg(test)]
-use self::persistence::write_file_atomic;
 
 const HEADER_MIN_LEN: usize = 0x150;
 const ROM_ONLY: u8 = 0x00;
@@ -444,8 +441,6 @@ pub struct Cartridge {
     has_rumble: bool,
     rumble_active: bool,
     clock: Box<dyn RtcClock>,
-    save_path: Option<PathBuf>,
-    rtc_path: Option<PathBuf>,
     save_dirty: bool,
     ram_enable_required: bool,
     ram_enabled: bool,
@@ -567,8 +562,6 @@ impl Cartridge {
             has_rumble,
             rumble_active: false,
             clock,
-            save_path: None,
-            rtc_path: None,
             save_dirty: false,
             ram_enable_required: mapper_uses_ram_gate(spec.mapper) && !compatibility_ram,
             ram_enabled: !mapper_uses_ram_gate(spec.mapper) || compatibility_ram,
@@ -1119,11 +1112,8 @@ fn parse_title(rom: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn make_rom(size: usize, cart_type: u8, rom_size_code: u8, ram_size_code: u8) -> Vec<u8> {
         let mut rom = vec![0; size];
@@ -1147,15 +1137,6 @@ mod tests {
         let global_checksum = compute_global_checksum(rom);
         rom[GLOBAL_CHECKSUM_HIGH_OFFSET] = (global_checksum >> 8) as u8;
         rom[GLOBAL_CHECKSUM_LOW_OFFSET] = global_checksum as u8;
-    }
-
-    fn unique_temp_file_path(name: &str, ext: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let pid = std::process::id();
-        std::env::temp_dir().join(format!("gb_emu_{name}_{pid}_{nanos}.{ext}"))
     }
 
     #[derive(Clone)]
@@ -1961,36 +1942,6 @@ mod tests {
     }
 
     #[test]
-    fn mbc3_timer_battery_persists_rtc_sidecar() {
-        let rom_path = unique_temp_file_path("mbc3_timer_rtc", "gb");
-        let save_path = rom_path.with_extension("sav");
-        let rtc_path = rom_path.with_extension("rtc");
-        let rom = make_rom(32 * 1024, MBC3_TIMER_BATTERY, 0x00, 0x00);
-        fs::write(&rom_path, rom).expect("ROM file write should work");
-
-        let mut first_load = Cartridge::from_file(&rom_path).expect("cartridge should load");
-        first_load.write_rom_control(0x0000, 0x0A); // RAM/RTC enable
-        first_load.write_rom_control(0x4000, 0x0C); // RTC day high
-        first_load.write_ram_byte(0xA000, 0x40); // halt
-        first_load.write_rom_control(0x4000, 0x08); // RTC seconds
-        first_load.write_ram_byte(0xA000, 33);
-        first_load.flush_save().expect("flush should persist rtc");
-        assert!(!save_path.exists());
-        assert!(rtc_path.exists());
-
-        let mut second_load = Cartridge::from_file(&rom_path).expect("cartridge should reload");
-        second_load.write_rom_control(0x0000, 0x0A);
-        second_load.write_rom_control(0x4000, 0x0C);
-        assert_eq!(second_load.read_ram_byte(0xA000) & 0x40, 0x40);
-        second_load.write_rom_control(0x4000, 0x08);
-        assert_eq!(second_load.read_ram_byte(0xA000), 33);
-
-        let _ = fs::remove_file(rtc_path);
-        let _ = fs::remove_file(save_path);
-        let _ = fs::remove_file(rom_path);
-    }
-
-    #[test]
     fn save_ram_persistence_bytes_roundtrip_restores_battery_ram() {
         let rom = make_rom(64 * 1024, MBC1_RAM_BATTERY, 0x01, 0x02);
         let mut first = Cartridge::from_bytes(rom.clone()).expect("cartridge should load");
@@ -2080,88 +2031,5 @@ mod tests {
             Err(other) => panic!("unexpected error: {other}"),
             Ok(_) => panic!("expected ROM loading to fail"),
         }
-    }
-
-    #[test]
-    fn persists_battery_backed_ram_to_sav_file() {
-        let rom_path = unique_temp_file_path("save_roundtrip", "gb");
-        let save_path = rom_path.with_extension("sav");
-        let rom = make_rom(64 * 1024, MBC1_RAM_BATTERY, 0x01, 0x02);
-        fs::write(&rom_path, rom).expect("ROM file write should work");
-
-        let mut first_load = Cartridge::from_file(&rom_path).expect("cartridge should load");
-        first_load.write_rom_control(0x0000, 0x0A);
-        first_load.write_ram_byte(0xA000, 0x5A);
-        first_load.flush_save().expect("flush should persist save");
-        assert!(save_path.exists());
-
-        let mut second_load = Cartridge::from_file(&rom_path).expect("cartridge should reload");
-        second_load.write_rom_control(0x0000, 0x0A);
-        assert_eq!(second_load.read_ram_byte(0xA000), 0x5A);
-
-        let _ = fs::remove_file(save_path);
-        let _ = fs::remove_file(rom_path);
-    }
-
-    #[test]
-    fn non_battery_carts_do_not_write_save_files() {
-        let rom_path = unique_temp_file_path("save_non_battery", "gb");
-        let save_path = rom_path.with_extension("sav");
-        let rom = make_rom(64 * 1024, MBC1_RAM, 0x01, 0x02);
-        fs::write(&rom_path, rom).expect("ROM file write should work");
-
-        let mut cart = Cartridge::from_file(&rom_path).expect("cartridge should load");
-        cart.write_rom_control(0x0000, 0x0A);
-        cart.write_ram_byte(0xA000, 0x33);
-        cart.flush_save().expect("flush should not fail");
-        assert!(!save_path.exists());
-
-        let _ = fs::remove_file(rom_path);
-    }
-
-    #[test]
-    fn persists_mbc2_battery_ram_to_sav_file() {
-        let rom_path = unique_temp_file_path("mbc2_save", "gb");
-        let save_path = rom_path.with_extension("sav");
-        let rom = make_rom(64 * 1024, MBC2_BATTERY, 0x01, 0x00);
-        fs::write(&rom_path, rom).expect("ROM file write should work");
-
-        let mut first = Cartridge::from_file(&rom_path).expect("cartridge should load");
-        first.write_rom_control(0x0000, 0x0A);
-        first.write_ram_byte(0xA123, 0xA5);
-        first.flush_save().expect("flush should persist save");
-        assert!(save_path.exists());
-
-        let mut second = Cartridge::from_file(&rom_path).expect("cartridge should reload");
-        second.write_rom_control(0x0000, 0x0A);
-        assert_eq!(second.read_ram_byte(0xA123), 0xF5);
-
-        let _ = fs::remove_file(save_path);
-        let _ = fs::remove_file(rom_path);
-    }
-
-    #[test]
-    fn atomic_save_writer_replaces_existing_file_without_temp_leaks() {
-        let save_path = unique_temp_file_path("atomic_save_replace", "sav");
-        fs::write(&save_path, [0xAA, 0xBB]).expect("initial write should work");
-
-        write_file_atomic(&save_path, &[0x11, 0x22, 0x33]).expect("atomic write should work");
-        let data = fs::read(&save_path).expect("read should work");
-        assert_eq!(data, vec![0x11, 0x22, 0x33]);
-
-        let parent = save_path.parent().unwrap_or_else(|| Path::new("."));
-        let file_name = save_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .expect("temp save path should have a utf8 name");
-        let tmp_prefix = format!(".{file_name}.tmp.");
-        let has_temp_files = fs::read_dir(parent)
-            .expect("read_dir should work")
-            .filter_map(Result::ok)
-            .filter_map(|entry| entry.file_name().into_string().ok())
-            .any(|name| name.starts_with(&tmp_prefix));
-        assert!(!has_temp_files);
-
-        let _ = fs::remove_file(save_path);
     }
 }
