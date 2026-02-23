@@ -201,6 +201,7 @@ Supported models for `--model`:
 - ROM-only and ROM+RAM cartridge family (no MBC) is limited to 32KB ROM by hardware design.
 - Unsupported mappers (for example MBC6/MBC7/HuC variants, camera/tama) still fail fast when loading the ROM.
 - MBC3 RTC persistence currently uses a sidecar `.rtc` file; this is emulator-specific metadata and not a hardware cartridge dump format.
+- RTC clock source currently remains a core-local convenience (`SystemRtcClock`); public host-controlled RTC time-source injection is deferred unless determinism/libretro requirements make it necessary.
 
 ### Cartridge Header Diagnostics
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.
