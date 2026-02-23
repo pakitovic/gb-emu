@@ -215,6 +215,7 @@ Supported models for `--model`:
 
 ### Runtime / Host Utility Maintainability
 - `runtime/src/audio.rs` is intentionally kept as a single module for now, but if runtime audio helpers continue to grow it should be split into `runtime/src/audio.rs` + `runtime/src/audio/*` submodules (for example `mixer`, `adaptive_queue`, `resampler`) as a maintenance refactor without behavioral changes.
+- `web/minimal/audio-adaptive.mjs` and `gb_runtime` adaptive queue policy are intentionally separate today (browser demo tuning vs shared runtime helper tuning); if they continue to evolve, align tuning rules/tests or consolidate shared policy logic to avoid silent drift.
 
 ### PPU / Rendering / Timing Fidelity
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
