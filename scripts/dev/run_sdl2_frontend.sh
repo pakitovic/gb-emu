@@ -10,7 +10,7 @@ On macOS, when Homebrew SDL2 is detected, it exports linker/include/pkg-config
 paths for this command invocation.
 
 Options:
-  --clean         Run `cargo clean -p gb-emu -p frontend-sdl2` before build (default).
+  --clean         Run `cargo clean -p gb-emu -p gb-runtime -p frontend-sdl2` before build (default).
   --no-clean      Skip clean step.
   --no-run        Build only, do not run even if ROM is provided.
   -h, --help      Show this help.
@@ -118,8 +118,8 @@ configure_homebrew_sdl2_env
 cd "$ROOT_DIR"
 
 if [ "$clean" -eq 1 ]; then
-  printf "Cleaning gb-emu + frontend-sdl2 artifacts...\n"
-  cargo clean -p gb-emu -p frontend-sdl2
+  printf "Cleaning gb-emu + gb-runtime + frontend-sdl2 artifacts...\n"
+  cargo clean -p gb-emu -p gb-runtime -p frontend-sdl2
 fi
 
 printf "Building SDL2 frontend...\n"

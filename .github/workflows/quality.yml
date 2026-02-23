@@ -35,5 +35,8 @@ jobs:
       - name: Unit tests
         run: cargo test --locked
 
+      - name: Runtime helper tests
+        run: cargo test --locked -p gb-runtime
+
       - name: CLI frontend tests
         run: cargo test --locked -p frontend-cli

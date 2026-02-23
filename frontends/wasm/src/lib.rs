@@ -1,9 +1,9 @@
-use gb_emu::audio::{AudioMixer, AudioResamplerQuality, MixerSource};
 use gb_emu::cartridge::Cartridge;
 use gb_emu::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
 use gb_emu::hardware::HardwareModel;
 use gb_emu::input::Button;
-use gb_emu::timing::FramePacer;
+use gb_runtime::audio::{AudioMixer, AudioResamplerQuality, MixerSource};
+use gb_runtime::timing::FramePacer;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
 

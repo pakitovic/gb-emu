@@ -8,5 +8,6 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 gb-emu = { path = "../../systems/gb" }
+gb-runtime = { path = "../../runtime" }
 wasm-bindgen = "0.2.100"
 js-sys = "0.3.77"
