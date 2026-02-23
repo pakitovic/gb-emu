@@ -29,23 +29,52 @@ impl Cartridge {
             return Ok(());
         }
 
-        if !self.ram.is_empty()
-            && self.save_dirty
+        if self.save_dirty
             && let Some(path) = self.save_path.as_ref()
+            && let Some(ram_bytes) = self.export_save_ram_bytes()
         {
-            write_file_atomic(path, &self.ram).map_err(CartridgeError::SaveIo)?;
-            self.save_dirty = false;
+            write_file_atomic(path, &ram_bytes).map_err(CartridgeError::SaveIo)?;
+            self.mark_persistence_clean();
         }
 
-        if self.has_timer
-            && let (Some(rtc), Some(path)) = (self.rtc.as_mut(), self.rtc_path.as_ref())
+        if let Some(rtc_bytes) = self.export_rtc_persistence_bytes()
+            && let Some(path) = self.rtc_path.as_ref()
         {
-            let now_epoch_secs = self.clock.now_epoch_secs();
-            let rtc_bytes = rtc.serialize(now_epoch_secs);
             write_file_atomic(path, &rtc_bytes).map_err(CartridgeError::SaveIo)?;
         }
 
         Ok(())
+    }
+
+    pub fn export_save_ram_bytes(&self) -> Option<Vec<u8>> {
+        if self.ram.is_empty() || !self.has_battery {
+            return None;
+        }
+        Some(self.ram.clone())
+    }
+
+    pub fn import_save_ram_bytes(&mut self, data: &[u8]) {
+        let copy_len = self.ram.len().min(data.len());
+        if copy_len > 0 {
+            self.ram[..copy_len].copy_from_slice(&data[..copy_len]);
+        }
+    }
+
+    pub fn export_rtc_persistence_bytes(&mut self) -> Option<Vec<u8>> {
+        if !self.has_timer {
+            return None;
+        }
+        let rtc = self.rtc.as_mut()?;
+        let now_epoch_secs = self.clock.now_epoch_secs();
+        Some(rtc.serialize(now_epoch_secs).to_vec())
+    }
+
+    pub fn import_rtc_persistence_bytes(&mut self, data: &[u8]) -> bool {
+        let Some(rtc) = Mbc3Rtc::deserialize(data) else {
+            return false;
+        };
+        self.rtc = Some(rtc);
+        true
     }
 
     fn attach_save_from_rom_path(&mut self, rom_path: &Path) -> Result<(), CartridgeError> {
@@ -56,7 +85,7 @@ impl Cartridge {
         if !self.ram.is_empty() {
             let save_path = rom_path.with_extension(SAVE_FILE_EXTENSION);
             match fs::read(&save_path) {
-                Ok(data) => self.load_save_data(&data),
+                Ok(data) => self.import_save_ram_bytes(&data),
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
                 Err(err) => return Err(CartridgeError::SaveIo(err)),
             }
@@ -66,28 +95,21 @@ impl Cartridge {
         if self.has_timer {
             let rtc_path = rom_path.with_extension(RTC_FILE_EXTENSION);
             match fs::read(&rtc_path) {
-                Ok(data) => self.load_rtc_data(&data),
+                Ok(data) => {
+                    let _ = self.import_rtc_persistence_bytes(&data);
+                }
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
                 Err(err) => return Err(CartridgeError::SaveIo(err)),
             }
             self.rtc_path = Some(rtc_path);
         }
 
-        self.save_dirty = false;
+        self.mark_persistence_clean();
         Ok(())
     }
 
-    fn load_save_data(&mut self, data: &[u8]) {
-        let copy_len = self.ram.len().min(data.len());
-        if copy_len > 0 {
-            self.ram[..copy_len].copy_from_slice(&data[..copy_len]);
-        }
-    }
-
-    fn load_rtc_data(&mut self, data: &[u8]) {
-        if let Some(rtc) = Mbc3Rtc::deserialize(data) {
-            self.rtc = Some(rtc);
-        }
+    fn mark_persistence_clean(&mut self) {
+        self.save_dirty = false;
     }
 }
 
