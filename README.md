@@ -59,7 +59,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Headless CLI frontend is extracted to `frontends/cli` (workspace package/path dependency on `systems/gb`) while preserving the CLI binary name `gb-emu`.
 - SDL2 desktop frontend is extracted to `frontends/sdl2` (workspace package/path dependency on `systems/gb`).
 - Rust/WASM frontend adapter is extracted to `frontends/wasm` (workspace package/path dependency on `systems/gb`), while `web/` remains the browser host assets/demo area.
-- Workspace migration phases (1-7) are complete; `MIGRATION_FRONTENDS_WORKSPACE_PLAN.md` is retained as the architectural migration record/history.
+- Boundary rule: keep hardware semantics in `systems/gb`, host/runtime helpers in `runtime`, and host platform bindings/UI code in `frontends/*` / `web`.
 
 ## Project Structure
 
@@ -127,10 +127,16 @@ web/
 
 ## Workspace Layout Guide
 
-- `systems/*`: hardware emulation packages (registers, timing, MMIO, CPU/PPU/APU semantics). Current system is `systems/gb`.
-- `runtime/`: frontend-shared host/runtime helpers (frame pacing, audio queueing, mixer bridge) that are not hardware semantics.
-- `frontends/*`: host adapters/UI entrypoints (`cli`, `sdl2`, `wasm`) that depend on `systems/gb` and optionally `runtime`.
-- `web/`: browser host assets and demo pages (JavaScript/HTML/CSS); not a Rust crate.
+- `systems/*`: hardware emulation packages and public system API surfaces.
+  Current `systems/gb` owns CPU/APU/PPU/timer/interrupts/MMIO/DMA, cartridge/mappers/save persistence, framebuffer generation, and emulated audio sample stream generation.
+  It must not contain SDL2 backends, `wasm-bindgen` exports, browser DOM/JS integration, or libretro bindings.
+- `runtime/`: frontend-shared host/runtime helpers that are not hardware semantics.
+  Current `runtime` owns host-time frame pacing (`FramePacer`), frontend audio queue/adaptive buffering helpers, and the frontend-facing t-cycle-to-PCM mixer bridge.
+- `frontends/*`: host adapters/UI entrypoints that depend on `systems/gb` and optionally `runtime`.
+  - `frontends/cli`: CLI argument parsing, headless modes (`blargg`, `mooneye`, `cart-info`), CLI error formatting/wiring.
+  - `frontends/sdl2`: SDL2 window/rendering, event loop, keyboard mapping, SDL2 audio queue/device integration.
+  - `frontends/wasm`: `wasm-bindgen` exports, `WebEmulator` browser adapter API, WASM-only glue code.
+- `web/`: browser host assets and demo pages (JavaScript/HTML/CSS/AudioWorklet/browser helper tests); no Rust package should live inside `web/`.
 
 Future expansion rule:
 - `CGB` support should remain inside `systems/gb` unless a stronger separation is proven necessary.
