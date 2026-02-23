@@ -348,7 +348,7 @@ where
     let Some(rom_path) = args.next() else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "Usage: cargo run --features frontend-sdl2 --bin frontend-sdl2 -- <rom_file> [dmg0|dmg|mgb|sgb|sgb2]",
+            "Usage: cargo run -p frontend-sdl2 --bin frontend-sdl2 -- <rom_file> [dmg0|dmg|mgb|sgb|sgb2]",
         ));
     };
 
