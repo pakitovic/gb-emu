@@ -678,7 +678,7 @@ Implementation summary:
 
 ### Phase 7 - Cleanup, Documentation, and Future-Proofing
 
-Status: `TODO`
+Status: `DONE`
 
 Goal:
 
@@ -705,6 +705,30 @@ Acceptance criteria:
 
 - no stale commands or paths in docs/scripts
 - layout is discoverable for a new contributor
+
+### Phase 7 Cleanup, Final Docs, and Future-Proofing (Executed)
+
+Execution date:
+
+- `2026-02-23` (local workspace session)
+
+Working branch:
+
+- `codex/workspace-phase7-cleanup-docs`
+
+Implementation summary:
+
+- Finalized `README.md` workspace/layout documentation:
+  - added a dedicated workspace layout guide (`systems/*`, `runtime/`, `frontends/*`, `web/`)
+  - added workspace command examples (`cargo build/test`, package-targeted commands)
+  - recorded future expansion rule (`CGB` under `systems/gb`, `GBA` under `systems/gba`)
+- Updated README migration wording to reflect that workspace migration phases are complete (Phase 1-7), while retaining the migration plan as architectural history
+- Removed the stale `Current Limitations` migration entry that still described packaging migration as in progress
+- Fixed README frontend note to reference `gb_runtime::timing::FramePacer` instead of the core package
+- Updated this plan:
+  - marked Phase 7 as `DONE`
+  - backfilled Phase 6 PR number
+  - reduced migration "open decisions" to post-migration optional follow-ups only
 
 ## Suggested PR Bundling (Larger PRs Allowed)
 
@@ -777,8 +801,8 @@ Use this table as the migration source of truth.
 | 3 | Extract WASM frontend | DONE | `codex/workspace-phase3-extract-wasm` | `#104` | Rust/WASM adapter moved to `frontends/wasm`; root package `frontend-web` feature and wasm deps removed |
 | 4 | Extract CLI frontend | DONE | `codex/workspace-phase4-extract-cli` | `#105` | CLI frontend moved to `frontends/cli`; root package no longer contains `src/main.rs` |
 | 5 | Move core to `systems/gb` | DONE | `codex/workspace-phase5-move-core-systems-gb` | `#106` | Root converted to virtual workspace; core moved to `systems/gb` and frontends now depend on it |
-| 6 | Extract `runtime` | DONE | `codex/workspace-phase6-extract-runtime` |  | `gb-runtime` package added for pacing/audio frontend helpers; core keeps hardware semantics |
-| 7 | Cleanup and final docs | TODO |  |  |  |
+| 6 | Extract `runtime` | DONE | `codex/workspace-phase6-extract-runtime` | `#107` | `gb-runtime` package added for pacing/audio frontend helpers; core keeps hardware semantics |
+| 7 | Cleanup and final docs | DONE | `codex/workspace-phase7-cleanup-docs` |  | Finalized workspace layout docs/commands and future expansion rules |
 
 ## Implementation Checklist (Detailed)
 
@@ -822,14 +846,12 @@ Use this table as the migration source of truth.
 - Future `GBA` work should use `systems/gba` (new system package).
 - `CGB` should start as part of `systems/gb`, not as a separate system package.
 
-## Open Decisions (Can Be Deferred)
+## Post-Migration Optional Decisions
 
-These do not block Phase 1, but should be resolved during the migration:
+These do not block the current workspace layout and can be revisited later:
 
-- Final Cargo package names (folder names are already fixed by this plan)
-- Whether to introduce `runtime/` immediately or only after all frontends are split
 - Whether to rename `web/minimal/` later (not required for this migration)
-- Which phases to bundle into larger PRs
+- Whether future systems should introduce additional shared runtime packages (only if a concrete need appears)
 
 ## References (Architecture Inspiration)
 
