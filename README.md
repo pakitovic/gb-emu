@@ -52,13 +52,14 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 ### Validation / CI
 - Blargg + Gekkio ROM test integration in local scripts and CI.
 
-### Project Architecture / Workspace Migration
+### Project Architecture / Workspace Layout
 - The repository root is now a virtual Cargo workspace (`default-members = ["systems/gb"]`) and no longer owns a Rust package directly.
 - Game Boy core/system package now lives in `systems/gb` (Cargo package name remains `gb-emu`).
 - Shared frontend/host runtime helpers now live in the `runtime` workspace package (Cargo package name `gb-runtime`).
 - Headless CLI frontend is extracted to `frontends/cli` (workspace package/path dependency on `systems/gb`) while preserving the CLI binary name `gb-emu`.
 - SDL2 desktop frontend is extracted to `frontends/sdl2` (workspace package/path dependency on `systems/gb`).
 - Rust/WASM frontend adapter is extracted to `frontends/wasm` (workspace package/path dependency on `systems/gb`), while `web/` remains the browser host assets/demo area.
+- Workspace migration phases (1-7) are complete; `MIGRATION_FRONTENDS_WORKSPACE_PLAN.md` is retained as the architectural migration record/history.
 
 ## Project Structure
 
@@ -124,6 +125,38 @@ web/
     main.js
 ```
 
+## Workspace Layout Guide
+
+- `systems/*`: hardware emulation packages (registers, timing, MMIO, CPU/PPU/APU semantics). Current system is `systems/gb`.
+- `runtime/`: frontend-shared host/runtime helpers (frame pacing, audio queueing, mixer bridge) that are not hardware semantics.
+- `frontends/*`: host adapters/UI entrypoints (`cli`, `sdl2`, `wasm`) that depend on `systems/gb` and optionally `runtime`.
+- `web/`: browser host assets and demo pages (JavaScript/HTML/CSS); not a Rust crate.
+
+Future expansion rule:
+- `CGB` support should remain inside `systems/gb` unless a stronger separation is proven necessary.
+- A future Game Boy Advance implementation should be introduced as `systems/gba`.
+
+## Workspace Command Examples
+
+```bash
+# Default workspace members (currently systems/gb core)
+cargo build --locked
+cargo test --locked
+
+# All workspace packages (may require optional host dependencies like SDL2 dev libs)
+cargo build --locked --workspace
+
+# Package-targeted checks
+cargo test --locked -p gb-runtime
+cargo test --locked -p frontend-cli
+cargo build --locked -p frontend-sdl2 --bin frontend-sdl2
+cargo build --locked -p frontend-wasm --lib
+```
+
+Notes:
+- `cargo lint` intentionally skips `frontend-sdl2` in the default alias to avoid requiring SDL2 system libraries in every CI/local environment.
+- Prefer package-targeted commands for frontend work when optional host dependencies are not installed globally.
+
 ## Run
 
 ```bash
@@ -147,10 +180,6 @@ Supported models for `--model`:
 - `sgb2`
 
 ## Current Limitations
-
-### Project Architecture / Packaging Migration
-- Workspace migration is in progress, but the current split is now in place: `systems/gb`, `runtime`, and frontends (`cli`, `sdl2`, `wasm`) are dedicated workspace packages.
-- Remaining migration work is mostly cleanup/final documentation/future-proofing (tracked in `MIGRATION_FRONTENDS_WORKSPACE_PLAN.md` Phase 7).
 
 ### Cartridge / Mapper / Persistence Limits
 - Supported cartridge types:
@@ -319,7 +348,7 @@ Notes:
 - Web builds use the core RTC wall-clock source for MBC3 RTC state.
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
-- SDL2/Web pacing uses `timing::FramePacer` from the core to avoid frontend-specific timing drift.
+- SDL2/Web pacing uses `gb_runtime::timing::FramePacer` (shared host/runtime pacing helper) to avoid frontend-specific timing drift.
 - SDL2 audio uses the core mixer clock bridge and queues stereo interleaved PCM in real time (now from the `frontends/sdl2` workspace package).
 - SDL2 queue refill is driven by emulated audio t-cycles; underruns are padded with silence (no synthetic emulated cycles).
 - SDL2 queue target is auto-tuned over time windows (same policy as web) using estimated underruns from elapsed playback vs queued samples.
