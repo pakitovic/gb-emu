@@ -139,7 +139,7 @@ where
     let Some(rom_path) = rom_path else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "Usage: cargo run -- [--trace] [--blargg|--mooneye] [--cart-info] [--model dmg0|dmg|mgb|sgb|sgb2] [--max-steps N] <rom_file>",
+            "Usage: cargo run -p frontend-cli --bin gb-emu -- [--trace] [--blargg|--mooneye] [--cart-info] [--model dmg0|dmg|mgb|sgb|sgb2] [--max-steps N] <rom_file>",
         ));
     };
 

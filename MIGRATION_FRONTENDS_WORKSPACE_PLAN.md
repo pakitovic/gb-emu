@@ -522,7 +522,7 @@ Implementation summary:
 
 ### Phase 4 - Extract `frontends/cli`
 
-Status: `TODO`
+Status: `DONE`
 
 Goal:
 
@@ -545,6 +545,31 @@ Acceptance criteria:
 
 - `--trace`, `--blargg`, `--mooneye`, `--cart-info`, `--model`, `--max-steps` keep behavior
 - existing CLI tests remain present and passing
+
+### Phase 4 CLI Extraction (Executed)
+
+Execution date:
+
+- `2026-02-23` (local workspace session)
+
+Working branch:
+
+- `codex/workspace-phase4-extract-cli`
+
+Implementation summary:
+
+- Created `frontends/cli` workspace package and moved the CLI frontend source:
+  - `src/main.rs` -> `frontends/cli/src/main.rs`
+- Added `frontends/cli/Cargo.toml` with:
+  - path dependency on the root GB package (`gb-emu`)
+  - explicit binary target name `gb-emu` to preserve script/CLI invocation compatibility
+- Moved CLI integration test with the CLI package:
+  - `tests/cli_cart_info.rs` -> `frontends/cli/tests/cli_cart_info.rs`
+- Updated CLI usage/help text and README commands to run through the workspace package:
+  - `cargo run -p frontend-cli --bin gb-emu -- ...`
+- Updated ROM scripts (`blargg`, `blargg cpu guard`, `gekkio`) to build `frontend-cli` explicitly while keeping the binary path/name (`target/debug/gb-emu`)
+- Updated CI quality workflow to run `cargo test --locked -p frontend-cli` so CLI parser/integration tests remain covered after extraction
+- Preserved CLI behavior and flags (`--trace`, `--blargg`, `--mooneye`, `--cart-info`, `--model`, `--max-steps`)
 
 ### Phase 5 - Move System Core to `systems/gb`
 
@@ -698,8 +723,8 @@ Use this table as the migration source of truth.
 | 0 | Baseline snapshot | DONE | `codex/phase0-baseline-snapshot` |  | Full quality + frontend checks + Blargg/Gekkio baseline green |
 | 1 | Workspace root | DONE | `codex/workspace-phase1-root-hybrid` | `#102` | Hybrid workspace root (`Cargo.toml`) added with root package kept in place |
 | 2 | Extract SDL2 frontend | DONE | `codex/workspace-phase2-extract-sdl2` | `#103` | SDL2 frontend moved to `frontends/sdl2`; root package SDL2 dependency/bin removed |
-| 3 | Extract WASM frontend | DONE | `codex/workspace-phase3-extract-wasm` |  | Rust/WASM adapter moved to `frontends/wasm`; root package `frontend-web` feature and wasm deps removed |
-| 4 | Extract CLI frontend | TODO |  |  |  |
+| 3 | Extract WASM frontend | DONE | `codex/workspace-phase3-extract-wasm` | `#104` | Rust/WASM adapter moved to `frontends/wasm`; root package `frontend-web` feature and wasm deps removed |
+| 4 | Extract CLI frontend | DONE | `codex/workspace-phase4-extract-cli` |  | CLI frontend moved to `frontends/cli`; root package no longer contains `src/main.rs` |
 | 5 | Move core to `systems/gb` | TODO |  |  |  |
 | 6 | Extract `runtime` | TODO |  |  |  |
 | 7 | Cleanup and final docs | TODO |  |  |  |

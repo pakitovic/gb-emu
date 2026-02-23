@@ -20,7 +20,7 @@ if [ ! -f "$rom_path" ]; then
 fi
 
 cd "$ROOT_DIR"
-cargo build >/dev/null
+cargo build -p frontend-cli --bin gb-emu >/dev/null
 
 start_epoch="$(date +%s)"
 output="$(perl -e "alarm $TIMEOUT_SECS; exec @ARGV" "$BIN" --blargg --model "$GB_MODEL" --max-steps "$MAX_STEPS" "$rom_path" 2>&1 || true)"

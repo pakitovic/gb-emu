@@ -53,7 +53,8 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Blargg + Gekkio ROM test integration in local scripts and CI.
 
 ### Project Architecture / Workspace Migration
-- Hybrid Cargo workspace root is active (`default-members = ["."]`) to stage the frontend/core package split while preserving current root-package default commands.
+- Hybrid Cargo workspace root is active (`default-members = ["."]`) to stage the frontend/core package split while preserving current root-package default build/test commands.
+- Headless CLI frontend is now extracted to `frontends/cli` (workspace package/path dependency on the root GB package) while preserving the CLI binary name `gb-emu`.
 - SDL2 desktop frontend is now extracted to `frontends/sdl2` (workspace package/path dependency on the root GB package), and the root package no longer contains the SDL2 binary target or `sdl2` dependency.
 - Rust/WASM frontend adapter is now extracted to `frontends/wasm` (workspace package/path dependency on the root GB package), while `web/` remains the browser host assets/demo area.
 
@@ -69,8 +70,13 @@ src/
   memory/
   timing.rs
   lib.rs
-  main.rs
 frontends/
+  cli/
+    Cargo.toml
+    src/
+      main.rs
+    tests/
+      cli_cart_info.rs
   sdl2/
     Cargo.toml
     src/
@@ -80,7 +86,6 @@ frontends/
     src/
       lib.rs
 tests/
-  cli_cart_info.rs
   integration_smoke.rs
 scripts/
   dev/
@@ -109,16 +114,16 @@ web/
 ## Run
 
 ```bash
-cargo run -- <path_to_rom.gb>
+cargo run -p frontend-cli --bin gb-emu -- <path_to_rom.gb>
 ```
 
 Useful flags:
 
 ```bash
-cargo run -- --trace <path_to_rom.gb>
-cargo run -- --blargg --max-steps 120000000 <path_to_rom.gb>
-cargo run -- --mooneye --model dmg0 <path_to_rom.gb>
-cargo run -- --cart-info <path_to_rom.gb>
+cargo run -p frontend-cli --bin gb-emu -- --trace <path_to_rom.gb>
+cargo run -p frontend-cli --bin gb-emu -- --blargg --max-steps 120000000 <path_to_rom.gb>
+cargo run -p frontend-cli --bin gb-emu -- --mooneye --model dmg0 <path_to_rom.gb>
+cargo run -p frontend-cli --bin gb-emu -- --cart-info <path_to_rom.gb>
 ```
 
 Supported models for `--model`:
@@ -131,8 +136,8 @@ Supported models for `--model`:
 ## Current Limitations
 
 ### Project Architecture / Packaging Migration
-- Workspace migration is in progress: SDL2 and Rust/WASM frontends are split out, but the CLI frontend (`src/main.rs`) still lives in the root package until later migration phases.
-- The root package still mixes system/core code with CLI/frontend-facing APIs required by the current CLI path; further package extraction phases are tracked in `MIGRATION_FRONTENDS_WORKSPACE_PLAN.md`.
+- Workspace migration is in progress, but all current frontends (CLI, SDL2, Rust/WASM) are now split into dedicated workspace packages.
+- The root package is still the GB system/core package (not yet moved to `systems/gb`), and shared frontend/runtime helpers are still co-located until later migration phases tracked in `MIGRATION_FRONTENDS_WORKSPACE_PLAN.md`.
 
 ### Cartridge / Mapper / Persistence Limits
 - Supported cartridge types:
