@@ -17,51 +17,38 @@ pub struct FileBackedCartridgePersistence {
 pub fn load_cartridge_from_file(
     path: impl AsRef<Path>,
 ) -> Result<(Cartridge, FileBackedCartridgePersistence), CartridgeError> {
-    FileBackedCartridgePersistence::load_cartridge_from_file(path)
+    let path_ref = path.as_ref();
+    let rom = fs::read(path_ref).map_err(CartridgeError::Io)?;
+    let mut cartridge = Cartridge::from_bytes(rom)?;
+    let persistence = FileBackedCartridgePersistence::from_rom_path(path_ref, &cartridge);
+    persistence.attach_persistence_bytes(&mut cartridge)?;
+    cartridge.mark_persistence_clean();
+    Ok((cartridge, persistence))
 }
 
 impl FileBackedCartridgePersistence {
-    pub fn load_cartridge_from_file(
-        path: impl AsRef<Path>,
-    ) -> Result<(Cartridge, FileBackedCartridgePersistence), CartridgeError> {
-        let path_ref = path.as_ref();
-        let rom = fs::read(path_ref).map_err(CartridgeError::Io)?;
-        let mut cartridge = Cartridge::from_bytes(rom)?;
-        let persistence = Self::from_rom_path(path_ref, &cartridge);
-        persistence.attach_persistence_bytes(&mut cartridge)?;
-        cartridge.mark_persistence_clean();
-        Ok((cartridge, persistence))
-    }
-
     pub fn flush_cartridge(&self, cartridge: &mut Cartridge) -> Result<(), CartridgeError> {
-        if cartridge.battery_save_dirty()
-            && let Some(path) = self.save_path.as_ref()
-            && let Some(ram_bytes) = cartridge.export_save_ram_bytes()
-        {
-            write_file_atomic(path, &ram_bytes).map_err(CartridgeError::SaveIo)?;
-            cartridge.mark_persistence_clean();
-        }
-
-        if let Some(path) = self.rtc_path.as_ref()
-            && let Some(rtc_bytes) = cartridge.export_rtc_persistence_bytes()
-        {
-            write_file_atomic(path, &rtc_bytes).map_err(CartridgeError::SaveIo)?;
-        }
-
-        Ok(())
+        self.flush_target(cartridge)
     }
 
     pub fn flush_gameboy(&self, gb: &mut GameBoy) -> Result<(), CartridgeError> {
-        if gb.cartridge_battery_save_dirty()
+        self.flush_target(gb)
+    }
+
+    fn flush_target<T>(&self, target: &mut T) -> Result<(), CartridgeError>
+    where
+        T: PersistenceFlushTarget,
+    {
+        if target.battery_save_dirty()
             && let Some(path) = self.save_path.as_ref()
-            && let Some(ram_bytes) = gb.export_cartridge_save_ram_bytes()
+            && let Some(ram_bytes) = target.export_save_ram_bytes()
         {
             write_file_atomic(path, &ram_bytes).map_err(CartridgeError::SaveIo)?;
-            gb.mark_cartridge_persistence_clean();
+            target.mark_persistence_clean();
         }
 
         if let Some(path) = self.rtc_path.as_ref()
-            && let Some(rtc_bytes) = gb.export_cartridge_rtc_persistence_bytes()
+            && let Some(rtc_bytes) = target.export_rtc_persistence_bytes()
         {
             write_file_atomic(path, &rtc_bytes).map_err(CartridgeError::SaveIo)?;
         }
@@ -101,6 +88,49 @@ impl FileBackedCartridgePersistence {
         }
 
         Ok(())
+    }
+}
+
+trait PersistenceFlushTarget {
+    fn battery_save_dirty(&self) -> bool;
+    fn export_save_ram_bytes(&self) -> Option<Vec<u8>>;
+    fn export_rtc_persistence_bytes(&mut self) -> Option<Vec<u8>>;
+    fn mark_persistence_clean(&mut self);
+}
+
+impl PersistenceFlushTarget for Cartridge {
+    fn battery_save_dirty(&self) -> bool {
+        self.battery_save_dirty()
+    }
+
+    fn export_save_ram_bytes(&self) -> Option<Vec<u8>> {
+        self.export_save_ram_bytes()
+    }
+
+    fn export_rtc_persistence_bytes(&mut self) -> Option<Vec<u8>> {
+        self.export_rtc_persistence_bytes()
+    }
+
+    fn mark_persistence_clean(&mut self) {
+        self.mark_persistence_clean();
+    }
+}
+
+impl PersistenceFlushTarget for GameBoy {
+    fn battery_save_dirty(&self) -> bool {
+        self.cartridge_battery_save_dirty()
+    }
+
+    fn export_save_ram_bytes(&self) -> Option<Vec<u8>> {
+        self.export_cartridge_save_ram_bytes()
+    }
+
+    fn export_rtc_persistence_bytes(&mut self) -> Option<Vec<u8>> {
+        self.export_cartridge_rtc_persistence_bytes()
+    }
+
+    fn mark_persistence_clean(&mut self) {
+        self.mark_cartridge_persistence_clean();
     }
 }
 
