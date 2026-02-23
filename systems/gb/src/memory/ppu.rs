@@ -668,6 +668,10 @@ impl PpuState {
         Self::mode3_latch_bg_push_recovery_sleep_after_pop(bus);
 
         if bus.ppu.mode3_fifo.discard_pixels > 0 {
+            // Fine-scroll discard consumes the pixel stream before the first visible
+            // dot, so OBJ FIFO must advance in lockstep with BG to keep sprite columns
+            // aligned at the left edge when SCX has a sub-tile offset.
+            let _ = Self::mode3_pop_obj_pixel(bus);
             bus.ppu.mode3_fifo.discard_pixels -= 1;
             return;
         }
