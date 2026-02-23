@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-gb-emu = { path = "../.." }
+gb-emu = { path = "../../systems/gb" }
 sdl2 = "0.38.0"

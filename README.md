@@ -53,23 +53,29 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Blargg + Gekkio ROM test integration in local scripts and CI.
 
 ### Project Architecture / Workspace Migration
-- Hybrid Cargo workspace root is active (`default-members = ["."]`) to stage the frontend/core package split while preserving current root-package default build/test commands.
-- Headless CLI frontend is now extracted to `frontends/cli` (workspace package/path dependency on the root GB package) while preserving the CLI binary name `gb-emu`.
-- SDL2 desktop frontend is now extracted to `frontends/sdl2` (workspace package/path dependency on the root GB package), and the root package no longer contains the SDL2 binary target or `sdl2` dependency.
-- Rust/WASM frontend adapter is now extracted to `frontends/wasm` (workspace package/path dependency on the root GB package), while `web/` remains the browser host assets/demo area.
+- The repository root is now a virtual Cargo workspace (`default-members = ["systems/gb"]`) and no longer owns a Rust package directly.
+- Game Boy core/system package now lives in `systems/gb` (Cargo package name remains `gb-emu`).
+- Headless CLI frontend is extracted to `frontends/cli` (workspace package/path dependency on `systems/gb`) while preserving the CLI binary name `gb-emu`.
+- SDL2 desktop frontend is extracted to `frontends/sdl2` (workspace package/path dependency on `systems/gb`).
+- Rust/WASM frontend adapter is extracted to `frontends/wasm` (workspace package/path dependency on `systems/gb`), while `web/` remains the browser host assets/demo area.
 
 ## Project Structure
 
 ```text
-src/
-  audio.rs
-  cartridge/
-  cpu/
-  gameboy.rs
-  hardware.rs
-  memory/
-  timing.rs
-  lib.rs
+systems/
+  gb/
+    Cargo.toml
+    src/
+      audio.rs
+      cartridge/
+      cpu/
+      gameboy.rs
+      hardware.rs
+      memory/
+      timing.rs
+      lib.rs
+    tests/
+      integration_smoke.rs
 frontends/
   cli/
     Cargo.toml
@@ -85,8 +91,6 @@ frontends/
     Cargo.toml
     src/
       lib.rs
-tests/
-  integration_smoke.rs
 scripts/
   dev/
     bootstrap.sh
@@ -137,7 +141,7 @@ Supported models for `--model`:
 
 ### Project Architecture / Packaging Migration
 - Workspace migration is in progress, but all current frontends (CLI, SDL2, Rust/WASM) are now split into dedicated workspace packages.
-- The root package is still the GB system/core package (not yet moved to `systems/gb`), and shared frontend/runtime helpers are still co-located until later migration phases tracked in `MIGRATION_FRONTENDS_WORKSPACE_PLAN.md`.
+- The GB system/core package has moved to `systems/gb`, but shared frontend/runtime helpers are still co-located there until later migration phases (notably `runtime` extraction) tracked in `MIGRATION_FRONTENDS_WORKSPACE_PLAN.md`.
 
 ### Cartridge / Mapper / Persistence Limits
 - Supported cartridge types:
