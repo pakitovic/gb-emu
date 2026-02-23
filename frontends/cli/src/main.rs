@@ -1,6 +1,6 @@
-use gb_emu::cartridge::Cartridge;
 use gb_emu::gameboy::GameBoy;
 use gb_emu::hardware::HardwareModel;
+use gb_runtime::cartridge_persistence::load_cartridge_from_file;
 use std::env;
 use std::error::Error;
 use std::io;
@@ -161,7 +161,7 @@ fn run_mooneye(gb: &mut GameBoy, max_steps: usize, trace: bool) -> Option<&'stat
 fn run() -> Result<(), Box<dyn Error>> {
     let options = parse_args(env::args().skip(1))?;
 
-    let cartridge = Cartridge::from_file(&options.rom_path)?;
+    let (cartridge, persistence) = load_cartridge_from_file(&options.rom_path)?;
     if options.cart_info {
         println!("{}", cartridge.metadata().debug_report());
         return Ok(());
@@ -207,7 +207,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         run_forever(&mut gb, options.trace);
     }
 
-    gb.flush_battery_save()?;
+    persistence.flush_gameboy(&mut gb)?;
     Ok(())
 }
 

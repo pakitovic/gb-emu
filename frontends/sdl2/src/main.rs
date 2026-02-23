@@ -1,4 +1,3 @@
-use gb_emu::cartridge::Cartridge;
 use gb_emu::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
 use gb_emu::hardware::HardwareModel;
 use gb_emu::input::Button;
@@ -6,6 +5,7 @@ use gb_runtime::audio::{
     AdaptiveQueueController, AdaptiveQueueOptions, AudioMixer, AudioResamplerQuality, MixerSource,
     estimate_playback_underrun_samples,
 };
+use gb_runtime::cartridge_persistence::load_cartridge_from_file;
 use gb_runtime::timing::FramePacer;
 use sdl2::audio::AudioSpecDesired;
 use sdl2::event::Event;
@@ -37,7 +37,7 @@ fn main() {
 fn run() -> Result<(), Box<dyn Error>> {
     let (rom_path, model) = parse_args(env::args().skip(1))?;
 
-    let cartridge = Cartridge::from_file(&rom_path)?;
+    let (cartridge, persistence) = load_cartridge_from_file(&rom_path)?;
     let mut gb = GameBoy::new_with_model(cartridge, model);
     gb.set_audio_tcycle_stream_enabled(true);
     let cartridge_metadata = gb.cartridge_metadata();
@@ -216,7 +216,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         canvas.present();
     }
 
-    gb.flush_battery_save().map_err(io::Error::other)?;
+    persistence
+        .flush_gameboy(&mut gb)
+        .map_err(io::Error::other)?;
 
     Ok(())
 }

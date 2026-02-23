@@ -1,5 +1,5 @@
 use super::Bus;
-use crate::cartridge::{CartridgeError, CartridgeMetadata};
+use crate::cartridge::CartridgeMetadata;
 
 impl Bus {
     pub fn rom_title(&self) -> &str {
@@ -18,8 +18,20 @@ impl Bus {
         &self.framebuffer
     }
 
-    pub fn flush_battery_save(&mut self) -> Result<(), CartridgeError> {
-        self.cartridge.flush_save()
+    pub fn cartridge_battery_save_dirty(&self) -> bool {
+        self.cartridge.battery_save_dirty()
+    }
+
+    pub fn export_cartridge_save_ram_bytes(&self) -> Option<Vec<u8>> {
+        self.cartridge.export_save_ram_bytes()
+    }
+
+    pub fn export_cartridge_rtc_persistence_bytes(&mut self) -> Option<Vec<u8>> {
+        self.cartridge.export_rtc_persistence_bytes()
+    }
+
+    pub fn mark_cartridge_persistence_clean(&mut self) {
+        self.cartridge.mark_persistence_clean();
     }
 
     pub fn cartridge_metadata(&self) -> CartridgeMetadata {
