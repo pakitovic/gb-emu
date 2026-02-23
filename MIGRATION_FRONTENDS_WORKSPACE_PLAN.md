@@ -403,7 +403,7 @@ Implementation summary:
 
 ### Phase 2 - Extract `frontends/sdl2`
 
-Status: `TODO`
+Status: `DONE`
 
 Goal:
 
@@ -434,6 +434,32 @@ Acceptance criteria:
 - SDL2 frontend builds and runs
 - behavior and controls remain unchanged
 - no SDL2 dependency remains in the system package
+
+### Phase 2 SDL2 Extraction (Executed)
+
+Execution date:
+
+- `2026-02-23` (local workspace session)
+
+Working branch:
+
+- `codex/workspace-phase2-extract-sdl2`
+
+Implementation summary:
+
+- Created `frontends/sdl2` workspace package and moved SDL2 frontend binary source:
+  - `src/bin/frontend_sdl2.rs` -> `frontends/sdl2/src/main.rs`
+- Added `frontends/sdl2/Cargo.toml` with:
+  - path dependency on the root GB package (`gb-emu`)
+  - local `sdl2` dependency
+- Updated root `Cargo.toml` workspace members to include `frontends/sdl2`
+- Removed SDL2-specific items from the root package:
+  - `sdl2` dependency
+  - `frontend-sdl2` feature
+  - root `[[bin]] frontend-sdl2`
+- Updated SDL2 helper script and README commands to use workspace package invocation:
+  - `cargo build/run -p frontend-sdl2 ...`
+- Preserved SDL2 binary name (`frontend-sdl2`) and runtime behavior
 
 ### Phase 3 - Extract `frontends/wasm` (Rust/WASM Adapter)
 
@@ -644,7 +670,7 @@ Use this table as the migration source of truth.
 | --- | --- | --- | --- | --- | --- |
 | 0 | Baseline snapshot | DONE | `codex/phase0-baseline-snapshot` |  | Full quality + frontend checks + Blargg/Gekkio baseline green |
 | 1 | Workspace root | DONE | `codex/workspace-phase1-root-hybrid` | `#102` | Hybrid workspace root (`Cargo.toml`) added with root package kept in place |
-| 2 | Extract SDL2 frontend | TODO |  |  |  |
+| 2 | Extract SDL2 frontend | DONE | `codex/workspace-phase2-extract-sdl2` |  | SDL2 frontend moved to `frontends/sdl2`; root package SDL2 dependency/bin removed |
 | 3 | Extract WASM frontend | TODO |  |  |  |
 | 4 | Extract CLI frontend | TODO |  |  |  |
 | 5 | Move core to `systems/gb` | TODO |  |  |  |

@@ -52,13 +52,15 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 ### Validation / CI
 - Blargg + Gekkio ROM test integration in local scripts and CI.
 
+### Project Architecture / Workspace Migration
+- Hybrid Cargo workspace root is active (`default-members = ["."]`) to stage the frontend/core package split while preserving current root-package default commands.
+- SDL2 desktop frontend is now extracted to `frontends/sdl2` (workspace package/path dependency on the root GB package), and the root package no longer contains the SDL2 binary target or `sdl2` dependency.
+
 ## Project Structure
 
 ```text
 src/
   audio.rs
-  bin/
-    frontend_sdl2.rs
   cartridge/
   cpu/
   gameboy.rs
@@ -68,6 +70,11 @@ src/
   web.rs
   lib.rs
   main.rs
+frontends/
+  sdl2/
+    Cargo.toml
+    src/
+      main.rs
 tests/
   cli_cart_info.rs
   integration_smoke.rs
@@ -118,6 +125,10 @@ Supported models for `--model`:
 - `sgb2`
 
 ## Current Limitations
+
+### Project Architecture / Packaging Migration
+- Workspace migration is in progress: SDL2 is split out, but the CLI frontend (`src/main.rs`) and Rust/WASM adapter (`src/web.rs`) still live in the root package until later migration phases.
+- The root package still mixes system/core code with frontend-facing APIs required by the current CLI/WASM paths; further package extraction phases are tracked in `MIGRATION_FRONTENDS_WORKSPACE_PLAN.md`.
 
 ### Cartridge / Mapper / Persistence Limits
 - Supported cartridge types:
@@ -247,7 +258,7 @@ Useful environment overrides for scripts:
 SDL2 desktop frontend (macOS / Windows / Linux):
 
 ```bash
-cargo run --features frontend-sdl2 --bin frontend-sdl2 -- <path_to_rom.gb> [dmg0|dmg|mgb|sgb|sgb2]
+cargo run -p frontend-sdl2 --bin frontend-sdl2 -- <path_to_rom.gb> [dmg0|dmg|mgb|sgb|sgb2]
 ```
 
 SDL2 build/run helper (locks deps, prepares Homebrew SDL2 env on macOS, and clean-rebuilds by default):
@@ -285,7 +296,7 @@ Notes:
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
 - SDL2/Web pacing uses `timing::FramePacer` from the core to avoid frontend-specific timing drift.
-- SDL2 audio uses the core mixer clock bridge and queues stereo interleaved PCM in real time.
+- SDL2 audio uses the core mixer clock bridge and queues stereo interleaved PCM in real time (now from the `frontends/sdl2` workspace package).
 - SDL2 queue refill is driven by emulated audio t-cycles; underruns are padded with silence (no synthetic emulated cycles).
 - SDL2 queue target is auto-tuned over time windows (same policy as web) using estimated underruns from elapsed playback vs queued samples.
 - `scripts/dev/run_sdl2_frontend.sh` is the recommended local command for clean SDL2 rebuilds and consistent macOS/Homebrew linker env setup.
