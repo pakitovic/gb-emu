@@ -643,7 +643,7 @@ Use this table as the migration source of truth.
 | Phase | Title | Status | Branch | PR | Notes |
 | --- | --- | --- | --- | --- | --- |
 | 0 | Baseline snapshot | DONE | `codex/phase0-baseline-snapshot` |  | Full quality + frontend checks + Blargg/Gekkio baseline green |
-| 1 | Workspace root | DONE | `codex/workspace-phase1-root-hybrid` |  | Hybrid workspace root (`Cargo.toml`) added with root package kept in place |
+| 1 | Workspace root | DONE | `codex/workspace-phase1-root-hybrid` | `#102` | Hybrid workspace root (`Cargo.toml`) added with root package kept in place |
 | 2 | Extract SDL2 frontend | TODO |  |  |  |
 | 3 | Extract WASM frontend | TODO |  |  |  |
 | 4 | Extract CLI frontend | TODO |  |  |  |
