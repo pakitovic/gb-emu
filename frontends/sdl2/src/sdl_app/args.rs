@@ -51,6 +51,28 @@ fn parse_audio_resampler_quality(value: &str) -> Result<AudioResamplerQuality, i
     }
 }
 
+fn parse_sdl_vsync(value: &str) -> Result<bool, io::Error> {
+    match value {
+        "1" | "true" | "on" => Ok(true),
+        "0" | "false" | "off" => Ok(false),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Invalid GB_SDL2_VSYNC='{value}' (expected 1/0, true/false, on/off)"),
+        )),
+    }
+}
+
+pub(super) fn parse_sdl_vsync_from_env() -> Result<bool, io::Error> {
+    match env::var("GB_SDL2_VSYNC") {
+        Ok(value) => parse_sdl_vsync(value.trim()),
+        Err(env::VarError::NotPresent) => Ok(true),
+        Err(err) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Failed to read GB_SDL2_VSYNC: {err}"),
+        )),
+    }
+}
+
 pub(super) fn parse_audio_resampler_quality_from_env() -> Result<AudioResamplerQuality, io::Error> {
     match env::var("GB_AUDIO_RESAMPLER") {
         Ok(value) => parse_audio_resampler_quality(value.trim()),
@@ -122,5 +144,21 @@ mod tests {
     fn parse_audio_resampler_quality_rejects_invalid_values() {
         let err = parse_audio_resampler_quality("nearest").expect_err("invalid value should fail");
         assert!(err.to_string().contains("GB_AUDIO_RESAMPLER"));
+    }
+
+    #[test]
+    fn parse_sdl_vsync_accepts_supported_values() {
+        for value in ["1", "true", "on"] {
+            assert!(parse_sdl_vsync(value).expect("truthy value should parse"));
+        }
+        for value in ["0", "false", "off"] {
+            assert!(!parse_sdl_vsync(value).expect("falsy value should parse"));
+        }
+    }
+
+    #[test]
+    fn parse_sdl_vsync_rejects_invalid_values() {
+        let err = parse_sdl_vsync("maybe").expect_err("invalid value should fail");
+        assert!(err.to_string().contains("GB_SDL2_VSYNC"));
     }
 }

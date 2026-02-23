@@ -14,7 +14,10 @@ mod audio_queue;
 mod input;
 mod ui;
 
-use args::{audio_resampler_quality_name, parse_args, parse_audio_resampler_quality_from_env};
+use args::{
+    audio_resampler_quality_name, parse_args, parse_audio_resampler_quality_from_env,
+    parse_sdl_vsync_from_env,
+};
 use audio_queue::{SdlAudioQueueState, refill_audio_queue};
 use input::{EventAction, process_event};
 use ui::{build_window_title, render_grayscale_frame, show_cartridge_info_dialog};
@@ -61,11 +64,14 @@ fn run() -> Result<(), Box<dyn Error>> {
         .build()
         .map_err(io::Error::other)?;
 
-    let mut canvas = window
-        .into_canvas()
-        .accelerated()
-        .build()
-        .map_err(io::Error::other)?;
+    let sdl_vsync = parse_sdl_vsync_from_env()?;
+    let canvas_builder = window.into_canvas().accelerated();
+    let mut canvas = if sdl_vsync {
+        canvas_builder.present_vsync().build()
+    } else {
+        canvas_builder.build()
+    }
+    .map_err(io::Error::other)?;
 
     let texture_creator = canvas.texture_creator();
     let mut texture = texture_creator
@@ -104,6 +110,10 @@ fn run() -> Result<(), Box<dyn Error>> {
         },
         audio_mixer.sample_rate_hz(),
         audio_resampler_quality_name(audio_mixer.core_resampler_quality())
+    );
+    println!(
+        "Video config: renderer=accelerated | vsync={}",
+        if sdl_vsync { "on" } else { "off" }
     );
 
     let mut event_pump = sdl.event_pump().map_err(io::Error::other)?;
