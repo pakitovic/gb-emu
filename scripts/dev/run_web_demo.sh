@@ -5,7 +5,8 @@ show_help() {
   cat <<'EOF'
 Usage: scripts/dev/run_web_demo.sh [options]
 
-Builds the wasm frontend, syncs generated pkg artifacts into web/minimal/pkg,
+Builds the Rust/WASM frontend package (`frontends/wasm`), syncs generated pkg
+artifacts into web/minimal/pkg,
 and optionally serves the project root so the demo is available at
 http://localhost:<port>/web/minimal/
 
@@ -54,7 +55,7 @@ require_cmd() {
 }
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-PKG_SOURCE_DIR="$ROOT_DIR/pkg"
+PKG_SOURCE_DIR="$ROOT_DIR/frontends/wasm/pkg"
 PKG_DEST_DIR="$ROOT_DIR/web/minimal/pkg"
 
 require_cmd wasm-pack
@@ -64,7 +65,7 @@ fi
 
 printf "Building wasm frontend artifacts...\n"
 cd "$ROOT_DIR"
-wasm-pack build --target web --features frontend-web
+wasm-pack build frontends/wasm --target web --out-name gb_emu
 
 if [ ! -d "$PKG_SOURCE_DIR" ]; then
   printf "Expected wasm-pack output directory not found: %s\n" "$PKG_SOURCE_DIR" >&2

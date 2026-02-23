@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "frontends/sdl2"]
+members = [".", "frontends/sdl2", "frontends/wasm"]
 default-members = ["."]
 resolver = "3"
 
@@ -13,8 +13,3 @@ crate-type = ["rlib", "cdylib"]
 
 [features]
 default = []
-frontend-web = ["dep:wasm-bindgen", "dep:js-sys"]
-
-[dependencies]
-wasm-bindgen = { version = "0.2.100", optional = true }
-js-sys = { version = "0.3.77", optional = true }

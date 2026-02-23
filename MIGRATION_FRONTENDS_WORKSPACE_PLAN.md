@@ -463,7 +463,7 @@ Implementation summary:
 
 ### Phase 3 - Extract `frontends/wasm` (Rust/WASM Adapter)
 
-Status: `TODO`
+Status: `DONE`
 
 Goal:
 
@@ -492,6 +492,33 @@ Acceptance criteria:
 - WASM package builds
 - browser demo integration remains functional
 - no `wasm-bindgen`/`js-sys` dependency remains in the system package
+
+### Phase 3 WASM Extraction (Executed)
+
+Execution date:
+
+- `2026-02-23` (local workspace session)
+
+Working branch:
+
+- `codex/workspace-phase3-extract-wasm`
+
+Implementation summary:
+
+- Created `frontends/wasm` workspace package and moved Rust/WASM adapter source:
+  - `src/web.rs` -> `frontends/wasm/src/lib.rs`
+- Added `frontends/wasm/Cargo.toml` with:
+  - path dependency on the root GB package (`gb-emu`)
+  - local `wasm-bindgen` and `js-sys` dependencies
+- Updated root `Cargo.toml` workspace members to include `frontends/wasm`
+- Removed WASM-specific items from the root package:
+  - `wasm-bindgen` dependency
+  - `js-sys` dependency
+  - `frontend-web` feature
+  - `web` module export from `src/lib.rs`
+- Updated WASM helper script and README commands to build from the workspace package:
+  - `wasm-pack build frontends/wasm --target web --out-name gb_emu`
+- Preserved the browser demo import contract by keeping the generated output basename `gb_emu` for `web/minimal/pkg/gb_emu.js`
 
 ### Phase 4 - Extract `frontends/cli`
 
@@ -670,8 +697,8 @@ Use this table as the migration source of truth.
 | --- | --- | --- | --- | --- | --- |
 | 0 | Baseline snapshot | DONE | `codex/phase0-baseline-snapshot` |  | Full quality + frontend checks + Blargg/Gekkio baseline green |
 | 1 | Workspace root | DONE | `codex/workspace-phase1-root-hybrid` | `#102` | Hybrid workspace root (`Cargo.toml`) added with root package kept in place |
-| 2 | Extract SDL2 frontend | DONE | `codex/workspace-phase2-extract-sdl2` |  | SDL2 frontend moved to `frontends/sdl2`; root package SDL2 dependency/bin removed |
-| 3 | Extract WASM frontend | TODO |  |  |  |
+| 2 | Extract SDL2 frontend | DONE | `codex/workspace-phase2-extract-sdl2` | `#103` | SDL2 frontend moved to `frontends/sdl2`; root package SDL2 dependency/bin removed |
+| 3 | Extract WASM frontend | DONE | `codex/workspace-phase3-extract-wasm` |  | Rust/WASM adapter moved to `frontends/wasm`; root package `frontend-web` feature and wasm deps removed |
 | 4 | Extract CLI frontend | TODO |  |  |  |
 | 5 | Move core to `systems/gb` | TODO |  |  |  |
 | 6 | Extract `runtime` | TODO |  |  |  |
