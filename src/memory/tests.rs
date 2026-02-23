@@ -1522,24 +1522,105 @@ fn mode3_bg_push_stall_recovery_consumes_sleep_dot_before_push() {
         "expected to observe a BG push stall in mode3"
     );
 
-    // The fetcher remains stalled in Push while FIFO drains, then spends one
-    // explicit non-stalled Push "sleep" dot before the actual push returns to TileIndex.
-    let mut observed_sleep_dot = false;
+    // The fetcher remains stalled in Push while FIFO drains, then latches an
+    // explicit RecoverySleep substate for the next dot.
+    let mut observed_recovery_latch = false;
     for _ in 0..8 {
         bus.tick(1);
         assert_eq!(bus.mode3_bg_fetch_phase(), 3);
-        if !bus.mode3_bg_push_stalled_for_fifo() {
-            observed_sleep_dot = true;
+        if bus.mode3_bg_push_recovery_sleep_pending() {
+            observed_recovery_latch = true;
             break;
         }
     }
     assert!(
-        observed_sleep_dot,
-        "expected to observe non-stalled Push sleep dot after FIFO drain"
+        observed_recovery_latch,
+        "expected to observe explicit Push recovery-sleep substate after FIFO drain"
     );
 
     bus.tick(1);
+    assert_eq!(
+        bus.mode3_bg_fetch_phase(),
+        3,
+        "expected push-ready dot after RecoverySleep before Push completes"
+    );
+    assert!(bus.mode3_bg_push_ready_takeover_boundary());
+
+    bus.tick(1);
     assert_eq!(bus.mode3_bg_fetch_phase(), 0);
+}
+
+#[test]
+fn mode3_bg_push_substate_sequence_latches_recovery_sleep_before_push_ready() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+
+    for i in 0..32u16 {
+        bus.write_byte(0x9C00 + i, 0x00);
+    }
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+
+    bus.write_byte(0xFF40, 0x91); // LCD on + BG on
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    let mut saw_stalled_push = false;
+    for _ in 0..128 {
+        bus.tick(1);
+        if bus.mode3_bg_fetch_phase() == 3
+            && bus.mode3_output_x() > 0
+            && bus.mode3_bg_push_stalled_for_fifo()
+        {
+            saw_stalled_push = true;
+            break;
+        }
+    }
+    assert!(saw_stalled_push, "expected a stalled Push substate");
+    assert!(!bus.mode3_bg_push_recovery_sleep_pending());
+    assert!(!bus.mode3_bg_push_ready_takeover_boundary());
+
+    let mut saw_recovery_sleep = false;
+    for _ in 0..8 {
+        bus.tick(1);
+        if bus.mode3_bg_fetch_phase() == 3 && bus.mode3_bg_push_recovery_sleep_pending() {
+            saw_recovery_sleep = true;
+            break;
+        }
+    }
+    assert!(
+        saw_recovery_sleep,
+        "expected explicit Push recovery-sleep substate"
+    );
+    assert!(!bus.mode3_bg_push_stalled_for_fifo());
+    assert!(
+        !bus.mode3_bg_push_ready_takeover_boundary(),
+        "recovery-sleep dot must not be classified as push-ready boundary"
+    );
+
+    bus.tick(1);
+    assert_eq!(
+        bus.mode3_bg_fetch_phase(),
+        3,
+        "expected to stay in Push for push-ready dot"
+    );
+    assert!(!bus.mode3_bg_push_stalled_for_fifo());
+    assert!(!bus.mode3_bg_push_recovery_sleep_pending());
+    assert!(
+        bus.mode3_bg_push_ready_takeover_boundary(),
+        "expected push-ready boundary exactly one dot after recovery sleep"
+    );
+
+    bus.tick(1);
+    assert_eq!(
+        bus.mode3_bg_fetch_phase(),
+        0,
+        "expected Push to complete into TileIndex"
+    );
+    assert!(!bus.mode3_bg_push_recovery_sleep_pending());
 }
 
 #[test]
