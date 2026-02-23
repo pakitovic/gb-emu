@@ -2804,6 +2804,13 @@ fn mode3_window_trigger_does_not_fire_on_obj_shutdown_release_dot() {
     // because takeover was checked before shutdown ownership was released.
     bus.tick(1);
     assert_eq!(bus.mode3_obj_shutdown_dots_remaining(), 0);
+    let release_is_push_ready_boundary = bus.mode3_bg_push_ready_takeover_boundary();
+    let release_is_tileindex_boundary = bus.mode3_bg_fetch_phase() == 0
+        && bus.mode3_bg_fetch_dots_remaining() == 0
+        && bus.mode3_bg_takeover_boundary()
+        && !bus.mode3_bg_push_stalled_for_fifo()
+        && !bus.mode3_bg_push_recovery_sleep_pending()
+        && !release_is_push_ready_boundary;
     assert!(
         !bus.mode3_window_triggered_this_line(),
         "window restart must not fire on the same dot OBJ shutdown releases"
@@ -2828,6 +2835,14 @@ fn mode3_window_trigger_does_not_fire_on_obj_shutdown_release_dot() {
         bus.read_byte(0xFE00),
         0xFF,
         "OAM should remain blocked in mode3 on the OBJ shutdown release dot"
+    );
+    assert!(
+        release_is_tileindex_boundary || release_is_push_ready_boundary,
+        "expected OBJ shutdown release dot to align with a classified BG boundary (tileindex or push-ready)"
+    );
+    assert_ne!(
+        release_is_tileindex_boundary, release_is_push_ready_boundary,
+        "OBJ shutdown release dot classification should be exactly one boundary class"
     );
 
     let mut triggered = false;
