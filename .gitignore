@@ -1,6 +1,6 @@
 /target
 /roms/*
 !/roms/.gitkeep
-web/minimal/pkg/
+web/pkg/
 
 **/.DS_Store

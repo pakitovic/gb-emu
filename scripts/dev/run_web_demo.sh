@@ -6,9 +6,9 @@ show_help() {
 Usage: scripts/dev/run_web_demo.sh [options]
 
 Builds the Rust/WASM frontend package (`frontends/wasm`), syncs generated pkg
-artifacts into web/minimal/pkg,
+artifacts into web/pkg,
 and optionally serves the project root so the demo is available at
-http://localhost:<port>/web/minimal/
+http://localhost:<port>/web/
 
 Options:
   --port <port>  HTTP port for python3 http.server (default: 8080).
@@ -56,7 +56,7 @@ require_cmd() {
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 PKG_SOURCE_DIR="$ROOT_DIR/frontends/wasm/pkg"
-PKG_DEST_DIR="$ROOT_DIR/web/minimal/pkg"
+PKG_DEST_DIR="$ROOT_DIR/web/pkg"
 
 require_cmd wasm-pack
 if [ "$serve" -eq 1 ]; then
@@ -76,7 +76,7 @@ rm -rf "$PKG_DEST_DIR"
 mv "$PKG_SOURCE_DIR" "$PKG_DEST_DIR"
 
 printf "Synced wasm artifacts to %s\n" "$PKG_DEST_DIR"
-printf "# Open http://localhost:%s/web/minimal/\n" "$port"
+printf "# Open http://localhost:%s/web/\n" "$port"
 
 if [ "$serve" -eq 1 ]; then
   python3 -m http.server "$port"
