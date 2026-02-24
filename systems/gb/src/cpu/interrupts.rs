@@ -21,6 +21,10 @@ impl Cpu {
     pub(super) fn service_interrupt(&mut self, bus: &mut impl CpuContext, _pending: u8) -> u8 {
         self.ime = false;
         self.halted = false;
+        // A pending HALT-bug latch affects the next opcode fetch path. Interrupt
+        // service performs no opcode fetch and should not carry that latch into
+        // post-interrupt execution.
+        self.halt_bug = false;
 
         // Interrupt dispatch takes 5 M-cycles on DMG:
         // 2 idle cycles, then PC high/low push, then vector/jump cycle.
