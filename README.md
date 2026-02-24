@@ -53,7 +53,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 
 ### Validation / CI
 - Blargg + Gekkio ROM test integration in local scripts and CI.
-- CPU unit regressions include explicit interrupt-control corner coverage (IME/EI/DI/RETI ordering, `EI->HALT` halt-bug sequencing, `HALT` wake/no-wake behavior when `IF`/`IE` change while halted, pending-interrupt preemption of `HALT`/`STOP`, current DMG-scope `STOP` characterization, and interrupt-dispatch stack-push side effects when `IE`/`IF` are overwritten mid-dispatch) to complement Blargg/Gekkio suites.
+- CPU unit regressions include explicit interrupt-control corner coverage (IME/EI/DI/RETI ordering, `EI->HALT` halt-bug sequencing, `HALT` wake/no-wake behavior when `IF`/`IE` change while halted, halt-bug latch behavior when pending interrupts are cleared/masked or the interrupt source changes before the next step, pending-interrupt preemption of `HALT`/`STOP`, current DMG-scope `STOP` characterization including delayed-service source changes and combined `IF/IE` priority re-evaluation after `EI->STOP`, and interrupt-dispatch stack-push side effects when `IE`/`IF` are overwritten mid-dispatch) to complement Blargg/Gekkio suites.
 
 ### Project Architecture / Workspace Layout
 - The repository root is now a virtual Cargo workspace (`default-members = ["systems/gb"]`) and no longer owns a Rust package directly.
