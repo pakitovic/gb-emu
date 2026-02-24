@@ -760,6 +760,45 @@ fn ei_then_halt_halt_bug_dispatch_uses_updated_ie_source_before_next_step() {
 }
 
 #[test]
+fn ei_then_halt_halt_bug_dispatch_reevaluates_combined_if_ie_priority_before_next_step() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.ime = false;
+    cpu.ime_enable_delay = 0;
+    cpu.registers.pc = 0xC000;
+    cpu.registers.sp = 0xD000;
+    cpu.registers.b = 0x00;
+
+    bus.write_byte(0xC000, 0xFB); // EI
+    bus.write_byte(0xC001, 0x76); // HALT
+    bus.write_byte(0xC002, 0x04); // INC B (must be preempted if dispatch happens)
+    bus.write_byte(0xFFFF, 0x01); // IE: VBlank only (initially)
+    bus.set_interrupt_flags(0x01); // IF: VBlank pending (initial source)
+
+    let cycles_1 = cpu.step(&mut bus);
+    assert_eq!(cycles_1, 4);
+    let cycles_2 = cpu.step(&mut bus);
+    assert_eq!(cycles_2, 4);
+    assert!(cpu.halt_bug);
+    assert!(cpu.ime); // EI delay expired at end of HALT step
+    assert_eq!(cpu.registers.pc, 0xC002);
+
+    // Replace both IF and IE with a different combined pending/enabled set.
+    // Intersection becomes TIMER + JOYPAD; TIMER (bit2) must win by priority.
+    bus.set_interrupt_flags(0x1C); // TIMER + SERIAL + JOYPAD pending
+    bus.write_byte(0xFFFF, 0x14); // TIMER + JOYPAD enabled
+
+    let cycles_3 = cpu.step(&mut bus);
+    assert_eq!(cycles_3, 20);
+    assert_eq!(cpu.registers.pc, 0x0050); // TIMER vector wins over JOYPAD
+    assert_eq!(cpu.registers.b, 0x00); // HALT-bug duplicate fetch was preempted by dispatch
+    assert!(!cpu.ime);
+    assert!(!cpu.halt_bug);
+    assert_eq!(bus.interrupt_flags() & 0x1F, 0x18); // SERIAL + JOYPAD remain pending
+}
+
+#[test]
 fn halt_with_ime_on_and_already_pending_interrupt_is_preempted_before_halt_executes() {
     let mut cpu = Cpu::new();
     let mut bus = make_test_bus();
@@ -1013,4 +1052,39 @@ fn ei_then_stop_delayed_dispatch_uses_updated_ie_source_before_next_step() {
     assert_eq!(cpu.registers.pc, 0x0048); // STAT vector
     assert!(!cpu.ime);
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x01); // VBlank remains pending but masked
+}
+
+#[test]
+fn ei_then_stop_delayed_dispatch_reevaluates_combined_if_ie_priority_before_service_step() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.ime = false;
+    cpu.ime_enable_delay = 0;
+    cpu.registers.pc = 0xC000;
+    cpu.registers.sp = 0xD000;
+    bus.write_byte(0xC000, 0xFB); // EI
+    bus.write_byte(0xC001, 0x10); // STOP
+    bus.write_byte(0xC002, 0x99); // STOP padding
+    bus.write_byte(0xC003, 0x00); // NOP (must be preempted by delayed dispatch)
+    bus.write_byte(0xFFFF, 0x01); // IE: VBlank only (initially)
+    bus.set_interrupt_flags(0x01); // IF: VBlank pending (initial source)
+
+    let cycles_1 = cpu.step(&mut bus);
+    assert_eq!(cycles_1, 4);
+    let cycles_2 = cpu.step(&mut bus);
+    assert_eq!(cycles_2, 4);
+    assert_eq!(cpu.registers.pc, 0xC003); // STOP consumed opcode + padding
+    assert!(cpu.ime); // EI delay expired at end of STOP step
+
+    // Replace both IF and IE before the delayed service step.
+    // Intersection becomes STAT + TIMER; STAT (bit1) must win by priority.
+    bus.set_interrupt_flags(0x0E); // STAT + TIMER + SERIAL pending
+    bus.write_byte(0xFFFF, 0x06); // STAT + TIMER enabled
+
+    let cycles_3 = cpu.step(&mut bus);
+    assert_eq!(cycles_3, 20);
+    assert_eq!(cpu.registers.pc, 0x0048); // STAT vector wins over TIMER
+    assert!(!cpu.ime);
+    assert_eq!(bus.interrupt_flags() & 0x1F, 0x0C); // TIMER + SERIAL remain pending
 }
