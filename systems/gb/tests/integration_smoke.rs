@@ -583,6 +583,17 @@ fn wait_for_ly_mode(gb: &mut GameBoy, target_ly: u8, target_mode: u8) {
     panic!("LY={target_ly} mode={target_mode} not observed");
 }
 
+fn wait_until_mode_changes(gb: &mut GameBoy, from_mode: u8) {
+    for _ in 0..(456 * 2) {
+        let mode = gb.bus.read_byte(0xFF41) & 0x03;
+        if mode != from_mode {
+            return;
+        }
+        gb.bus.tick(1);
+    }
+    panic!("mode did not change from {from_mode}");
+}
+
 fn ticks_until_stat_irq(gb: &mut GameBoy) -> u16 {
     let mut ticks = 0u16;
     for _ in 0..512 {
@@ -637,4 +648,100 @@ fn mode3_obj_contention_delays_stat_mode0_irq_via_gameboy_bus() {
         with_obj_ticks > no_obj_ticks,
         "expected OBJ contention to delay mode0 STAT IRQ (no_obj={no_obj_ticks}, with_obj={with_obj_ticks})"
     );
+}
+
+#[test]
+fn cpu_read_from_oam_returns_ff_during_active_oam_dma_via_gameboy_step() {
+    let mut rom = make_rom_32kb();
+    rom[0x0100] = 0xFA; // LD A,(a16)
+    rom[0x0101] = 0x00; // low
+    rom[0x0102] = 0xFE; // high => FE00
+
+    let cartridge = Cartridge::from_bytes(rom).expect("valid ROM should load");
+    let mut gb = GameBoy::new(cartridge);
+
+    gb.bus.write_byte(0xC000, 0x42); // DMA source data for OAM[0]
+    gb.bus.write_byte(0xFE00, 0x99); // visible pre-DMA OAM value
+    gb.bus.write_byte(0xFF46, 0xC0); // OAM DMA from C000
+    gb.bus.tick(8); // enter active DMA phase (OAM CPU reads blocked)
+
+    let cycles = gb.step();
+
+    assert_eq!(cycles, 16);
+    assert_eq!(gb.cpu.registers.pc, 0x0103);
+    assert_eq!(gb.cpu.registers.a, 0xFF);
+}
+
+#[test]
+fn cpu_write_to_oam_is_ignored_during_active_oam_dma_via_gameboy_step() {
+    let mut rom = make_rom_32kb();
+    rom[0x0100] = 0xEA; // LD (a16),A
+    rom[0x0101] = 0x00; // low
+    rom[0x0102] = 0xFE; // high => FE00
+
+    let cartridge = Cartridge::from_bytes(rom).expect("valid ROM should load");
+    let mut gb = GameBoy::new(cartridge);
+    gb.cpu.registers.a = 0xAA;
+
+    gb.bus.write_byte(0xC000, 0x55); // DMA source for OAM[0]
+    gb.bus.write_byte(0xFF46, 0xC0); // start OAM DMA
+    gb.bus.tick(8); // active DMA phase
+
+    let cycles = gb.step();
+    assert_eq!(cycles, 16);
+    assert_eq!(gb.cpu.registers.pc, 0x0103);
+
+    // Finish DMA and verify CPU write did not land; DMA source wins.
+    tick_n_tcycles(&mut gb, 700);
+    assert_eq!(gb.bus.read_byte(0xFE00), 0x55);
+}
+
+#[test]
+fn cpu_read_from_vram_returns_ff_during_mode3_via_gameboy_step() {
+    let mut rom = make_rom_32kb();
+    rom[0x0100] = 0xFA; // LD A,(a16)
+    rom[0x0101] = 0x00; // low
+    rom[0x0102] = 0x80; // high => 8000
+
+    let cartridge = Cartridge::from_bytes(rom).expect("valid ROM should load");
+    let mut gb = GameBoy::new(cartridge);
+
+    gb.bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    gb.bus.write_byte(0xFF42, 0x00);
+    gb.bus.write_byte(0xFF43, 0x00);
+    gb.bus.write_byte(0x8000, 0x5A); // visible when not blocked
+    gb.bus.write_byte(0xFF40, 0x91); // LCD on + BG on
+    wait_for_ly_mode(&mut gb, 2, 3);
+
+    let cycles = gb.step();
+
+    assert_eq!(cycles, 16);
+    assert_eq!(gb.cpu.registers.pc, 0x0103);
+    assert_eq!(gb.cpu.registers.a, 0xFF);
+}
+
+#[test]
+fn cpu_write_to_vram_is_ignored_during_mode3_via_gameboy_step() {
+    let mut rom = make_rom_32kb();
+    rom[0x0100] = 0xEA; // LD (a16),A
+    rom[0x0101] = 0x00; // low
+    rom[0x0102] = 0x80; // high => 8000
+
+    let cartridge = Cartridge::from_bytes(rom).expect("valid ROM should load");
+    let mut gb = GameBoy::new(cartridge);
+    gb.cpu.registers.a = 0xA5;
+
+    gb.bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    gb.bus.write_byte(0xFF42, 0x00);
+    gb.bus.write_byte(0xFF43, 0x00);
+    gb.bus.write_byte(0x8000, 0x5A); // baseline value
+    gb.bus.write_byte(0xFF40, 0x91); // LCD on + BG on
+    wait_for_ly_mode(&mut gb, 2, 3);
+
+    let cycles = gb.step();
+    assert_eq!(cycles, 16);
+    assert_eq!(gb.cpu.registers.pc, 0x0103);
+
+    wait_until_mode_changes(&mut gb, 3);
+    assert_eq!(gb.bus.read_byte(0x8000), 0x5A);
 }
