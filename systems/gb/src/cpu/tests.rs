@@ -301,6 +301,151 @@ fn halt_with_pending_interrupt_and_ime_on_dispatches_interrupt() {
 }
 
 #[test]
+fn halted_ime_off_does_not_wake_when_if_changes_without_enabled_ie() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.ime = false;
+    cpu.registers.pc = 0xC000;
+    bus.write_byte(0xC000, 0x76); // HALT
+    bus.write_byte(0xC001, 0x00); // NOP (must not execute while interrupt stays masked)
+    bus.write_byte(0xFFFF, 0x00); // IE: all disabled
+    bus.set_interrupt_flags(0x00);
+
+    let cycles_1 = cpu.step(&mut bus);
+    assert_eq!(cycles_1, 4);
+    assert!(cpu.halted);
+    assert_eq!(cpu.registers.pc, 0xC001);
+
+    bus.set_interrupt_flags(0x01); // IF changes while HALTed, but IE still masks it
+
+    let cycles_2 = cpu.step(&mut bus);
+    assert_eq!(cycles_2, 4);
+    assert!(cpu.halted);
+    assert_eq!(cpu.registers.pc, 0xC001);
+    assert_eq!(bus.interrupt_flags() & 0x1F, 0x01);
+}
+
+#[test]
+fn halted_ime_off_wakes_when_if_sets_enabled_interrupt_without_servicing() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.ime = false;
+    cpu.registers.pc = 0xC000;
+    bus.write_byte(0xC000, 0x76); // HALT
+    bus.write_byte(0xC001, 0x00); // NOP (should execute on wake)
+    bus.write_byte(0xFFFF, 0x01); // IE: VBlank enabled
+    bus.set_interrupt_flags(0x00);
+
+    let cycles_1 = cpu.step(&mut bus);
+    assert_eq!(cycles_1, 4);
+    assert!(cpu.halted);
+    assert_eq!(cpu.registers.pc, 0xC001);
+
+    bus.set_interrupt_flags(0x01); // IF becomes pending while HALTed
+
+    let cycles_2 = cpu.step(&mut bus);
+    assert_eq!(cycles_2, 4);
+    assert!(!cpu.halted);
+    assert!(!cpu.ime);
+    assert_eq!(cpu.registers.pc, 0xC002); // NOP executed after wake (no dispatch)
+    assert_eq!(bus.interrupt_flags() & 0x1F, 0x01);
+}
+
+#[test]
+fn halted_ime_off_wakes_when_ie_enables_pending_if_without_servicing() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.ime = false;
+    cpu.registers.pc = 0xC000;
+    bus.write_byte(0xC000, 0x76); // HALT
+    bus.write_byte(0xC001, 0x00); // NOP (should execute on wake)
+    bus.write_byte(0xFFFF, 0x00); // IE initially masks interrupt
+    bus.set_interrupt_flags(0x00);
+
+    let cycles_1 = cpu.step(&mut bus);
+    assert_eq!(cycles_1, 4);
+    assert!(cpu.halted);
+    assert_eq!(cpu.registers.pc, 0xC001);
+
+    bus.set_interrupt_flags(0x01); // IF pending while still masked
+    let cycles_2 = cpu.step(&mut bus);
+    assert_eq!(cycles_2, 4);
+    assert!(cpu.halted);
+    assert_eq!(cpu.registers.pc, 0xC001);
+
+    bus.write_byte(0xFFFF, 0x01); // IE changes while HALTed and makes pending non-zero
+    let cycles_3 = cpu.step(&mut bus);
+    assert_eq!(cycles_3, 4);
+    assert!(!cpu.halted);
+    assert!(!cpu.ime);
+    assert_eq!(cpu.registers.pc, 0xC002); // NOP executes; interrupt remains pending
+    assert_eq!(bus.interrupt_flags() & 0x1F, 0x01);
+}
+
+#[test]
+fn halted_ime_on_does_not_wake_when_if_changes_without_enabled_ie() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.ime = true;
+    cpu.registers.pc = 0xC000;
+    bus.write_byte(0xC000, 0x76); // HALT
+    bus.write_byte(0xC001, 0x00); // NOP (must not execute while interrupt stays masked)
+    bus.write_byte(0xFFFF, 0x00); // IE: all disabled
+    bus.set_interrupt_flags(0x00);
+
+    let cycles_1 = cpu.step(&mut bus);
+    assert_eq!(cycles_1, 4);
+    assert!(cpu.halted);
+    assert_eq!(cpu.registers.pc, 0xC001);
+
+    bus.set_interrupt_flags(0x01); // IF changes while HALTed, but IE still masks it
+
+    let cycles_2 = cpu.step(&mut bus);
+    assert_eq!(cycles_2, 4);
+    assert!(cpu.halted);
+    assert!(cpu.ime);
+    assert_eq!(cpu.registers.pc, 0xC001);
+    assert_eq!(bus.interrupt_flags() & 0x1F, 0x01);
+}
+
+#[test]
+fn halted_ime_on_services_when_ie_enables_pending_if() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.ime = true;
+    cpu.registers.pc = 0xC000;
+    cpu.registers.sp = 0xD000;
+    bus.write_byte(0xC000, 0x76); // HALT
+    bus.write_byte(0xC001, 0x00); // NOP (must be preempted by interrupt dispatch)
+    bus.write_byte(0xFFFF, 0x00); // IE initially masks interrupt
+    bus.set_interrupt_flags(0x00);
+
+    let cycles_1 = cpu.step(&mut bus);
+    assert_eq!(cycles_1, 4);
+    assert!(cpu.halted);
+    assert_eq!(cpu.registers.pc, 0xC001);
+
+    bus.set_interrupt_flags(0x01); // IF pending while still masked
+    let cycles_2 = cpu.step(&mut bus);
+    assert_eq!(cycles_2, 4);
+    assert!(cpu.halted);
+    assert_eq!(cpu.registers.pc, 0xC001);
+
+    bus.write_byte(0xFFFF, 0x01); // IE enables pending IF while HALTed
+    let cycles_3 = cpu.step(&mut bus);
+    assert_eq!(cycles_3, 20);
+    assert!(!cpu.halted);
+    assert!(!cpu.ime);
+    assert_eq!(cpu.registers.pc, 0x0040);
+    assert_eq!(bus.interrupt_flags() & 0x1F, 0x00);
+}
+
+#[test]
 fn ei_delays_pending_interrupt_service_until_after_next_instruction() {
     let mut cpu = Cpu::new();
     let mut bus = make_test_bus();
@@ -535,6 +680,67 @@ fn stop_with_ime_on_and_already_pending_interrupt_is_preempted_before_stop_execu
     assert_eq!(cycles, 20);
     assert_eq!(cpu.registers.pc, 0x0040);
     assert!(!cpu.halted);
+    assert!(!cpu.ime);
+    assert_eq!(bus.interrupt_flags() & 0x1F, 0x00);
+}
+
+#[test]
+fn stop_with_ime_off_and_pending_interrupt_executes_current_noop_characterization() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.ime = false;
+    cpu.ime_enable_delay = 0;
+    cpu.registers.pc = 0xC000;
+    bus.write_byte(0xC000, 0x10); // STOP
+    bus.write_byte(0xC001, 0x99); // padding byte consumed by current implementation
+    bus.write_byte(0xFFFF, 0x01); // IE: VBlank
+    bus.set_interrupt_flags(0x01); // IF: VBlank pending
+
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(cycles, 4);
+    assert_eq!(cpu.registers.pc, 0xC002);
+    assert!(!cpu.halted);
+    assert!(!cpu.ime);
+    assert_eq!(cpu.ime_enable_delay, 0);
+    assert_eq!(bus.interrupt_flags() & 0x1F, 0x01); // pending remains latched
+}
+
+#[test]
+fn ei_then_stop_consumes_padding_before_delayed_interrupt_service() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.ime = false;
+    cpu.ime_enable_delay = 0;
+    cpu.registers.pc = 0xC000;
+    cpu.registers.sp = 0xD000;
+    bus.write_byte(0xC000, 0xFB); // EI
+    bus.write_byte(0xC001, 0x10); // STOP (the instruction after EI)
+    bus.write_byte(0xC002, 0x99); // STOP padding byte
+    bus.write_byte(0xC003, 0x00); // NOP (must be preempted after STOP completes)
+    bus.write_byte(0xFFFF, 0x01); // IE: VBlank
+    bus.set_interrupt_flags(0x01); // IF: VBlank pending
+
+    let cycles_1 = cpu.step(&mut bus);
+    assert_eq!(cycles_1, 4);
+    assert_eq!(cpu.registers.pc, 0xC001);
+    assert!(!cpu.ime);
+    assert_eq!(cpu.ime_enable_delay, 1);
+    assert_eq!(bus.interrupt_flags() & 0x1F, 0x01);
+
+    let cycles_2 = cpu.step(&mut bus);
+    assert_eq!(cycles_2, 4);
+    assert_eq!(cpu.registers.pc, 0xC003); // STOP opcode + padding consumed
+    assert!(!cpu.halted);
+    assert!(cpu.ime); // EI delay expires after STOP step
+    assert_eq!(cpu.ime_enable_delay, 0);
+    assert_eq!(bus.interrupt_flags() & 0x1F, 0x01);
+
+    let cycles_3 = cpu.step(&mut bus);
+    assert_eq!(cycles_3, 20);
+    assert_eq!(cpu.registers.pc, 0x0040);
     assert!(!cpu.ime);
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x00);
 }
