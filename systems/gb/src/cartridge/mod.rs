@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 mod clock;
 mod persistence;
 
-use self::clock::{RtcClock, SystemRtcClock};
+use self::clock::{FixedRtcClock, RtcClock, SystemRtcClock};
 
 const HEADER_MIN_LEN: usize = 0x150;
 const ROM_ONLY: u8 = 0x00;
@@ -441,6 +441,7 @@ pub struct Cartridge {
     has_rumble: bool,
     rumble_active: bool,
     clock: Box<dyn RtcClock>,
+    host_rtc_epoch_secs: Option<u64>,
     save_dirty: bool,
     ram_enable_required: bool,
     ram_enabled: bool,
@@ -458,6 +459,13 @@ pub struct Cartridge {
 impl Cartridge {
     pub fn from_bytes(rom: Vec<u8>) -> Result<Self, CartridgeError> {
         Self::from_bytes_with_clock(rom, Box::new(SystemRtcClock))
+    }
+
+    pub fn from_bytes_with_initial_rtc_epoch(
+        rom: Vec<u8>,
+        rtc_epoch_secs: u64,
+    ) -> Result<Self, CartridgeError> {
+        Self::from_bytes_with_clock(rom, Box::new(FixedRtcClock::new(rtc_epoch_secs)))
     }
 
     fn from_bytes_with_clock(
@@ -562,6 +570,7 @@ impl Cartridge {
             has_rumble,
             rumble_active: false,
             clock,
+            host_rtc_epoch_secs: None,
             save_dirty: false,
             ram_enable_required: mapper_uses_ram_gate(spec.mapper) && !compatibility_ram,
             ram_enabled: !mapper_uses_ram_gate(spec.mapper) || compatibility_ram,
@@ -586,6 +595,15 @@ impl Cartridge {
             ),
             _ => 0xFF,
         }
+    }
+
+    pub fn set_host_rtc_epoch_secs(&mut self, epoch_secs: Option<u64>) {
+        self.host_rtc_epoch_secs = epoch_secs;
+    }
+
+    fn current_rtc_epoch_secs(&self) -> u64 {
+        self.host_rtc_epoch_secs
+            .unwrap_or_else(|| self.clock.now_epoch_secs())
     }
 
     pub fn write_rom_control(&mut self, addr: u16, value: u8) {
@@ -622,7 +640,7 @@ impl Cartridge {
                     self.mbc3_ram_bank_or_rtc = value;
                 }
                 0x6000..=0x7FFF => {
-                    let now_epoch_secs = self.clock.now_epoch_secs();
+                    let now_epoch_secs = self.current_rtc_epoch_secs();
                     if let Some(rtc) = self.rtc.as_mut() {
                         rtc.tick_to_epoch(now_epoch_secs);
                         rtc.latch_command(value);
@@ -672,7 +690,7 @@ impl Cartridge {
                 value | 0xF0
             }
             MapperType::Mbc3 if self.mbc3_ram_bank_or_rtc >= 0x08 => {
-                let now_epoch_secs = self.clock.now_epoch_secs();
+                let now_epoch_secs = self.current_rtc_epoch_secs();
                 match self.rtc.as_ref() {
                     Some(rtc) if rtc.has_latched_snapshot => {
                         rtc.read_register(self.mbc3_ram_bank_or_rtc, true)
@@ -720,7 +738,7 @@ impl Cartridge {
                 }
             }
             MapperType::Mbc3 if self.mbc3_ram_bank_or_rtc >= 0x08 => {
-                let now_epoch_secs = self.clock.now_epoch_secs();
+                let now_epoch_secs = self.current_rtc_epoch_secs();
                 if let Some(rtc) = self.rtc.as_mut() {
                     rtc.write_register(self.mbc3_ram_bank_or_rtc, value, now_epoch_secs);
                     self.save_dirty = true;

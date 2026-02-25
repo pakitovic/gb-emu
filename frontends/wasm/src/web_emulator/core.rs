@@ -15,9 +15,15 @@ impl WebEmulator {
             None => HardwareModel::default(),
         };
 
-        let cartridge = Cartridge::from_bytes(rom_bytes.to_vec()).map_err(|err| err.to_string())?;
+        let initial_rtc_epoch_secs = host_wall_clock_epoch_secs();
+        let cartridge = Cartridge::from_bytes_with_initial_rtc_epoch(
+            rom_bytes.to_vec(),
+            initial_rtc_epoch_secs,
+        )
+        .map_err(|err| err.to_string())?;
 
         let mut gb = gb_emu::gameboy::GameBoy::new_with_model(cartridge, model);
+        gb.set_cartridge_host_rtc_epoch_secs(Some(initial_rtc_epoch_secs));
         gb.set_audio_tcycle_stream_enabled(true);
 
         let mut audio_mixer = AudioMixer::new(48_000);
@@ -28,6 +34,26 @@ impl WebEmulator {
             pacer: gb_runtime::timing::FramePacer::default(),
             audio_mixer,
         })
+    }
+}
+
+fn host_wall_clock_epoch_secs() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let millis = js_sys::Date::now();
+        if !millis.is_finite() || millis.is_sign_negative() {
+            return 0;
+        }
+        (millis / 1000.0) as u64
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
     }
 }
 
@@ -70,5 +96,13 @@ impl WebEmulator {
 
     pub fn drain_audio_tcycles(&mut self) -> u64 {
         self.pacer.drain_audio_tcycles()
+    }
+
+    pub fn set_host_rtc_epoch_secs(&mut self, epoch_secs: f64) {
+        if !epoch_secs.is_finite() || epoch_secs.is_sign_negative() {
+            return;
+        }
+        self.gb
+            .set_cartridge_host_rtc_epoch_secs(Some(epoch_secs.floor() as u64));
     }
 }

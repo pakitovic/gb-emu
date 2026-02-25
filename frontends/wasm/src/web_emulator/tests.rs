@@ -8,6 +8,14 @@ fn make_rom_32kb() -> Vec<u8> {
     rom
 }
 
+fn make_mbc1_battery_ram_rom_32kb() -> Vec<u8> {
+    let mut rom = vec![0; 32 * 1024];
+    rom[0x0147] = 0x03; // MBC1 + RAM + BATTERY
+    rom[0x0148] = 0x00; // 32KB
+    rom[0x0149] = 0x02; // 8KB RAM
+    rom
+}
+
 #[test]
 fn constructor_rejects_invalid_model_string() {
     let rom = make_rom_32kb();
@@ -126,4 +134,41 @@ fn cartridge_debug_report_exposes_metadata_summary() {
     assert!(report.contains("Header warnings"));
     assert!(report.contains("Nintendo logo mismatch"));
     assert!(web.cartridge_warning_count() >= 1);
+    assert!(!web.cartridge_has_battery_save());
+    assert!(!web.cartridge_has_rtc_persistence());
+}
+
+#[test]
+fn persistence_api_exposes_save_ram_roundtrip_and_dirty_flag() {
+    let rom = make_mbc1_battery_ram_rom_32kb();
+    let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
+    assert!(web.cartridge_has_battery_save());
+    assert!(!web.cartridge_has_rtc_persistence());
+
+    assert!(!web.cartridge_battery_save_dirty());
+    assert_eq!(
+        web.export_cartridge_save_ram_bytes()
+            .expect("battery-backed RAM should be exported")
+            .len(),
+        8 * 1024
+    );
+
+    web.gb.bus.write_byte(0x0000, 0x0A); // RAM enable (MBC1)
+    web.gb.bus.write_byte(0xA000, 0x5A);
+    assert!(web.cartridge_battery_save_dirty());
+
+    let save = web
+        .export_cartridge_save_ram_bytes()
+        .expect("save RAM bytes should export");
+    assert_eq!(save[0], 0x5A);
+
+    web.mark_cartridge_persistence_clean();
+    assert!(!web.cartridge_battery_save_dirty());
+
+    let mut reloaded = WebEmulator::new(&rom, None).expect("web emulator should initialize");
+    reloaded.import_cartridge_save_ram_bytes(&save);
+    let roundtrip = reloaded
+        .export_cartridge_save_ram_bytes()
+        .expect("save RAM bytes should export");
+    assert_eq!(roundtrip[0], 0x5A);
 }

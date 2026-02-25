@@ -5,6 +5,15 @@ pub(super) trait RtcClock {
 }
 
 pub(super) struct SystemRtcClock;
+pub(super) struct FixedRtcClock {
+    now_epoch_secs: u64,
+}
+
+impl FixedRtcClock {
+    pub(super) fn new(now_epoch_secs: u64) -> Self {
+        Self { now_epoch_secs }
+    }
+}
 
 impl RtcClock for SystemRtcClock {
     fn now_epoch_secs(&self) -> u64 {
@@ -12,5 +21,11 @@ impl RtcClock for SystemRtcClock {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs()
+    }
+}
+
+impl RtcClock for FixedRtcClock {
+    fn now_epoch_secs(&self) -> u64 {
+        self.now_epoch_secs
     }
 }

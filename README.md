@@ -40,6 +40,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - ROM-only/ROM+RAM plus expanded MBC1/MBC2/MBC3/MBC5 support.
 - Cartridge header ROM size decoding across standard size codes, mapper-specific RAM enable/banking behavior (including MBC5 rumble register semantics), and battery-backed persistence (`.sav`, plus `.rtc` for MBC3 timer cartridges) with atomic file replace writes.
 - Core cartridge APIs expose import/export of battery save RAM bytes and MBC3 RTC persistence bytes for host adapters/runtime integration.
+- Web demo host now persists battery-backed cartridge data in browser storage (SRAM + MBC3 RTC metadata) with dirty-flag autosave debounce and page-lifecycle flush hooks.
 - Cartridge header diagnostics for Nintendo logo/header checksum/global checksum, exposed as non-blocking warnings in cartridge metadata.
 - Cartridge metadata debug report consumed by CLI (`--cart-info`) and frontends (SDL2 `F1` cart-info panel, web debug panel).
 
@@ -203,7 +204,8 @@ Supported models for `--model`:
 - ROM-only and ROM+RAM cartridge family (no MBC) is limited to 32KB ROM by hardware design.
 - Unsupported mappers (for example MBC6/MBC7/HuC variants, camera/tama) still fail fast when loading the ROM.
 - MBC3 RTC persistence currently uses a sidecar `.rtc` file; this is emulator-specific metadata and not a hardware cartridge dump format.
-- RTC clock source currently remains a core-local convenience (`SystemRtcClock`); public host-controlled RTC time-source injection is deferred unless determinism/libretro requirements make it necessary.
+- RTC clock source currently remains a core-local convenience (`SystemRtcClock`) for native hosts, while host/frontends can inject RTC epoch time for portability-sensitive targets (web) and future deterministic/libretro integrations.
+- Web demo battery persistence currently uses browser local storage (base64-encoded SRAM/RTC sidecar blobs keyed per ROM file/hash); browser quota/privacy/security settings can disable or evict stored data.
 
 ### Cartridge Header Diagnostics
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.
@@ -364,7 +366,8 @@ Notes:
 - Cartridge metadata is exposed from core via `Cartridge::metadata()` and `GameBoy::cartridge_metadata()` (type code, mapper, ROM/RAM size codes, bank counts, declared/effective RAM, battery/timer/rumble flags, and header diagnostics warnings).
 - Current web entrypoint is `WebEmulator` in `frontends/wasm/src/lib.rs`.
 - `web/` contains browser host assets only; the Rust/WASM adapter crate lives in `frontends/wasm/`.
-- Web builds use the core RTC wall-clock source for MBC3 RTC state.
+- Web builds inject host wall-clock epoch time (`Date.now()`) into the core RTC path for MBC3 RTC state, avoiding browser target traps from direct wall-clock queries inside the core.
+- Web demo groups controls into `ROM / Save` and `Audio` sections, exposes separate ROM/SAV/RTC controls (`Load ROM`, `Import/Export SAV`, `Import/Export RTC`), adds a `Close ROM` action for reset/swap workflows, shows a persistence capability/status line (`battery-save`, `rtc`) for manual testing/debugging, and disables SAV/RTC import/export controls until a compatible ROM is loaded.
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
 - SDL2/Web pacing uses `gb_runtime::timing::FramePacer` (shared host/runtime pacing helper) to avoid frontend-specific timing drift.
@@ -376,7 +379,8 @@ Notes:
 - Optional SDL2 debug tone: set `GB_AUDIO_TEST_TONE=1`.
 - Optional SDL2 core APU resampler quality override: set `GB_AUDIO_RESAMPLER=linear` or `GB_AUDIO_RESAMPLER=cubic` (default).
 - Optional SDL2 VSync override: set `GB_SDL2_VSYNC=1` (default) or `GB_SDL2_VSYNC=0`.
-- Battery-backed cartridges loaded via `gb_runtime::cartridge_persistence` persist external RAM to a sibling `.sav` file; MBC3 timer carts also persist RTC metadata to `.rtc`. Save writes use atomic temp-file+rename replacement. Current CLI/SDL2 frontends flush saves on graceful exit through the shared runtime file adapter.
+- Battery-backed cartridges loaded via `gb_runtime::cartridge_persistence` persist external RAM to a sibling `.sav` file; MBC3 timer carts also persist RTC metadata to `.rtc`. Save writes use atomic temp-file+rename replacement. Current CLI frontend flushes saves on graceful exit; SDL2 also performs dirty-flag autosave with a short debounce window plus a flush on window focus loss, while keeping the graceful-exit flush. The web demo mirrors this policy with browser-side autosave debounce and page visibility/navigation flush hooks using local storage (browser quota/security policies may still block persistence).
+- Web demo audio control uses a toggle button (`Enable audio` / `Disable audio`) so manual browser tests can enable and suspend WebAudio without reloading the page.
 - Core helper: `GameBoy::set_audio_analog_calibration(profile)` to apply measured per-device analog calibration profiles from host/frontends.
 - Web helpers:
   - `run_for_elapsed_micros(elapsed_micros)` to step as many emulated frames as host time allows.

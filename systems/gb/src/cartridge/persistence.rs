@@ -19,8 +19,8 @@ impl Cartridge {
         if !self.has_timer {
             return None;
         }
+        let now_epoch_secs = self.current_rtc_epoch_secs();
         let rtc = self.rtc.as_mut()?;
-        let now_epoch_secs = self.clock.now_epoch_secs();
         Some(rtc.serialize(now_epoch_secs).to_vec())
     }
 

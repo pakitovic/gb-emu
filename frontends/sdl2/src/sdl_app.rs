@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 mod args;
 mod audio_queue;
 mod input;
+mod save_flush;
 mod ui;
 
 use args::{
@@ -20,6 +21,7 @@ use args::{
 };
 use audio_queue::{SdlAudioQueueState, refill_audio_queue};
 use input::{EventAction, process_event};
+use save_flush::SaveAutosaveDebouncer;
 use ui::{build_window_title, render_grayscale_frame, show_cartridge_info_dialog};
 
 const SCALE: u32 = 4;
@@ -31,6 +33,7 @@ const AUDIO_QUEUE_HARD_MAX_SAMPLES: usize = 32_768;
 const AUDIO_REFILL_BLOCK_SAMPLES: usize = 512;
 const AUDIO_REFILL_MAX_BLOCKS: usize = 32;
 const AUDIO_CHANNELS: usize = 2;
+const SAVE_AUTOSAVE_DEBOUNCE: Duration = Duration::from_secs(2);
 
 pub(crate) fn main_entry() {
     if let Err(err) = run() {
@@ -121,6 +124,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut last_host_tick = Instant::now();
     let mut audio_queue_state =
         SdlAudioQueueState::new(audio_mixer.sample_rate_hz(), last_host_tick);
+    let mut save_autosave = SaveAutosaveDebouncer::new(SAVE_AUTOSAVE_DEBOUNCE);
 
     'main_loop: loop {
         let now = Instant::now();
@@ -131,6 +135,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             match process_event(&mut gb, event) {
                 EventAction::Continue => {}
                 EventAction::Quit => break 'main_loop,
+                EventAction::FlushPersistence => {
+                    flush_persistence(&persistence, &mut gb)?;
+                    save_autosave.mark_flushed();
+                }
                 EventAction::ShowCartInfo => {
                     show_cartridge_info_dialog(&cartridge_debug_report);
                 }
@@ -160,6 +168,11 @@ fn run() -> Result<(), Box<dyn Error>> {
             now,
         );
 
+        if save_autosave.update_and_should_flush(gb.cartridge_battery_save_dirty(), now) {
+            flush_persistence(&persistence, &mut gb)?;
+            save_autosave.mark_flushed();
+        }
+
         if !produced_frame {
             let sleep_for = pacer.duration_until_next_frame();
             if sleep_for > Duration::from_micros(200) {
@@ -171,9 +184,14 @@ fn run() -> Result<(), Box<dyn Error>> {
         render_grayscale_frame(&mut texture, &mut canvas, gb.framebuffer())?;
     }
 
-    persistence
-        .flush_gameboy(&mut gb)
-        .map_err(io::Error::other)?;
+    flush_persistence(&persistence, &mut gb)?;
 
     Ok(())
+}
+
+fn flush_persistence(
+    persistence: &gb_runtime::cartridge_persistence::FileBackedCartridgePersistence,
+    gb: &mut GameBoy,
+) -> Result<(), io::Error> {
+    persistence.flush_gameboy(gb).map_err(io::Error::other)
 }

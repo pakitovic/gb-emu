@@ -3,8 +3,17 @@ export const SCREEN_HEIGHT = 144;
 
 export function createUi(doc = document) {
   const romFileInput = doc.getElementById("rom-file");
+  const savFileInput = doc.getElementById("sav-file");
+  const savFileButton = doc.getElementById("sav-file-button");
+  const savDownloadButton = doc.getElementById("sav-download");
+  const rtcFileInput = doc.getElementById("rtc-file");
+  const rtcFileButton = doc.getElementById("rtc-file-button");
+  const rtcDownloadButton = doc.getElementById("rtc-download");
+  const romResetButton = doc.getElementById("rom-reset");
+  const romCloseButton = doc.getElementById("rom-close");
   const modelSelect = doc.getElementById("model");
   const statusLabel = doc.getElementById("status");
+  const persistenceInfoLabel = doc.getElementById("persistence-info");
   const audioTelemetryLabel = doc.getElementById("audio-telemetry");
   const cartInfoPre = doc.getElementById("cart-info");
   const serialPre = doc.getElementById("serial");
@@ -31,6 +40,69 @@ export function createUi(doc = document) {
     if (audioTelemetryLabel) {
       audioTelemetryLabel.textContent = message;
     }
+  }
+
+  function setPersistenceInfoText(message) {
+    if (persistenceInfoLabel) {
+      persistenceInfoLabel.textContent = message;
+    }
+  }
+
+  function setPersistenceControlsEnabled({
+    hasRom = false,
+    batterySave = false,
+    rtc = false,
+  } = {}) {
+    if (savFileInput) {
+      savFileInput.disabled = !(hasRom && batterySave);
+    }
+    if (savFileButton) {
+      savFileButton.classList.toggle("is-disabled", !(hasRom && batterySave));
+    }
+    if (savDownloadButton) {
+      savDownloadButton.disabled = !(hasRom && batterySave);
+    }
+
+    if (rtcFileInput) {
+      rtcFileInput.disabled = !(hasRom && rtc);
+    }
+    if (rtcFileButton) {
+      rtcFileButton.classList.toggle("is-disabled", !(hasRom && rtc));
+    }
+    if (rtcDownloadButton) {
+      rtcDownloadButton.disabled = !(hasRom && rtc);
+    }
+
+    if (romCloseButton) {
+      romCloseButton.disabled = !hasRom;
+    }
+    if (romResetButton) {
+      romResetButton.disabled = !hasRom;
+    }
+  }
+
+  function setPersistenceInfoFromEmulator(emulator) {
+    if (!persistenceInfoLabel) {
+      return;
+    }
+    if (!emulator) {
+      setPersistenceInfoText("Persistence: no ROM loaded.");
+      setPersistenceControlsEnabled();
+      return;
+    }
+
+    const batterySave =
+      typeof emulator.cartridge_has_battery_save === "function"
+        ? Boolean(emulator.cartridge_has_battery_save())
+        : false;
+    const rtc =
+      typeof emulator.cartridge_has_rtc_persistence === "function"
+        ? Boolean(emulator.cartridge_has_rtc_persistence())
+        : false;
+    setPersistenceControlsEnabled({ hasRom: true, batterySave, rtc });
+    setPersistenceInfoText(
+      `Persistence: battery-save=${batterySave ? "yes" : "no"} | rtc=${rtc ? "yes" : "no"}`
+    );
   }
 
   function setCartridgeInfoFromEmulator(emulator) {
@@ -61,6 +133,16 @@ export function createUi(doc = document) {
     ctx.putImageData(frameImage, 0, 0);
   }
 
+  function clearScreen() {
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    ctx.fillStyle = "#b8c8d2";
+    ctx.font = "10px IBM Plex Mono, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("No ROM loaded", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
+  }
+
   function setSerialOutputRaw(rawSerial) {
     if (!serialPre) {
       return;
@@ -77,8 +159,17 @@ export function createUi(doc = document) {
   return {
     refs: {
       romFileInput,
+      savFileInput,
+      savFileButton,
+      savDownloadButton,
+      rtcFileInput,
+      rtcFileButton,
+      rtcDownloadButton,
+      romResetButton,
+      romCloseButton,
       modelSelect,
       statusLabel,
+      persistenceInfoLabel,
       audioTelemetryLabel,
       cartInfoPre,
       serialPre,
@@ -89,8 +180,12 @@ export function createUi(doc = document) {
     },
     setStatus,
     setAudioTelemetryText,
+    setPersistenceInfoText,
+    setPersistenceControlsEnabled,
+    setPersistenceInfoFromEmulator,
     setCartridgeInfoFromEmulator,
     drawFrameFromEmulator,
+    clearScreen,
     setSerialOutputRaw,
     clearSerialOutput,
   };

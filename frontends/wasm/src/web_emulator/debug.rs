@@ -18,4 +18,14 @@ impl WebEmulator {
     pub fn cartridge_warning_count(&self) -> u32 {
         self.gb.cartridge_metadata().header_warnings.len() as u32
     }
+
+    pub fn cartridge_has_battery_save(&self) -> bool {
+        let metadata = self.gb.cartridge_metadata();
+        metadata.has_battery && metadata.effective_ram_size_bytes > 0
+    }
+
+    pub fn cartridge_has_rtc_persistence(&self) -> bool {
+        let metadata = self.gb.cartridge_metadata();
+        metadata.has_battery && metadata.has_timer
+    }
 }
