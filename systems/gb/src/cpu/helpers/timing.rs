@@ -2,8 +2,22 @@ use crate::cpu::Cpu;
 use crate::cpu::CpuContext;
 
 impl Cpu {
+    pub(in crate::cpu) const HALT_IDLE_STEP_M_CYCLES: u8 = 1;
+    pub(in crate::cpu) const INTERRUPT_SERVICE_M_CYCLES: u8 = 5;
+
     pub(in crate::cpu) fn ret_m(&self, bus: &impl CpuContext, mcycles: u8) -> u8 {
         bus.cpu_tcycles_for_mcycles(mcycles)
+    }
+
+    pub(in crate::cpu) fn ret_step_total_m(&self, bus: &impl CpuContext, total_mcycles: u8) -> u8 {
+        let expected_tcycles = self.ret_m(bus, total_mcycles);
+        debug_assert_eq!(self.step_tcycles, expected_tcycles);
+        expected_tcycles
+    }
+
+    pub(in crate::cpu) fn tick_and_ret_m(&mut self, bus: &mut impl CpuContext, mcycles: u8) -> u8 {
+        self.tick_m(bus, mcycles);
+        self.ret_step_total_m(bus, mcycles)
     }
 
     pub(in crate::cpu) fn tick_t(&mut self, bus: &mut impl CpuContext, tcycles: u8) {
