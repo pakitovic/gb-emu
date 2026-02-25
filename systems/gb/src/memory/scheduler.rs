@@ -27,6 +27,10 @@ impl HardwareScheduler {
 }
 
 impl Bus {
+    pub(crate) fn cpu_tcycles_for_mcycles(&self, mcycles: u8) -> u8 {
+        self.clock_ratios.cpu_t_cycles_for_m_cycles(mcycles)
+    }
+
     // Advance all hardware by DMG base t-cycles (4_194_304 Hz domain).
     pub fn tick(&mut self, tcycles: u8) {
         HardwareScheduler::tick(self, tcycles);

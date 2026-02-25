@@ -74,25 +74,25 @@ impl Cpu {
             // PUSH rr
             0xC5 => {
                 let value = ((self.registers.b as u16) << 8) | self.registers.c as u16;
-                self.tick_t(bus, 4); // internal delay (M1)
+                self.tick_m(bus, 1); // internal delay (M1)
                 self.push_u16(bus, value);
                 16
             }
             0xD5 => {
                 let value = ((self.registers.d as u16) << 8) | self.registers.e as u16;
-                self.tick_t(bus, 4); // internal delay (M1)
+                self.tick_m(bus, 1); // internal delay (M1)
                 self.push_u16(bus, value);
                 16
             }
             0xE5 => {
                 let value = ((self.registers.h as u16) << 8) | self.registers.l as u16;
-                self.tick_t(bus, 4); // internal delay (M1)
+                self.tick_m(bus, 1); // internal delay (M1)
                 self.push_u16(bus, value);
                 16
             }
             0xF5 => {
                 let value = ((self.registers.a as u16) << 8) | self.registers.f as u16;
-                self.tick_t(bus, 4); // internal delay (M1)
+                self.tick_m(bus, 1); // internal delay (M1)
                 self.push_u16(bus, value);
                 16
             }

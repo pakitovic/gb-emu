@@ -32,7 +32,7 @@ impl Cpu {
         let pc_high = (pc >> 8) as u8;
         let pc_low = (pc & 0x00FF) as u8;
 
-        self.tick_t(bus, 8);
+        self.tick_m(bus, 2);
 
         self.registers.sp = self.registers.sp.wrapping_sub(1);
         self.write_byte(bus, self.registers.sp, pc_high);
@@ -54,7 +54,7 @@ impl Cpu {
             self.registers.pc = 0x0000;
         }
 
-        self.tick_t(bus, 4);
-        20
+        self.tick_m(bus, 1);
+        self.step_tcycles
     }
 }

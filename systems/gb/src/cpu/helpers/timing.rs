@@ -7,15 +7,20 @@ impl Cpu {
         bus.tick(tcycles);
     }
 
+    pub(in crate::cpu) fn tick_m(&mut self, bus: &mut impl CpuContext, mcycles: u8) {
+        let tcycles = bus.cpu_tcycles_for_mcycles(mcycles);
+        self.tick_t(bus, tcycles);
+    }
+
     pub(in crate::cpu) fn read_byte(&mut self, bus: &mut impl CpuContext, addr: u16) -> u8 {
         let value = bus.read_byte(addr);
-        self.tick_t(bus, 4);
+        self.tick_m(bus, 1);
         value
     }
 
     pub(in crate::cpu) fn write_byte(&mut self, bus: &mut impl CpuContext, addr: u16, value: u8) {
         bus.write_byte(addr, value);
-        self.tick_t(bus, 4);
+        self.tick_m(bus, 1);
     }
 
     pub(in crate::cpu) fn read_word(&mut self, bus: &mut impl CpuContext, addr: u16) -> u16 {

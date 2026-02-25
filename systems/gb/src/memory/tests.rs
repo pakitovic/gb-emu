@@ -1,7 +1,8 @@
-use super::test_utils::{make_test_bus, tick_n};
+use super::test_utils::{make_test_bus, make_test_bus_with_model, tick_n};
 use super::*;
 use crate::hardware::HardwareModel;
 use crate::input::Button;
+use crate::timing::DMG_CPU_T_CYCLES_PER_M_CYCLE;
 
 fn wait_for_transition(bus: &mut Bus, ly: u8, from_mode: u8, to_mode: u8) {
     let mut prev_mode = bus.read_byte(0xFF41) & 0x03;
@@ -120,6 +121,29 @@ fn echo_ram_mirrors_work_ram() {
 
     bus.write_byte(0xE456, 0xCD);
     assert_eq!(bus.read_byte(0xC456), 0xCD);
+}
+
+#[test]
+fn dmg_family_models_use_fixed_dmg_clock_ratio_policy() {
+    for model in [
+        HardwareModel::Dmg0,
+        HardwareModel::Dmg,
+        HardwareModel::Mgb,
+        HardwareModel::Sgb,
+        HardwareModel::Sgb2,
+    ] {
+        let bus = make_test_bus_with_model(model);
+        assert_eq!(
+            bus.cpu_tcycles_for_mcycles(1),
+            DMG_CPU_T_CYCLES_PER_M_CYCLE,
+            "unexpected CPU m-cycle ratio for model {model:?}"
+        );
+        assert_eq!(
+            bus.cpu_tcycles_for_mcycles(2),
+            DMG_CPU_T_CYCLES_PER_M_CYCLE * 2,
+            "unexpected 2-mcycle conversion for model {model:?}"
+        );
+    }
 }
 
 #[test]

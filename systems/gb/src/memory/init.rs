@@ -1,6 +1,7 @@
 use super::Bus;
 use crate::cartridge::Cartridge;
 use crate::hardware::HardwareModel;
+use crate::timing::ClockRatios;
 
 impl Bus {
     pub fn new(cartridge: Cartridge) -> Self {
@@ -23,6 +24,7 @@ impl Bus {
             serial: Default::default(),
             joypad: Default::default(),
             framebuffer: [0xFF; super::LCD_FRAME_PIXELS],
+            clock_ratios: ClockRatios::dmg(),
         };
         bus.apply_boot_defaults(model);
         bus.sync_apu_boot_state(model);

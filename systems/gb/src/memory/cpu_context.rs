@@ -14,6 +14,10 @@ impl CpuContext for Bus {
         Bus::tick(self, tcycles);
     }
 
+    fn cpu_tcycles_for_mcycles(&self, mcycles: u8) -> u8 {
+        Bus::cpu_tcycles_for_mcycles(self, mcycles)
+    }
+
     fn pending_interrupts(&self) -> u8 {
         Bus::pending_interrupts(self)
     }
