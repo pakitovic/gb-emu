@@ -161,6 +161,43 @@ fn call_a16_returns_policy_derived_six_mcycles() {
 }
 
 #[test]
+fn add_a_b_returns_policy_derived_one_mcycle() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.registers.pc = 0xC000;
+    cpu.registers.a = 0x10;
+    cpu.registers.b = 0x22;
+    bus.write_byte(0xC000, 0x80); // ADD A,B
+
+    let expected = bus.cpu_tcycles_for_mcycles(1);
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(cycles, expected);
+    assert_eq!(cpu.registers.a, 0x32);
+    assert_eq!(cpu.registers.pc, 0xC001);
+}
+
+#[test]
+fn cp_hl_returns_policy_derived_two_mcycles() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.registers.pc = 0xC000;
+    cpu.registers.a = 0x33;
+    cpu.set_hl(0xC100);
+    bus.write_byte(0xC000, 0xBE); // CP A,(HL)
+    bus.write_byte(0xC100, 0x33);
+
+    let expected = bus.cpu_tcycles_for_mcycles(2);
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(cycles, expected);
+    assert_eq!(cpu.registers.a, 0x33); // CP does not modify A
+    assert_eq!(cpu.registers.pc, 0xC001);
+}
+
+#[test]
 fn interrupt_ie_push_upper_byte_can_cancel_dispatch() {
     let mut cpu = Cpu::new();
     let mut bus = make_test_bus();
