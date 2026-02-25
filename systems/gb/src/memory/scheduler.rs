@@ -3,8 +3,8 @@ use super::Bus;
 pub(super) struct HardwareScheduler;
 
 impl HardwareScheduler {
-    pub(super) fn tick(bus: &mut Bus, cycles: u8) {
-        for _ in 0..cycles {
+    pub(super) fn tick(bus: &mut Bus, tcycles: u8) {
+        for _ in 0..tcycles {
             Self::tick_once(bus);
         }
     }
@@ -27,7 +27,8 @@ impl HardwareScheduler {
 }
 
 impl Bus {
-    pub fn tick(&mut self, cycles: u8) {
-        HardwareScheduler::tick(self, cycles);
+    // Advance all hardware by DMG base t-cycles (4_194_304 Hz domain).
+    pub fn tick(&mut self, tcycles: u8) {
+        HardwareScheduler::tick(self, tcycles);
     }
 }

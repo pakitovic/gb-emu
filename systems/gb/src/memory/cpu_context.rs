@@ -10,8 +10,8 @@ impl CpuContext for Bus {
         Bus::write_byte(self, addr, value);
     }
 
-    fn tick(&mut self, cycles: u8) {
-        Bus::tick(self, cycles);
+    fn tick(&mut self, tcycles: u8) {
+        Bus::tick(self, tcycles);
     }
 
     fn pending_interrupts(&self) -> u8 {
