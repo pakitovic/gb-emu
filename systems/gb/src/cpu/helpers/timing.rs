@@ -2,6 +2,10 @@ use crate::cpu::Cpu;
 use crate::cpu::CpuContext;
 
 impl Cpu {
+    pub(in crate::cpu) fn ret_m(&self, bus: &impl CpuContext, mcycles: u8) -> u8 {
+        bus.cpu_tcycles_for_mcycles(mcycles)
+    }
+
     pub(in crate::cpu) fn tick_t(&mut self, bus: &mut impl CpuContext, tcycles: u8) {
         self.step_tcycles = self.step_tcycles.wrapping_add(tcycles);
         bus.tick(tcycles);

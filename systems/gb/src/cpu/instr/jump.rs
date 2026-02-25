@@ -12,46 +12,46 @@ impl Cpu {
             0xC3 => {
                 let addr = self.read_word(bus, self.registers.pc);
                 self.registers.pc = addr;
-                16
+                self.ret_m(bus, 4)
             }
             0xE9 => {
                 self.registers.pc = self.hl();
-                4
+                self.ret_m(bus, 1)
             }
             0xC2 => {
                 let addr = self.fetch_d16(bus);
                 if !get_flag_z(self.registers.f) {
                     self.registers.pc = addr;
-                    16
+                    self.ret_m(bus, 4)
                 } else {
-                    12
+                    self.ret_m(bus, 3)
                 }
             }
             0xCA => {
                 let addr = self.fetch_d16(bus);
                 if get_flag_z(self.registers.f) {
                     self.registers.pc = addr;
-                    16
+                    self.ret_m(bus, 4)
                 } else {
-                    12
+                    self.ret_m(bus, 3)
                 }
             }
             0xD2 => {
                 let addr = self.fetch_d16(bus);
                 if !get_flag_c(self.registers.f) {
                     self.registers.pc = addr;
-                    16
+                    self.ret_m(bus, 4)
                 } else {
-                    12
+                    self.ret_m(bus, 3)
                 }
             }
             0xDA => {
                 let addr = self.fetch_d16(bus);
                 if get_flag_c(self.registers.f) {
                     self.registers.pc = addr;
-                    16
+                    self.ret_m(bus, 4)
                 } else {
-                    12
+                    self.ret_m(bus, 3)
                 }
             }
 
@@ -63,42 +63,42 @@ impl Cpu {
                     .pc
                     .wrapping_add(1)
                     .wrapping_add(offset as u16);
-                12
+                self.ret_m(bus, 3)
             }
             0x20 => {
                 let offset = self.fetch_d8(bus) as i8;
                 if !get_flag_z(self.registers.f) {
                     self.registers.pc = self.registers.pc.wrapping_add(offset as u16);
-                    12
+                    self.ret_m(bus, 3)
                 } else {
-                    8
+                    self.ret_m(bus, 2)
                 }
             }
             0x28 => {
                 let offset = self.fetch_d8(bus) as i8;
                 if get_flag_z(self.registers.f) {
                     self.registers.pc = self.registers.pc.wrapping_add(offset as u16);
-                    12
+                    self.ret_m(bus, 3)
                 } else {
-                    8
+                    self.ret_m(bus, 2)
                 }
             }
             0x30 => {
                 let offset = self.fetch_d8(bus) as i8;
                 if !get_flag_c(self.registers.f) {
                     self.registers.pc = self.registers.pc.wrapping_add(offset as u16);
-                    12
+                    self.ret_m(bus, 3)
                 } else {
-                    8
+                    self.ret_m(bus, 2)
                 }
             }
             0x38 => {
                 let offset = self.fetch_d8(bus) as i8;
                 if get_flag_c(self.registers.f) {
                     self.registers.pc = self.registers.pc.wrapping_add(offset as u16);
-                    12
+                    self.ret_m(bus, 3)
                 } else {
-                    8
+                    self.ret_m(bus, 2)
                 }
             }
 
@@ -109,7 +109,7 @@ impl Cpu {
                 self.tick_m(bus, 1); // internal delay before stack push
                 self.push_u16(bus, ret_addr);
                 self.registers.pc = addr;
-                24
+                self.ret_m(bus, 6)
             }
             0xC4 => {
                 let addr = self.fetch_d16(bus);
@@ -118,9 +118,9 @@ impl Cpu {
                     self.tick_m(bus, 1); // internal delay before stack push
                     self.push_u16(bus, ret_addr);
                     self.registers.pc = addr;
-                    24
+                    self.ret_m(bus, 6)
                 } else {
-                    12
+                    self.ret_m(bus, 3)
                 }
             }
             0xCC => {
@@ -130,9 +130,9 @@ impl Cpu {
                     self.tick_m(bus, 1); // internal delay before stack push
                     self.push_u16(bus, ret_addr);
                     self.registers.pc = addr;
-                    24
+                    self.ret_m(bus, 6)
                 } else {
-                    12
+                    self.ret_m(bus, 3)
                 }
             }
             0xD4 => {
@@ -142,9 +142,9 @@ impl Cpu {
                     self.tick_m(bus, 1); // internal delay before stack push
                     self.push_u16(bus, ret_addr);
                     self.registers.pc = addr;
-                    24
+                    self.ret_m(bus, 6)
                 } else {
-                    12
+                    self.ret_m(bus, 3)
                 }
             }
             0xDC => {
@@ -154,25 +154,25 @@ impl Cpu {
                     self.tick_m(bus, 1); // internal delay before stack push
                     self.push_u16(bus, ret_addr);
                     self.registers.pc = addr;
-                    24
+                    self.ret_m(bus, 6)
                 } else {
-                    12
+                    self.ret_m(bus, 3)
                 }
             }
 
             // RET / RET cc
             0xC9 => {
                 self.registers.pc = self.pop_u16(bus);
-                16
+                self.ret_m(bus, 4)
             }
             0xC0 => {
                 if !get_flag_z(self.registers.f) {
                     self.tick_m(bus, 1); // internal delay before stack read
                     self.registers.pc = self.pop_u16(bus);
                     self.tick_m(bus, 1); // final internal delay
-                    20
+                    self.ret_m(bus, 5)
                 } else {
-                    8
+                    self.ret_m(bus, 2)
                 }
             }
             0xC8 => {
@@ -180,9 +180,9 @@ impl Cpu {
                     self.tick_m(bus, 1); // internal delay before stack read
                     self.registers.pc = self.pop_u16(bus);
                     self.tick_m(bus, 1); // final internal delay
-                    20
+                    self.ret_m(bus, 5)
                 } else {
-                    8
+                    self.ret_m(bus, 2)
                 }
             }
             0xD0 => {
@@ -190,9 +190,9 @@ impl Cpu {
                     self.tick_m(bus, 1); // internal delay before stack read
                     self.registers.pc = self.pop_u16(bus);
                     self.tick_m(bus, 1); // final internal delay
-                    20
+                    self.ret_m(bus, 5)
                 } else {
-                    8
+                    self.ret_m(bus, 2)
                 }
             }
             0xD8 => {
@@ -200,9 +200,9 @@ impl Cpu {
                     self.tick_m(bus, 1); // internal delay before stack read
                     self.registers.pc = self.pop_u16(bus);
                     self.tick_m(bus, 1); // final internal delay
-                    20
+                    self.ret_m(bus, 5)
                 } else {
-                    8
+                    self.ret_m(bus, 2)
                 }
             }
 
@@ -212,56 +212,56 @@ impl Cpu {
                 self.tick_m(bus, 1); // internal delay (M1)
                 self.push_u16(bus, ret_addr);
                 self.registers.pc = 0x0000;
-                16
+                self.ret_m(bus, 4)
             }
             0xCF => {
                 let ret_addr = self.registers.pc;
                 self.tick_m(bus, 1); // internal delay (M1)
                 self.push_u16(bus, ret_addr);
                 self.registers.pc = 0x0008;
-                16
+                self.ret_m(bus, 4)
             }
             0xD7 => {
                 let ret_addr = self.registers.pc;
                 self.tick_m(bus, 1); // internal delay (M1)
                 self.push_u16(bus, ret_addr);
                 self.registers.pc = 0x0010;
-                16
+                self.ret_m(bus, 4)
             }
             0xDF => {
                 let ret_addr = self.registers.pc;
                 self.tick_m(bus, 1); // internal delay (M1)
                 self.push_u16(bus, ret_addr);
                 self.registers.pc = 0x0018;
-                16
+                self.ret_m(bus, 4)
             }
             0xE7 => {
                 let ret_addr = self.registers.pc;
                 self.tick_m(bus, 1); // internal delay (M1)
                 self.push_u16(bus, ret_addr);
                 self.registers.pc = 0x0020;
-                16
+                self.ret_m(bus, 4)
             }
             0xEF => {
                 let ret_addr = self.registers.pc;
                 self.tick_m(bus, 1); // internal delay (M1)
                 self.push_u16(bus, ret_addr);
                 self.registers.pc = 0x0028;
-                16
+                self.ret_m(bus, 4)
             }
             0xF7 => {
                 let ret_addr = self.registers.pc;
                 self.tick_m(bus, 1); // internal delay (M1)
                 self.push_u16(bus, ret_addr);
                 self.registers.pc = 0x0030;
-                16
+                self.ret_m(bus, 4)
             }
             0xFF => {
                 let ret_addr = self.registers.pc;
                 self.tick_m(bus, 1); // internal delay (M1)
                 self.push_u16(bus, ret_addr);
                 self.registers.pc = 0x0038;
-                16
+                self.ret_m(bus, 4)
             }
 
             _ => return None,

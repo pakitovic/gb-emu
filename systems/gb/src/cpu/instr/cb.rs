@@ -84,7 +84,11 @@ impl Cpu {
                 set_flag_h(&mut self.registers.f, false);
                 set_flag_c(&mut self.registers.f, carry_out);
 
-                if z == 6 { 16 } else { 8 }
+                if z == 6 {
+                    self.ret_m(bus, 4)
+                } else {
+                    self.ret_m(bus, 2)
+                }
             }
             1 => {
                 let value = self.read_r8_by_index(z, bus);
@@ -92,19 +96,31 @@ impl Cpu {
                 set_flag_z(&mut self.registers.f, !bit_set);
                 set_flag_n(&mut self.registers.f, false);
                 set_flag_h(&mut self.registers.f, true);
-                if z == 6 { 12 } else { 8 }
+                if z == 6 {
+                    self.ret_m(bus, 3)
+                } else {
+                    self.ret_m(bus, 2)
+                }
             }
             2 => {
                 let value = self.read_r8_by_index(z, bus);
                 let result = value & !(1 << y);
                 self.write_r8_by_index(z, result, bus);
-                if z == 6 { 16 } else { 8 }
+                if z == 6 {
+                    self.ret_m(bus, 4)
+                } else {
+                    self.ret_m(bus, 2)
+                }
             }
             3 => {
                 let value = self.read_r8_by_index(z, bus);
                 let result = value | (1 << y);
                 self.write_r8_by_index(z, result, bus);
-                if z == 6 { 16 } else { 8 }
+                if z == 6 {
+                    self.ret_m(bus, 4)
+                } else {
+                    self.ret_m(bus, 2)
+                }
             }
             _ => unreachable!(),
         }
