@@ -5,7 +5,8 @@ show_help() {
   cat <<'EOF'
 Usage: scripts/dev/run_web_demo.sh [options]
 
-Builds the Rust/WASM frontend package (`frontends/wasm`), syncs generated pkg
+Builds the Rust/WASM frontend package (`frontends/wasm`) from a clean pkg output,
+syncs generated pkg
 artifacts into web/pkg,
 and optionally serves the project root so the demo is available at
 http://localhost:<port>/web/
@@ -65,6 +66,7 @@ fi
 
 printf "Building wasm frontend artifacts...\n"
 cd "$ROOT_DIR"
+rm -rf "$PKG_SOURCE_DIR" "$PKG_DEST_DIR"
 wasm-pack build frontends/wasm --target web --out-name gb_emu
 
 if [ ! -d "$PKG_SOURCE_DIR" ]; then

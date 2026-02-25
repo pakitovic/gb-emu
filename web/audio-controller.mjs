@@ -211,6 +211,39 @@ export function createWebAudioController({
     }
   }
 
+  async function disable() {
+    disconnectAudioBackend();
+    if (!audioContext) {
+      setStatus?.("Audio disabled.");
+      updateTelemetry();
+      return;
+    }
+
+    try {
+      if (audioContext.state !== "closed") {
+        await audioContext.suspend();
+      }
+      setStatus?.("Audio disabled.");
+    } catch (error) {
+      console.error(error);
+      setStatus?.(`Audio disable error: ${error}`);
+    }
+    updateTelemetry();
+  }
+
+  async function toggle() {
+    if (audioNode) {
+      await disable();
+    } else {
+      await enable();
+    }
+    return Boolean(audioNode);
+  }
+
+  function isEnabled() {
+    return Boolean(audioNode);
+  }
+
   function onEmulatorLoaded() {
     const emulator = getEmulator?.() ?? null;
     if (!emulator) {
@@ -244,6 +277,9 @@ export function createWebAudioController({
 
   return {
     enable,
+    disable,
+    toggle,
+    isEnabled,
     updateTelemetry,
     onEmulatorLoaded,
     handleResamplerChanged,

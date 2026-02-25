@@ -7,6 +7,7 @@ mod audio;
 mod core;
 mod debug;
 mod input;
+mod persistence;
 mod video;
 
 const FRAME_STEP_LIMIT: usize = 250_000;

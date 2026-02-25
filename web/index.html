@@ -40,6 +40,41 @@
     }
 
     .controls {
+      display: grid;
+      gap: 10px;
+    }
+
+    .control-section {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #10181d;
+    }
+
+    .control-section-title {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-right: 2px;
+      padding-right: 6px;
+      border-right: 1px solid var(--border);
+    }
+
+    #persistence-info {
+      color: var(--muted);
+      font-size: 13px;
+      background: #0f171c;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+
+    .persistence-row {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
@@ -48,7 +83,8 @@
 
     button,
     select,
-    input[type="file"] {
+    input[type="file"],
+    .file-button {
       background: #0f171c;
       color: var(--text);
       border: 1px solid var(--border);
@@ -57,12 +93,46 @@
       font: inherit;
     }
 
-    button {
+    button,
+    .file-button {
       cursor: pointer;
     }
 
-    button:hover {
+    button:hover,
+    .file-button:hover {
       border-color: var(--accent);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+      border-color: var(--border);
+    }
+
+    .file-button.is-disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+      border-color: var(--border);
+      pointer-events: none;
+    }
+
+    .file-picker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .file-picker input[type="file"] {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .control-label {
+      color: var(--muted);
+      font-size: 13px;
     }
 
     label {
@@ -125,26 +195,55 @@
   <main class="app">
     <h1>gb-emu web demo</h1>
     <section class="controls">
-      <input id="rom-file" type="file" accept=".gb,.gbc,.bin" />
-      <select id="model">
-        <option value="dmg" selected>dmg</option>
-        <option value="dmg0">dmg0</option>
-        <option value="mgb">mgb</option>
-        <option value="sgb">sgb</option>
-        <option value="sgb2">sgb2</option>
-      </select>
-      <button id="audio-enable">Enable audio</button>
-      <label>
-        Resampler
-        <select id="audio-resampler">
-          <option value="cubic" selected>cubic</option>
-          <option value="linear">linear</option>
+      <div class="control-section" aria-label="ROM and persistence controls">
+        <span class="control-section-title">ROM / Save</span>
+        <div class="file-picker">
+          <span class="control-label">ROM</span>
+          <label class="file-button" for="rom-file">Load ROM</label>
+          <input id="rom-file" type="file" accept=".gb,.gbc,.bin" />
+        </div>
+        <select id="model" aria-label="Hardware model">
+          <option value="dmg" selected>dmg</option>
+          <option value="dmg0">dmg0</option>
+          <option value="mgb">mgb</option>
+          <option value="sgb">sgb</option>
+          <option value="sgb2">sgb2</option>
         </select>
-      </label>
-      <label>
-        <input id="test-tone" type="checkbox" />
-        Test tone
-      </label>
+        <div class="file-picker">
+          <span class="control-label">Save</span>
+          <label id="sav-file-button" class="file-button" for="sav-file">Import SAV</label>
+          <input id="sav-file" type="file" accept=".sav" />
+        </div>
+        <button id="sav-download" type="button">Export SAV</button>
+        <div class="file-picker">
+          <span class="control-label">RTC</span>
+          <label id="rtc-file-button" class="file-button" for="rtc-file">Import RTC</label>
+          <input id="rtc-file" type="file" accept=".rtc" />
+        </div>
+        <button id="rtc-download" type="button">Export RTC</button>
+      </div>
+      <div class="persistence-row">
+        <div id="persistence-info" aria-live="polite">
+          Persistence: no ROM loaded.
+        </div>
+        <button id="rom-reset" type="button">Reset ROM</button>
+        <button id="rom-close" type="button">Close ROM</button>
+      </div>
+      <div class="control-section" aria-label="Audio controls">
+        <span class="control-section-title">Audio</span>
+        <button id="audio-enable">Enable audio</button>
+        <label>
+          Resampler
+          <select id="audio-resampler">
+            <option value="cubic" selected>cubic</option>
+            <option value="linear">linear</option>
+          </select>
+        </label>
+        <label>
+          <input id="test-tone" type="checkbox" />
+          Test tone
+        </label>
+      </div>
     </section>
     <canvas id="screen" width="160" height="144" aria-label="Game Boy screen"></canvas>
     <div id="status">Load a ROM to start emulation.</div>

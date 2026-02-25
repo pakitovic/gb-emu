@@ -4,7 +4,10 @@ export async function createWebEmulatorFromRomFile({ file, WebEmulator, model })
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
-  return new WebEmulator(bytes, model || undefined);
+  return {
+    emulator: new WebEmulator(bytes, model || undefined),
+    romBytes: bytes,
+  };
 }
 
 export function buildRomLoadedStatusMessage({ fileName, romTitle, model, warningCount }) {

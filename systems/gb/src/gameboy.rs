@@ -55,8 +55,20 @@ impl GameBoy {
         self.bus.export_cartridge_save_ram_bytes()
     }
 
+    pub fn import_cartridge_save_ram_bytes(&mut self, data: &[u8]) {
+        self.bus.import_cartridge_save_ram_bytes(data);
+    }
+
     pub fn export_cartridge_rtc_persistence_bytes(&mut self) -> Option<Vec<u8>> {
         self.bus.export_cartridge_rtc_persistence_bytes()
+    }
+
+    pub fn import_cartridge_rtc_persistence_bytes(&mut self, data: &[u8]) -> bool {
+        self.bus.import_cartridge_rtc_persistence_bytes(data)
+    }
+
+    pub fn set_cartridge_host_rtc_epoch_secs(&mut self, epoch_secs: Option<u64>) {
+        self.bus.set_cartridge_host_rtc_epoch_secs(epoch_secs);
     }
 
     pub fn mark_cartridge_persistence_clean(&mut self) {
