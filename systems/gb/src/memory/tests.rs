@@ -74,6 +74,44 @@ fn wait_for_next_frame(bus: &mut Bus) {
     panic!("Frame boundary not observed");
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TimingContractSnapshot {
+    div: u8,
+    tima: u8,
+    tma: u8,
+    tac: u8,
+    iflags: u8,
+    ly: u8,
+    stat: u8,
+    frame_counter: u64,
+}
+
+fn timing_contract_snapshot(bus: &Bus) -> TimingContractSnapshot {
+    TimingContractSnapshot {
+        div: bus.read_byte(0xFF04),
+        tima: bus.read_byte(0xFF05),
+        tma: bus.read_byte(0xFF06),
+        tac: bus.read_byte(0xFF07),
+        iflags: bus.interrupt_flags(),
+        ly: bus.read_byte(0xFF44),
+        stat: bus.read_byte(0xFF41),
+        frame_counter: bus.frame_counter(),
+    }
+}
+
+fn tick_chunk_and_compare_timing_state(chunked: &mut Bus, single: &mut Bus, tcycles: u8) {
+    chunked.tick(tcycles);
+    for _ in 0..tcycles {
+        single.tick(1);
+    }
+
+    assert_eq!(
+        timing_contract_snapshot(chunked),
+        timing_contract_snapshot(single),
+        "Bus::tick chunking changed visible timer/PPU timing state after {tcycles} t-cycles chunk"
+    );
+}
+
 #[test]
 fn echo_ram_mirrors_work_ram() {
     let mut bus = make_test_bus();
@@ -115,6 +153,75 @@ fn timer_overflow_reloads_tma_and_requests_interrupt() {
 
     assert_eq!(bus.read_byte(0xFF05), 0x42);
     assert_ne!(bus.interrupt_flags() & (1 << 2), 0);
+}
+
+#[test]
+fn tick_chunking_preserves_div_tima_state_across_timer_edges_and_control_writes() {
+    let mut chunked = make_test_bus();
+    let mut single = make_test_bus();
+
+    for bus in [&mut chunked, &mut single] {
+        bus.write_byte(0xFF07, 0x05); // TAC: enable + 16 t-cycles period
+        bus.write_byte(0xFF06, 0x9C); // TMA
+        bus.write_byte(0xFF05, 0xFA); // TIMA near overflow
+    }
+    assert_eq!(
+        timing_contract_snapshot(&chunked),
+        timing_contract_snapshot(&single)
+    );
+
+    for &chunk in &[1, 3, 4, 8, 15, 2, 17, 9, 11] {
+        tick_chunk_and_compare_timing_state(&mut chunked, &mut single, chunk);
+    }
+
+    for bus in [&mut chunked, &mut single] {
+        bus.write_byte(0xFF04, 0x00); // DIV reset edge-sensitive behavior
+    }
+    assert_eq!(
+        timing_contract_snapshot(&chunked),
+        timing_contract_snapshot(&single)
+    );
+
+    for &chunk in &[5, 7, 13, 1, 16, 4, 3, 19] {
+        tick_chunk_and_compare_timing_state(&mut chunked, &mut single, chunk);
+    }
+
+    for bus in [&mut chunked, &mut single] {
+        bus.write_byte(0xFF07, 0x07); // switch to another enabled timer source
+    }
+    assert_eq!(
+        timing_contract_snapshot(&chunked),
+        timing_contract_snapshot(&single)
+    );
+
+    for &chunk in &[2, 6, 10, 14, 18, 22, 31] {
+        tick_chunk_and_compare_timing_state(&mut chunked, &mut single, chunk);
+    }
+}
+
+#[test]
+fn tick_chunking_preserves_ly_stat_and_tima_through_visible_mode_transitions() {
+    let mut chunked = make_test_bus();
+    let mut single = make_test_bus();
+
+    for bus in [&mut chunked, &mut single] {
+        bus.write_byte(0xFF43, 0x07); // SCX low bits affect visible mode3 timing
+        bus.write_byte(0xFF41, 0x28); // enable mode2 + mode0 STAT sources
+        bus.write_byte(0xFF07, 0x05); // timer enabled for concurrent DIV/TIMA activity
+        bus.write_byte(0xFF06, 0x77);
+        bus.write_byte(0xFF05, 0xF8);
+    }
+
+    wait_for_ly_mode(&mut chunked, 2, 2);
+    wait_for_ly_mode(&mut single, 2, 2);
+    assert_eq!(
+        timing_contract_snapshot(&chunked),
+        timing_contract_snapshot(&single)
+    );
+
+    for &chunk in &[1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 34, 21] {
+        tick_chunk_and_compare_timing_state(&mut chunked, &mut single, chunk);
+    }
 }
 
 #[test]
@@ -636,6 +743,41 @@ fn oam_dma_transfers_160_bytes_and_finishes_after_start_delay() {
 
     assert_eq!(bus.read_byte_raw(0xFE00), 0x12);
     assert_eq!(bus.read_byte_raw(0xFE9F), 0x34);
+}
+
+#[test]
+fn tick_chunking_preserves_oam_dma_progress_and_timer_surface() {
+    let mut chunked = make_test_bus();
+    let mut single = make_test_bus();
+
+    for bus in [&mut chunked, &mut single] {
+        bus.write_byte(0xFF40, 0x00); // LCD off to avoid OAM read blocking during verification
+        bus.write_byte(0xFF07, 0x05);
+        bus.write_byte(0xFF06, 0x33);
+        bus.write_byte(0xFF05, 0xF0);
+        for i in 0..0xA0u16 {
+            bus.write_byte(0xC000 + i, ((i as u8).wrapping_mul(3)).wrapping_add(1));
+        }
+        bus.write_byte(0xFF46, 0xC0);
+    }
+    assert_eq!(
+        timing_contract_snapshot(&chunked),
+        timing_contract_snapshot(&single)
+    );
+
+    for &chunk in &[1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 160, 200] {
+        tick_chunk_and_compare_timing_state(&mut chunked, &mut single, chunk);
+    }
+
+    for i in 0..0xA0u16 {
+        let addr = 0xFE00 + i;
+        assert_eq!(
+            chunked.read_byte(addr),
+            single.read_byte(addr),
+            "OAM mismatch at {:04X} after DMA under different tick chunking",
+            addr
+        );
+    }
 }
 
 #[test]
