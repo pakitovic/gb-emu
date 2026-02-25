@@ -43,7 +43,7 @@ impl DmaState {
                 if bus.dma.index < 0xA0 {
                     let src = bus.dma.source.wrapping_add(bus.dma.index as u16);
                     let value = bus.read_byte_raw(src);
-                    bus.oam[bus.dma.index as usize] = value;
+                    bus.write_oam_index_internal(bus.dma.index as usize, value);
                     bus.dma.index = bus.dma.index.wrapping_add(1);
                 }
             }
