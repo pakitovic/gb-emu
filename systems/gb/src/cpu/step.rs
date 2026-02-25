@@ -8,8 +8,7 @@ impl Cpu {
 
         if self.halted {
             if pending == 0 {
-                self.tick_m(bus, 1);
-                return self.step_tcycles;
+                return self.tick_and_ret_m(bus, Self::HALT_IDLE_STEP_M_CYCLES);
             }
             self.halted = false;
         }

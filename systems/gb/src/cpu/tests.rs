@@ -11,6 +11,18 @@ fn make_test_bus() -> Bus {
     Bus::new(cart)
 }
 
+fn m_tcycles(bus: &Bus, mcycles: u8) -> u8 {
+    bus.cpu_tcycles_for_mcycles(mcycles)
+}
+
+fn halt_idle_tcycles(bus: &Bus) -> u8 {
+    m_tcycles(bus, Cpu::HALT_IDLE_STEP_M_CYCLES)
+}
+
+fn interrupt_service_tcycles(bus: &Bus) -> u8 {
+    m_tcycles(bus, Cpu::INTERRUPT_SERVICE_M_CYCLES)
+}
+
 #[test]
 fn new_with_model_sets_expected_boot_registers() {
     let assert_model = |model: HardwareModel, expected: (u8, u8, u8, u8, u8, u8, u8, u8)| {
@@ -302,7 +314,7 @@ fn interrupt_ie_push_upper_byte_can_cancel_dispatch() {
 
     let cycles = cpu.step(&mut bus);
 
-    assert_eq!(cycles, 20);
+    assert_eq!(cycles, interrupt_service_tcycles(&bus));
     assert!(!cpu.ime);
     assert_eq!(cpu.registers.pc, 0x0000);
     assert_eq!(bus.interrupt_enable(), 0x02);
@@ -323,7 +335,7 @@ fn interrupt_ie_push_upper_byte_can_change_selected_vector() {
 
     let cycles = cpu.step(&mut bus);
 
-    assert_eq!(cycles, 20);
+    assert_eq!(cycles, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0048);
     assert_eq!(bus.interrupt_enable(), 0x02);
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x01);
@@ -343,7 +355,7 @@ fn interrupt_ie_push_lower_byte_is_too_late_to_cancel_dispatch() {
 
     let cycles = cpu.step(&mut bus);
 
-    assert_eq!(cycles, 20);
+    assert_eq!(cycles, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0058);
     assert_eq!(bus.interrupt_enable(), 0x35);
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x00);
@@ -363,7 +375,7 @@ fn interrupt_if_push_upper_byte_can_cancel_dispatch() {
 
     let cycles = cpu.step(&mut bus);
 
-    assert_eq!(cycles, 20);
+    assert_eq!(cycles, interrupt_service_tcycles(&bus));
     assert!(!cpu.ime);
     assert_eq!(cpu.registers.pc, 0x0000); // dispatch cancelled after IF changes
     assert_eq!(cpu.registers.sp, 0xFF0E);
@@ -384,7 +396,7 @@ fn interrupt_if_push_upper_byte_can_change_selected_vector() {
 
     let cycles = cpu.step(&mut bus);
 
-    assert_eq!(cycles, 20);
+    assert_eq!(cycles, interrupt_service_tcycles(&bus));
     assert!(!cpu.ime);
     assert_eq!(cpu.registers.pc, 0x0048); // STAT selected after IF rewrite
     assert_eq!(cpu.registers.sp, 0xFF0E);
@@ -405,7 +417,7 @@ fn interrupt_if_push_lower_byte_is_too_late_to_cancel_dispatch() {
 
     let cycles = cpu.step(&mut bus);
 
-    assert_eq!(cycles, 20);
+    assert_eq!(cycles, interrupt_service_tcycles(&bus));
     assert!(!cpu.ime);
     assert_eq!(cpu.registers.pc, 0x0040); // selection already latched before lower-byte push
     assert_eq!(cpu.registers.sp, 0xFF0F);
@@ -421,12 +433,12 @@ fn halt_without_pending_interrupts_stays_halted() {
     bus.write_byte(0xC000, 0x76); // HALT
 
     let cycles_1 = cpu.step(&mut bus);
-    assert_eq!(cycles_1, 4);
+    assert_eq!(cycles_1, m_tcycles(&bus, 1));
     assert!(cpu.halted);
     assert_eq!(cpu.registers.pc, 0xC001);
 
     let cycles_2 = cpu.step(&mut bus);
-    assert_eq!(cycles_2, 4);
+    assert_eq!(cycles_2, halt_idle_tcycles(&bus));
     assert!(cpu.halted);
     assert_eq!(cpu.registers.pc, 0xC001);
 }
@@ -510,13 +522,13 @@ fn halt_with_pending_interrupt_and_ime_on_dispatches_interrupt() {
     bus.set_interrupt_flags(0x00); // clear post-boot IF defaults
 
     let cycles_1 = cpu.step(&mut bus);
-    assert_eq!(cycles_1, 4); // HALT instruction itself
+    assert_eq!(cycles_1, m_tcycles(&bus, 1)); // HALT instruction itself
     assert!(cpu.halted);
     assert_eq!(cpu.registers.pc, 0xC001);
 
     bus.set_interrupt_flags(0x01); // IF: VBlank pending after HALT
     let cycles_2 = cpu.step(&mut bus);
-    assert_eq!(cycles_2, 20);
+    assert_eq!(cycles_2, interrupt_service_tcycles(&bus));
     assert!(!cpu.halted);
     assert!(!cpu.ime);
     assert_eq!(cpu.registers.pc, 0x0040);
@@ -535,14 +547,14 @@ fn halted_ime_off_does_not_wake_when_if_changes_without_enabled_ie() {
     bus.set_interrupt_flags(0x00);
 
     let cycles_1 = cpu.step(&mut bus);
-    assert_eq!(cycles_1, 4);
+    assert_eq!(cycles_1, m_tcycles(&bus, 1));
     assert!(cpu.halted);
     assert_eq!(cpu.registers.pc, 0xC001);
 
     bus.set_interrupt_flags(0x01); // IF changes while HALTed, but IE still masks it
 
     let cycles_2 = cpu.step(&mut bus);
-    assert_eq!(cycles_2, 4);
+    assert_eq!(cycles_2, halt_idle_tcycles(&bus));
     assert!(cpu.halted);
     assert_eq!(cpu.registers.pc, 0xC001);
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x01);
@@ -561,14 +573,14 @@ fn halted_ime_off_wakes_when_if_sets_enabled_interrupt_without_servicing() {
     bus.set_interrupt_flags(0x00);
 
     let cycles_1 = cpu.step(&mut bus);
-    assert_eq!(cycles_1, 4);
+    assert_eq!(cycles_1, m_tcycles(&bus, 1));
     assert!(cpu.halted);
     assert_eq!(cpu.registers.pc, 0xC001);
 
     bus.set_interrupt_flags(0x01); // IF becomes pending while HALTed
 
     let cycles_2 = cpu.step(&mut bus);
-    assert_eq!(cycles_2, 4);
+    assert_eq!(cycles_2, halt_idle_tcycles(&bus));
     assert!(!cpu.halted);
     assert!(!cpu.ime);
     assert_eq!(cpu.registers.pc, 0xC002); // NOP executed after wake (no dispatch)
@@ -588,19 +600,19 @@ fn halted_ime_off_wakes_when_ie_enables_pending_if_without_servicing() {
     bus.set_interrupt_flags(0x00);
 
     let cycles_1 = cpu.step(&mut bus);
-    assert_eq!(cycles_1, 4);
+    assert_eq!(cycles_1, m_tcycles(&bus, 1));
     assert!(cpu.halted);
     assert_eq!(cpu.registers.pc, 0xC001);
 
     bus.set_interrupt_flags(0x01); // IF pending while still masked
     let cycles_2 = cpu.step(&mut bus);
-    assert_eq!(cycles_2, 4);
+    assert_eq!(cycles_2, halt_idle_tcycles(&bus));
     assert!(cpu.halted);
     assert_eq!(cpu.registers.pc, 0xC001);
 
     bus.write_byte(0xFFFF, 0x01); // IE changes while HALTed and makes pending non-zero
     let cycles_3 = cpu.step(&mut bus);
-    assert_eq!(cycles_3, 4);
+    assert_eq!(cycles_3, halt_idle_tcycles(&bus));
     assert!(!cpu.halted);
     assert!(!cpu.ime);
     assert_eq!(cpu.registers.pc, 0xC002); // NOP executes; interrupt remains pending
@@ -620,14 +632,14 @@ fn halted_ime_on_does_not_wake_when_if_changes_without_enabled_ie() {
     bus.set_interrupt_flags(0x00);
 
     let cycles_1 = cpu.step(&mut bus);
-    assert_eq!(cycles_1, 4);
+    assert_eq!(cycles_1, m_tcycles(&bus, 1));
     assert!(cpu.halted);
     assert_eq!(cpu.registers.pc, 0xC001);
 
     bus.set_interrupt_flags(0x01); // IF changes while HALTed, but IE still masks it
 
     let cycles_2 = cpu.step(&mut bus);
-    assert_eq!(cycles_2, 4);
+    assert_eq!(cycles_2, halt_idle_tcycles(&bus));
     assert!(cpu.halted);
     assert!(cpu.ime);
     assert_eq!(cpu.registers.pc, 0xC001);
@@ -648,19 +660,19 @@ fn halted_ime_on_services_when_ie_enables_pending_if() {
     bus.set_interrupt_flags(0x00);
 
     let cycles_1 = cpu.step(&mut bus);
-    assert_eq!(cycles_1, 4);
+    assert_eq!(cycles_1, m_tcycles(&bus, 1));
     assert!(cpu.halted);
     assert_eq!(cpu.registers.pc, 0xC001);
 
     bus.set_interrupt_flags(0x01); // IF pending while still masked
     let cycles_2 = cpu.step(&mut bus);
-    assert_eq!(cycles_2, 4);
+    assert_eq!(cycles_2, halt_idle_tcycles(&bus));
     assert!(cpu.halted);
     assert_eq!(cpu.registers.pc, 0xC001);
 
     bus.write_byte(0xFFFF, 0x01); // IE enables pending IF while HALTed
     let cycles_3 = cpu.step(&mut bus);
-    assert_eq!(cycles_3, 20);
+    assert_eq!(cycles_3, interrupt_service_tcycles(&bus));
     assert!(!cpu.halted);
     assert!(!cpu.ime);
     assert_eq!(cpu.registers.pc, 0x0040);
@@ -698,7 +710,7 @@ fn ei_delays_pending_interrupt_service_until_after_next_instruction() {
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x01);
 
     let cycles_3 = cpu.step(&mut bus);
-    assert_eq!(cycles_3, 20);
+    assert_eq!(cycles_3, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0040);
     assert!(!cpu.ime);
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x00);
@@ -765,7 +777,7 @@ fn reti_enables_ime_immediately_for_next_step_interrupt_check() {
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x01);
 
     let cycles_2 = cpu.step(&mut bus);
-    assert_eq!(cycles_2, 20);
+    assert_eq!(cycles_2, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0040);
     assert!(!cpu.ime);
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x00);
@@ -804,7 +816,7 @@ fn ei_then_halt_with_pending_interrupt_services_without_leaking_halt_bug() {
     assert_eq!(cpu.ime_enable_delay, 0);
 
     let cycles_3 = cpu.step(&mut bus);
-    assert_eq!(cycles_3, 20);
+    assert_eq!(cycles_3, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0040);
     assert!(!cpu.ime);
     // Interrupt dispatch must not leave a stale HALT bug latch for later instruction fetches.
@@ -897,7 +909,7 @@ fn ei_then_halt_halt_bug_dispatch_uses_updated_if_source_before_next_step() {
     bus.set_interrupt_flags(0x02); // IF: STAT only
 
     let cycles_3 = cpu.step(&mut bus);
-    assert_eq!(cycles_3, 20);
+    assert_eq!(cycles_3, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0048); // STAT vector
     assert!(!cpu.ime);
     assert!(!cpu.halt_bug); // dispatch clears halt-bug latch
@@ -939,7 +951,7 @@ fn ei_then_halt_halt_bug_dispatch_uses_updated_ie_source_before_next_step() {
     bus.write_byte(0xFFFF, 0x02); // IE: STAT only
 
     let cycles_3 = cpu.step(&mut bus);
-    assert_eq!(cycles_3, 20);
+    assert_eq!(cycles_3, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0048); // STAT vector
     assert!(!cpu.ime);
     assert!(!cpu.halt_bug); // dispatch clears halt-bug latch
@@ -977,7 +989,7 @@ fn ei_then_halt_halt_bug_dispatch_reevaluates_combined_if_ie_priority_before_nex
     bus.write_byte(0xFFFF, 0x14); // TIMER + JOYPAD enabled
 
     let cycles_3 = cpu.step(&mut bus);
-    assert_eq!(cycles_3, 20);
+    assert_eq!(cycles_3, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0050); // TIMER vector wins over JOYPAD
     assert_eq!(cpu.registers.b, 0x00); // HALT-bug duplicate fetch was preempted by dispatch
     assert!(!cpu.ime);
@@ -998,7 +1010,7 @@ fn halt_with_ime_on_and_already_pending_interrupt_is_preempted_before_halt_execu
     bus.set_interrupt_flags(0x01); // IF: VBlank already pending before HALT executes
 
     let cycles_1 = cpu.step(&mut bus);
-    assert_eq!(cycles_1, 20);
+    assert_eq!(cycles_1, interrupt_service_tcycles(&bus));
     assert!(!cpu.halted);
     assert!(!cpu.ime);
     // Interrupt service preempts fetching/executing HALT when IME is already set.
@@ -1030,7 +1042,7 @@ fn reti_next_step_services_highest_priority_pending_interrupt() {
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x03);
 
     let cycles_2 = cpu.step(&mut bus);
-    assert_eq!(cycles_2, 20);
+    assert_eq!(cycles_2, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0040); // VBlank should win over STAT
     assert!(!cpu.ime);
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x02); // STAT remains pending
@@ -1072,7 +1084,7 @@ fn stop_with_ime_on_and_already_pending_interrupt_is_preempted_before_stop_execu
 
     let cycles = cpu.step(&mut bus);
 
-    assert_eq!(cycles, 20);
+    assert_eq!(cycles, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0040);
     assert!(!cpu.halted);
     assert!(!cpu.ime);
@@ -1157,7 +1169,7 @@ fn ei_then_stop_consumes_padding_before_delayed_interrupt_service() {
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x01);
 
     let cycles_3 = cpu.step(&mut bus);
-    assert_eq!(cycles_3, 20);
+    assert_eq!(cycles_3, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0040);
     assert!(!cpu.ime);
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x00);
@@ -1196,7 +1208,7 @@ fn ei_then_stop_delayed_dispatch_uses_updated_if_source_before_next_step() {
     bus.set_interrupt_flags(0x02); // IF: STAT only
 
     let cycles_3 = cpu.step(&mut bus);
-    assert_eq!(cycles_3, 20);
+    assert_eq!(cycles_3, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0048); // STAT vector
     assert!(!cpu.ime);
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x00);
@@ -1235,7 +1247,7 @@ fn ei_then_stop_delayed_dispatch_uses_updated_ie_source_before_next_step() {
     bus.write_byte(0xFFFF, 0x02); // IE: STAT only
 
     let cycles_3 = cpu.step(&mut bus);
-    assert_eq!(cycles_3, 20);
+    assert_eq!(cycles_3, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0048); // STAT vector
     assert!(!cpu.ime);
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x01); // VBlank remains pending but masked
@@ -1270,7 +1282,7 @@ fn ei_then_stop_delayed_dispatch_reevaluates_combined_if_ie_priority_before_serv
     bus.write_byte(0xFFFF, 0x06); // STAT + TIMER enabled
 
     let cycles_3 = cpu.step(&mut bus);
-    assert_eq!(cycles_3, 20);
+    assert_eq!(cycles_3, interrupt_service_tcycles(&bus));
     assert_eq!(cpu.registers.pc, 0x0048); // STAT vector wins over TIMER
     assert!(!cpu.ime);
     assert_eq!(bus.interrupt_flags() & 0x1F, 0x0C); // TIMER + SERIAL remain pending

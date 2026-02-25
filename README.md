@@ -8,7 +8,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - CPU core with growing opcode coverage.
 - Memory bus + timer/interrupt basics.
 - Core timing contract now exposes an explicit DMG clock-ratio policy layer (CPU m-cycles -> base t-cycles) used at the CPU/bus boundary, keeping current DMG behavior unchanged while reducing future CGB double-speed refactor scope.
-- CPU timing plumbing now derives control/jump/ALU/load/CB instruction return timings from the clock-ratio policy (`mcycles -> tcycles`) instead of DMG-only t-cycle literals, while keeping behavior unchanged in current DMG scope.
+- CPU timing plumbing now derives control/jump/ALU/load/CB instruction return timings from the clock-ratio policy (`mcycles -> tcycles`), and non-instruction CPU timing paths (HALT idle step + interrupt service dispatch) also use explicit policy-derived timing returns, while keeping behavior unchanged in current DMG scope.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
 
@@ -217,7 +217,7 @@ Supported models for `--model`:
 - CPU correctness and timing confidence are currently driven by the included Blargg + Gekkio suites and project integration tests; untested instruction/interrupt corner cases may still remain.
 - The emulator is currently DMG-family focused (`dmg0`, `dmg`, `mgb`, `sgb`, `sgb2`); CGB-specific CPU/platform behavior (for example double-speed mode and CGB-only hardware interactions) is out of scope.
 - Cross-subsystem cycle accuracy (CPU vs PPU/APU/DMA/bus contention) is implemented incrementally and is only guaranteed for the timing cases explicitly covered by current tests and documented PPU/DMA behavior.
-- CPU instruction timing return values are largely derived through clock-policy m-cycle conversions now; some non-instruction CPU timing paths and future CPU/CGB timing work still remain incremental and DMG-focused.
+- CPU timing plumbing is mostly policy-derived in current DMG scope, but some CPU timing work remains outside this migration (for example future CGB-specific timing behavior/policies and additional non-instruction edge cases not yet explicitly characterized).
 - `GameBoy`/`Bus` currently expose a small set of persistence-byte bridge helpers for `gb_runtime::cartridge_persistence`; tightening or reshaping that host-facing boundary is deferred unless the core API surface grows significantly.
 
 ### Runtime / Host Utility Maintainability

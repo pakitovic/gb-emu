@@ -55,6 +55,6 @@ impl Cpu {
         }
 
         self.tick_m(bus, 1);
-        self.step_tcycles
+        self.ret_step_total_m(bus, Self::INTERRUPT_SERVICE_M_CYCLES)
     }
 }
