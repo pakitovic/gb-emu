@@ -832,15 +832,16 @@ impl PpuState {
                         return;
                     }
                     BgFetchPhase::TileDataLow => {
-                        bus.ppu.mode3_fifo.bg_fetch_low =
-                            bus.vram[bus.ppu.mode3_fifo.bg_fetch_tile_line_addr];
+                        bus.ppu.mode3_fifo.bg_fetch_low = bus
+                            .read_vram_index_internal(bus.ppu.mode3_fifo.bg_fetch_tile_line_addr);
                         bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::TileDataHigh;
                         bus.ppu.mode3_fifo.bg_fetch_dots_remaining = BG_FETCH_PHASE_DOTS;
                         return;
                     }
                     BgFetchPhase::TileDataHigh => {
-                        bus.ppu.mode3_fifo.bg_fetch_high =
-                            bus.vram[bus.ppu.mode3_fifo.bg_fetch_tile_line_addr + 1];
+                        bus.ppu.mode3_fifo.bg_fetch_high = bus.read_vram_index_internal(
+                            bus.ppu.mode3_fifo.bg_fetch_tile_line_addr + 1,
+                        );
                         bus.ppu.mode3_fifo.bg_push_substate = BgPushSubstate::ReadyNormal;
                         bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::Push;
                     }
@@ -944,7 +945,7 @@ impl PpuState {
             let window_x = (screen_x - bus.ppu.mode3_fifo.window_start_x).max(0) as usize;
             let window_y = bus.ppu.window_line_counter as usize;
             let tile_map_index = (window_y / 8) * 32 + (window_x / 8);
-            let tile_index = bus.vram[window_map_base + tile_map_index];
+            let tile_index = bus.read_vram_index_internal(window_map_base + tile_map_index);
             let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, window_y & 0x07);
             return (tile_index, tile_line_addr);
         }
@@ -961,7 +962,7 @@ impl PpuState {
         let tile_col = (bg_x / 8) as usize;
         let tile_row = (bg_y / 8) as usize;
         let tile_map_index = tile_row * 32 + tile_col;
-        let tile_index = bus.vram[bg_map_base + tile_map_index];
+        let tile_index = bus.read_vram_index_internal(bg_map_base + tile_map_index);
         let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, (bg_y & 0x07) as usize);
         (tile_index, tile_line_addr)
     }
@@ -992,10 +993,10 @@ impl PpuState {
         let window_y = bus.ppu.window_line_counter as usize;
 
         let tile_map_index = (window_y / 8) * 32 + (window_x / 8);
-        let tile_index = bus.vram[window_map_base + tile_map_index];
+        let tile_index = bus.read_vram_index_internal(window_map_base + tile_map_index);
         let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, window_y & 0x07);
-        let low = bus.vram[tile_line_addr];
-        let high = bus.vram[tile_line_addr + 1];
+        let low = bus.read_vram_index_internal(tile_line_addr);
+        let high = bus.read_vram_index_internal(tile_line_addr + 1);
         let bit = 7u8.wrapping_sub((window_x & 0x07) as u8);
         (((high >> bit) & 1) << 1) | ((low >> bit) & 1)
     }
@@ -1017,10 +1018,10 @@ impl PpuState {
         let bit_x = bg_x & 0x07;
 
         let tile_map_index = tile_row * 32 + tile_col;
-        let tile_index = bus.vram[bg_map_base + tile_map_index];
+        let tile_index = bus.read_vram_index_internal(bg_map_base + tile_map_index);
         let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, line_in_tile);
-        let low = bus.vram[tile_line_addr];
-        let high = bus.vram[tile_line_addr + 1];
+        let low = bus.read_vram_index_internal(tile_line_addr);
+        let high = bus.read_vram_index_internal(tile_line_addr + 1);
         let bit = 7u8.wrapping_sub(bit_x);
         (((high >> bit) & 1) << 1) | ((low >> bit) & 1)
     }
@@ -1034,10 +1035,10 @@ impl PpuState {
         let mut candidate_count = 0usize;
         for oam_index in 0u8..40 {
             let base = (oam_index as usize) * 4;
-            let y_raw = bus.oam[base];
-            let x_raw = bus.oam[base + 1];
-            let tile = bus.oam[base + 2];
-            let attr = bus.oam[base + 3];
+            let y_raw = bus.read_oam_index_internal(base);
+            let x_raw = bus.read_oam_index_internal(base + 1);
+            let tile = bus.read_oam_index_internal(base + 2);
+            let attr = bus.read_oam_index_internal(base + 3);
 
             if x_raw >= 168 {
                 continue;
@@ -1112,8 +1113,8 @@ impl PpuState {
 
             sprites[i] = Mode3ObjSprite {
                 x_left: candidate.x_raw as i16 - 8,
-                low: bus.vram[line_addr],
-                high: bus.vram[line_addr + 1],
+                low: bus.read_vram_index_internal(line_addr),
+                high: bus.read_vram_index_internal(line_addr + 1),
                 attr: candidate.attr,
                 fetch_dots: fetch_dots[i],
                 post_fetch_dots: post_fetch_dots[i],
