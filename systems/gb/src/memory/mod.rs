@@ -17,6 +17,7 @@ mod timer;
 
 use crate::apu::ApuState;
 use crate::cartridge::Cartridge;
+use crate::timing::ClockRatios;
 use dma::DmaState;
 use joypad::JoypadState;
 use ppu::PpuState;
@@ -42,6 +43,7 @@ pub struct Bus {
     serial: SerialState,
     joypad: JoypadState,
     framebuffer: [u8; LCD_FRAME_PIXELS],
+    clock_ratios: ClockRatios,
 }
 
 #[cfg(test)]

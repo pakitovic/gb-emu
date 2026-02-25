@@ -7,6 +7,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 ### Core Emulation (CPU / Bus / Timing / Input)
 - CPU core with growing opcode coverage.
 - Memory bus + timer/interrupt basics.
+- Core timing contract now exposes an explicit DMG clock-ratio policy layer (CPU m-cycles -> base t-cycles) used at the CPU/bus boundary, keeping current DMG behavior unchanged while reducing future CGB double-speed refactor scope.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
 
