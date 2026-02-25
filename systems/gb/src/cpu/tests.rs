@@ -102,6 +102,65 @@ fn pop_hl_pops_once_and_updates_sp_by_two() {
 }
 
 #[test]
+fn push_bc_returns_policy_derived_four_mcycles() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.registers.pc = 0xC000;
+    cpu.registers.sp = 0xD000;
+    cpu.registers.b = 0x12;
+    cpu.registers.c = 0x34;
+    bus.write_byte(0xC000, 0xC5); // PUSH BC
+
+    let expected = bus.cpu_tcycles_for_mcycles(4);
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(cycles, expected);
+    assert_eq!(cpu.registers.sp, 0xCFFE);
+    assert_eq!(bus.read_byte(0xCFFF), 0x12);
+    assert_eq!(bus.read_byte(0xCFFE), 0x34);
+    assert_eq!(cpu.registers.pc, 0xC001);
+}
+
+#[test]
+fn jr_nz_not_taken_returns_policy_derived_two_mcycles() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.registers.pc = 0xC000;
+    cpu.registers.f = 0x80; // Z set => NZ condition fails
+    bus.write_byte(0xC000, 0x20); // JR NZ,r8
+    bus.write_byte(0xC001, 0x05);
+
+    let expected = bus.cpu_tcycles_for_mcycles(2);
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(cycles, expected);
+    assert_eq!(cpu.registers.pc, 0xC002);
+}
+
+#[test]
+fn call_a16_returns_policy_derived_six_mcycles() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.registers.pc = 0xC000;
+    cpu.registers.sp = 0xD000;
+    bus.write_byte(0xC000, 0xCD); // CALL a16
+    bus.write_byte(0xC001, 0x34);
+    bus.write_byte(0xC002, 0x12);
+
+    let expected = bus.cpu_tcycles_for_mcycles(6);
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(cycles, expected);
+    assert_eq!(cpu.registers.pc, 0x1234);
+    assert_eq!(cpu.registers.sp, 0xCFFE);
+    assert_eq!(bus.read_byte(0xCFFF), 0xC0);
+    assert_eq!(bus.read_byte(0xCFFE), 0x03);
+}
+
+#[test]
 fn interrupt_ie_push_upper_byte_can_cancel_dispatch() {
     let mut cpu = Cpu::new();
     let mut bus = make_test_bus();
