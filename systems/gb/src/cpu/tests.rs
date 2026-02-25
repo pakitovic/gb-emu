@@ -198,6 +198,97 @@ fn cp_hl_returns_policy_derived_two_mcycles() {
 }
 
 #[test]
+fn ld_b_c_returns_policy_derived_one_mcycle() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.registers.pc = 0xC000;
+    cpu.registers.b = 0x00;
+    cpu.registers.c = 0x77;
+    bus.write_byte(0xC000, 0x41); // LD B,C
+
+    let expected = bus.cpu_tcycles_for_mcycles(1);
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(cycles, expected);
+    assert_eq!(cpu.registers.b, 0x77);
+    assert_eq!(cpu.registers.pc, 0xC001);
+}
+
+#[test]
+fn ld_hl_d8_returns_policy_derived_three_mcycles() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.registers.pc = 0xC000;
+    cpu.set_hl(0xC100);
+    bus.write_byte(0xC000, 0x36); // LD (HL),d8
+    bus.write_byte(0xC001, 0x5A);
+
+    let expected = bus.cpu_tcycles_for_mcycles(3);
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(cycles, expected);
+    assert_eq!(bus.read_byte(0xC100), 0x5A);
+    assert_eq!(cpu.registers.pc, 0xC002);
+}
+
+#[test]
+fn add_hl_bc_returns_policy_derived_two_mcycles() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.registers.pc = 0xC000;
+    cpu.set_hl(0x1234);
+    cpu.set_bc(0x0102);
+    bus.write_byte(0xC000, 0x09); // ADD HL,BC
+
+    let expected = bus.cpu_tcycles_for_mcycles(2);
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(cycles, expected);
+    assert_eq!(cpu.hl(), 0x1336);
+    assert_eq!(cpu.registers.pc, 0xC001);
+}
+
+#[test]
+fn cb_bit_7_b_returns_policy_derived_two_mcycles() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.registers.pc = 0xC000;
+    cpu.registers.b = 0x80;
+    bus.write_byte(0xC000, 0xCB);
+    bus.write_byte(0xC001, 0x78); // BIT 7,B
+
+    let expected = bus.cpu_tcycles_for_mcycles(2);
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(cycles, expected);
+    assert_eq!(cpu.registers.b, 0x80);
+    assert_eq!(cpu.registers.pc, 0xC002);
+}
+
+#[test]
+fn cb_rlc_hl_returns_policy_derived_four_mcycles() {
+    let mut cpu = Cpu::new();
+    let mut bus = make_test_bus();
+
+    cpu.registers.pc = 0xC000;
+    cpu.set_hl(0xC120);
+    bus.write_byte(0xC000, 0xCB);
+    bus.write_byte(0xC001, 0x06); // RLC (HL)
+    bus.write_byte(0xC120, 0x81);
+
+    let expected = bus.cpu_tcycles_for_mcycles(4);
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(cycles, expected);
+    assert_eq!(bus.read_byte(0xC120), 0x03);
+    assert_eq!(cpu.registers.pc, 0xC002);
+}
+
+#[test]
 fn interrupt_ie_push_upper_byte_can_cancel_dispatch() {
     let mut cpu = Cpu::new();
     let mut bus = make_test_bus();

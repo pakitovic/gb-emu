@@ -108,7 +108,7 @@ impl Cpu {
         set_flag_c(&mut self.registers.f, a < value);
     }
 
-    pub(in crate::cpu) fn add_hl(&mut self, value: u16) -> u8 {
+    pub(in crate::cpu) fn add_hl(&mut self, value: u16) {
         let hl = self.hl();
         let result = hl.wrapping_add(value);
         self.set_hl(result);
@@ -119,7 +119,5 @@ impl Cpu {
             ((hl & 0x0FFF) + (value & 0x0FFF)) > 0x0FFF,
         );
         set_flag_c(&mut self.registers.f, (hl as u32 + value as u32) > 0xFFFF);
-
-        8
     }
 }
