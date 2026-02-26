@@ -1,3 +1,4 @@
+use super::bus::PpuStateAdapter;
 use super::*;
 
 impl PpuState {
@@ -17,7 +18,7 @@ impl PpuState {
         if startup_line {
             STARTUP_MODE0_DOTS
         } else {
-            match bus.ppu.post_enable_phase {
+            match bus.ppu_state().post_enable_phase {
                 2 | 1 => 84u16,
                 _ => 80u16,
             }
@@ -26,7 +27,7 @@ impl PpuState {
 
     pub(super) fn render_mode3_dot(bus: &mut Bus, ly: u8, line_cycle: u16, startup_line: bool) {
         let mode3_start = Self::mode3_start_tcycle(bus, startup_line);
-        let mode3_dots = bus.ppu.mode3_dots_latched;
+        let mode3_dots = bus.ppu_state().mode3_dots_latched;
         let mode3_end = mode3_start.saturating_add(mode3_dots);
         if line_cycle < mode3_start || line_cycle >= mode3_end {
             return;
@@ -34,13 +35,13 @@ impl PpuState {
 
         if line_cycle == mode3_start {
             bus.ppu_clear_framebuffer_line(ly, DMG_SHADE_TO_LUMA[0]);
-            bus.ppu.bg_color_ids_line.fill(0);
+            bus.ppu_state_mut().bg_color_ids_line.fill(0);
             let discard_pixels = bus.ppu_scx() & 0x07;
-            bus.ppu.mode3_fifo.start(discard_pixels);
+            bus.ppu_state_mut().mode3_fifo.start(discard_pixels);
             Self::prepare_mode3_obj_line(bus, ly as usize);
         }
 
-        if !bus.ppu.mode3_fifo.active {
+        if !bus.ppu_state().mode3_fifo.active {
             return;
         }
 
@@ -55,11 +56,11 @@ impl PpuState {
         let y = ly as usize;
         Self::mode3_step_bg_fetch(bus, lcdc, y);
 
-        let bg_pixel = if bus.ppu.mode3_fifo.warmup_dots > 0 {
-            bus.ppu.mode3_fifo.warmup_dots -= 1;
+        let bg_pixel = if bus.ppu_state().mode3_fifo.warmup_dots > 0 {
+            bus.ppu_state_mut().mode3_fifo.warmup_dots -= 1;
             None
         } else {
-            bus.ppu.mode3_fifo.pop()
+            bus.ppu_state_mut().mode3_fifo.pop()
         };
 
         let Some(bg_pixel) = bg_pixel else {
@@ -67,39 +68,41 @@ impl PpuState {
         };
         Self::mode3_latch_bg_push_recovery_sleep_after_pop(bus);
 
-        if bus.ppu.mode3_fifo.discard_pixels > 0 {
+        if bus.ppu_state().mode3_fifo.discard_pixels > 0 {
             // Fine-scroll discard consumes the pixel stream before the first visible
             // dot, so OBJ FIFO must advance in lockstep with BG to keep sprite columns
             // aligned at the left edge when SCX has a sub-tile offset.
             let _ = Self::mode3_pop_obj_pixel(bus);
-            bus.ppu.mode3_fifo.discard_pixels -= 1;
+            bus.ppu_state_mut().mode3_fifo.discard_pixels -= 1;
             return;
         }
 
-        if (bus.ppu.mode3_fifo.output_x as usize) < crate::memory::LCD_WIDTH {
-            let x = bus.ppu.mode3_fifo.output_x as usize;
-            bus.ppu.mode3_fifo.output_x = bus.ppu.mode3_fifo.output_x.saturating_add(1);
+        if (bus.ppu_state().mode3_fifo.output_x as usize) < crate::memory::LCD_WIDTH {
+            let x = bus.ppu_state().mode3_fifo.output_x as usize;
+            let next_output_x = bus.ppu_state().mode3_fifo.output_x.saturating_add(1);
+            bus.ppu_state_mut().mode3_fifo.output_x = next_output_x;
             let obj_pixel = Self::mode3_pop_obj_pixel(bus);
             let pixel_meta = Self::compose_mode3_pixel_meta(lcdc, bg_pixel, obj_pixel);
             let shade_id = Self::map_mode3_dmg_shade_id(bus, pixel_meta);
-            bus.ppu.bg_color_ids_line[x] = bg_pixel.color_id;
+            bus.ppu_state_mut().bg_color_ids_line[x] = bg_pixel.color_id;
             bus.ppu_write_framebuffer_pixel(y, x, DMG_SHADE_TO_LUMA[shade_id as usize]);
         }
     }
 
     pub(super) fn mode3_current_screen_x(bus: &Bus) -> i16 {
-        bus.ppu.mode3_fifo.output_x as i16 - bus.ppu.mode3_fifo.discard_pixels as i16
+        bus.ppu_state().mode3_fifo.output_x as i16
+            - bus.ppu_state().mode3_fifo.discard_pixels as i16
     }
 
     pub(super) fn mode3_latch_bg_push_recovery_sleep_after_pop(bus: &mut Bus) {
-        if bus.ppu.mode3_fifo.bg_fetch_phase != BgFetchPhase::Push {
+        if bus.ppu_state().mode3_fifo.bg_fetch_phase != BgFetchPhase::Push {
             return;
         }
-        if bus.ppu.mode3_fifo.bg_push_substate != BgPushSubstate::Stalled {
+        if bus.ppu_state().mode3_fifo.bg_push_substate != BgPushSubstate::Stalled {
             return;
         }
-        if bus.ppu.mode3_fifo.can_push_8() {
-            bus.ppu.mode3_fifo.bg_push_substate = BgPushSubstate::RecoverySleep;
+        if bus.ppu_state().mode3_fifo.can_push_8() {
+            bus.ppu_state_mut().mode3_fifo.bg_push_substate = BgPushSubstate::RecoverySleep;
         }
     }
 
@@ -115,32 +118,32 @@ impl PpuState {
     }
 
     pub(super) fn mode3_bg_takeover_boundary(bus: &Bus) -> bool {
-        let push_stalled_boundary = bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
-            && bus.ppu.mode3_fifo.bg_push_substate == BgPushSubstate::Stalled
-            && !bus.ppu.mode3_fifo.can_push_8();
+        let push_stalled_boundary = bus.ppu_state().mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
+            && bus.ppu_state().mode3_fifo.bg_push_substate == BgPushSubstate::Stalled
+            && !bus.ppu_state().mode3_fifo.can_push_8();
         let push_ready_boundary = Self::mode3_bg_push_ready_takeover_boundary(bus);
-        (bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::TileIndex
-            && bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0)
+        (bus.ppu_state().mode3_fifo.bg_fetch_phase == BgFetchPhase::TileIndex
+            && bus.ppu_state().mode3_fifo.bg_fetch_dots_remaining == 0)
             || push_stalled_boundary
             || push_ready_boundary
     }
 
     #[cfg(test)]
     pub(super) fn mode3_bg_push_recovery_sleep_pending(bus: &Bus) -> bool {
-        bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
-            && bus.ppu.mode3_fifo.bg_push_substate == BgPushSubstate::RecoverySleep
+        bus.ppu_state().mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
+            && bus.ppu_state().mode3_fifo.bg_push_substate == BgPushSubstate::RecoverySleep
     }
 
     pub(super) fn mode3_bg_push_ready_takeover_boundary(bus: &Bus) -> bool {
-        bus.ppu.mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
-            && bus.ppu.mode3_fifo.bg_push_substate == BgPushSubstate::ReadyAfterRecovery
-            && bus.ppu.mode3_fifo.bg_fetch_dots_remaining == 0
+        bus.ppu_state().mode3_fifo.bg_fetch_phase == BgFetchPhase::Push
+            && bus.ppu_state().mode3_fifo.bg_push_substate == BgPushSubstate::ReadyAfterRecovery
+            && bus.ppu_state().mode3_fifo.bg_fetch_dots_remaining == 0
     }
 
     pub(super) fn mode3_obj_takeover_boundary(bus: &Bus) -> bool {
         Self::mode3_bg_takeover_boundary(bus)
-            && bus.ppu.mode3_fifo.obj_fetch_dots_remaining == 0
-            && bus.ppu.mode3_fifo.obj_shutdown_dots_remaining == 0
+            && bus.ppu_state().mode3_fifo.obj_fetch_dots_remaining == 0
+            && bus.ppu_state().mode3_fifo.obj_shutdown_dots_remaining == 0
     }
 
     pub(super) fn mode3_window_takeover_boundary(bus: &Bus) -> bool {
@@ -153,9 +156,9 @@ impl PpuState {
         startup_line: bool,
         trigger_x: i16,
     ) {
-        bus.ppu.window_trigger_pending = false;
-        bus.ppu.window_triggered_this_line = true;
-        bus.ppu.mode3_fifo.restart_for_window(trigger_x);
+        bus.ppu_state_mut().window_trigger_pending = false;
+        bus.ppu_state_mut().window_triggered_this_line = true;
+        bus.ppu_state_mut().mode3_fifo.restart_for_window(trigger_x);
         Self::extend_mode3_dots(bus, ly, startup_line, MODE3_WINDOW_RESTART_DOTS);
     }
 
@@ -167,10 +170,12 @@ impl PpuState {
         if (bus.ppu_lcdc() & 0x02) == 0 || !Self::mode3_obj_takeover_boundary(bus) {
             return false;
         }
-        if bus.ppu.mode3_fifo.obj_next_sprite >= bus.ppu.mode3_fifo.obj_sprite_count {
+        if bus.ppu_state().mode3_fifo.obj_next_sprite >= bus.ppu_state().mode3_fifo.obj_sprite_count
+        {
             return false;
         }
-        let sprite = bus.ppu.mode3_fifo.obj_sprites[bus.ppu.mode3_fifo.obj_next_sprite];
+        let sprite =
+            bus.ppu_state().mode3_fifo.obj_sprites[bus.ppu_state().mode3_fifo.obj_next_sprite];
         let obj_fetch_lookahead = sprite.fetch_dots as i16;
         sprite.x_left <= screen_x + obj_fetch_lookahead
     }
@@ -181,18 +186,18 @@ impl PpuState {
         startup_line: bool,
         screen_x: i16,
     ) {
-        if bus.ppu.window_triggered_this_line {
+        if bus.ppu_state().window_triggered_this_line {
             return;
         }
         if !Self::mode3_window_enabled_on_line(bus, ly) {
-            bus.ppu.window_trigger_pending = false;
+            bus.ppu_state_mut().window_trigger_pending = false;
             return;
         }
 
         let trigger_x = Self::mode3_window_trigger_screen_x(bus);
-        let output_x = bus.ppu.mode3_fifo.output_x as i16;
+        let output_x = bus.ppu_state().mode3_fifo.output_x as i16;
         let reached_trigger = output_x == trigger_x || (trigger_x <= 0 && output_x == 0);
-        if !bus.ppu.window_trigger_pending {
+        if !bus.ppu_state().window_trigger_pending {
             if !reached_trigger {
                 return;
             }
@@ -203,7 +208,7 @@ impl PpuState {
                 Self::mode3_window_restart_now(bus, ly, startup_line, trigger_x);
                 return;
             }
-            bus.ppu.window_trigger_pending = true;
+            bus.ppu_state_mut().window_trigger_pending = true;
         }
 
         if !Self::mode3_window_takeover_boundary(bus) {
@@ -217,44 +222,49 @@ impl PpuState {
     }
 
     pub(super) fn mode3_step_bg_fetch(bus: &mut Bus, lcdc: u8, y: usize) {
-        match bus.ppu.mode3_fifo.bg_fetch_phase {
+        match bus.ppu_state().mode3_fifo.bg_fetch_phase {
             BgFetchPhase::TileIndex | BgFetchPhase::TileDataLow | BgFetchPhase::TileDataHigh => {
-                if bus.ppu.mode3_fifo.bg_fetch_dots_remaining > 0 {
-                    bus.ppu.mode3_fifo.bg_fetch_dots_remaining -= 1;
+                if bus.ppu_state().mode3_fifo.bg_fetch_dots_remaining > 0 {
+                    bus.ppu_state_mut().mode3_fifo.bg_fetch_dots_remaining -= 1;
                 }
-                if bus.ppu.mode3_fifo.bg_fetch_dots_remaining != 0 {
+                if bus.ppu_state().mode3_fifo.bg_fetch_dots_remaining != 0 {
                     return;
                 }
 
-                match bus.ppu.mode3_fifo.bg_fetch_phase {
+                match bus.ppu_state().mode3_fifo.bg_fetch_phase {
                     BgFetchPhase::TileIndex => {
+                        let fetch_screen_x = bus.ppu_state().mode3_fifo.fetch_screen_x;
                         let (tile_index, cgb_bg_attrs, tile_line_addr) =
                             Self::mode3_fetch_tile_index_and_line_addr(
                                 bus,
                                 lcdc,
                                 y,
-                                bus.ppu.mode3_fifo.fetch_screen_x,
+                                fetch_screen_x,
                             );
-                        bus.ppu.mode3_fifo.bg_fetch_tile_index = tile_index;
-                        bus.ppu.mode3_fifo.bg_fetch_cgb_attrs = cgb_bg_attrs;
-                        bus.ppu.mode3_fifo.bg_fetch_tile_line_addr = tile_line_addr;
-                        bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::TileDataLow;
-                        bus.ppu.mode3_fifo.bg_fetch_dots_remaining = BG_FETCH_PHASE_DOTS;
+                        bus.ppu_state_mut().mode3_fifo.bg_fetch_tile_index = tile_index;
+                        bus.ppu_state_mut().mode3_fifo.bg_fetch_cgb_attrs = cgb_bg_attrs;
+                        bus.ppu_state_mut().mode3_fifo.bg_fetch_tile_line_addr = tile_line_addr;
+                        bus.ppu_state_mut().mode3_fifo.bg_fetch_phase = BgFetchPhase::TileDataLow;
+                        bus.ppu_state_mut().mode3_fifo.bg_fetch_dots_remaining =
+                            BG_FETCH_PHASE_DOTS;
                         return;
                     }
                     BgFetchPhase::TileDataLow => {
-                        bus.ppu.mode3_fifo.bg_fetch_low = bus
-                            .read_vram_index_internal(bus.ppu.mode3_fifo.bg_fetch_tile_line_addr);
-                        bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::TileDataHigh;
-                        bus.ppu.mode3_fifo.bg_fetch_dots_remaining = BG_FETCH_PHASE_DOTS;
+                        let tile_line_addr = bus.ppu_state().mode3_fifo.bg_fetch_tile_line_addr;
+                        bus.ppu_state_mut().mode3_fifo.bg_fetch_low =
+                            bus.read_vram_index_internal(tile_line_addr);
+                        bus.ppu_state_mut().mode3_fifo.bg_fetch_phase = BgFetchPhase::TileDataHigh;
+                        bus.ppu_state_mut().mode3_fifo.bg_fetch_dots_remaining =
+                            BG_FETCH_PHASE_DOTS;
                         return;
                     }
                     BgFetchPhase::TileDataHigh => {
-                        bus.ppu.mode3_fifo.bg_fetch_high = bus.read_vram_index_internal(
-                            bus.ppu.mode3_fifo.bg_fetch_tile_line_addr + 1,
-                        );
-                        bus.ppu.mode3_fifo.bg_push_substate = BgPushSubstate::ReadyNormal;
-                        bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::Push;
+                        let tile_line_addr = bus.ppu_state().mode3_fifo.bg_fetch_tile_line_addr;
+                        bus.ppu_state_mut().mode3_fifo.bg_fetch_high =
+                            bus.read_vram_index_internal(tile_line_addr + 1);
+                        bus.ppu_state_mut().mode3_fifo.bg_push_substate =
+                            BgPushSubstate::ReadyNormal;
+                        bus.ppu_state_mut().mode3_fifo.bg_fetch_phase = BgFetchPhase::Push;
                     }
                     BgFetchPhase::Push => {}
                 }
@@ -262,36 +272,38 @@ impl PpuState {
             BgFetchPhase::Push => {}
         }
 
-        if bus.ppu.mode3_fifo.bg_fetch_phase != BgFetchPhase::Push {
+        if bus.ppu_state().mode3_fifo.bg_fetch_phase != BgFetchPhase::Push {
             return;
         }
-        if !bus.ppu.mode3_fifo.can_push_8() {
-            bus.ppu.mode3_fifo.bg_push_substate = BgPushSubstate::Stalled;
+        if !bus.ppu_state().mode3_fifo.can_push_8() {
+            bus.ppu_state_mut().mode3_fifo.bg_push_substate = BgPushSubstate::Stalled;
             return;
         }
-        if bus.ppu.mode3_fifo.bg_push_substate == BgPushSubstate::RecoverySleep {
+        if bus.ppu_state().mode3_fifo.bg_push_substate == BgPushSubstate::RecoverySleep {
             // Explicit one-dot "sleep" micro-op after a FIFO-full push stall. This
             // keeps the fetcher in Push for one more dot before the actual push.
-            bus.ppu.mode3_fifo.bg_push_substate = BgPushSubstate::ReadyAfterRecovery;
+            bus.ppu_state_mut().mode3_fifo.bg_push_substate = BgPushSubstate::ReadyAfterRecovery;
             return;
         }
-        if bus.ppu.mode3_fifo.bg_push_substate == BgPushSubstate::Stalled {
+        if bus.ppu_state().mode3_fifo.bg_push_substate == BgPushSubstate::Stalled {
             // Fallback if the prior dot did not latch the explicit recovery-sleep
             // substate after FIFO drain.
-            bus.ppu.mode3_fifo.bg_push_substate = BgPushSubstate::RecoverySleep;
+            bus.ppu_state_mut().mode3_fifo.bg_push_substate = BgPushSubstate::RecoverySleep;
             return;
         }
 
-        let fetch_screen_x = bus.ppu.mode3_fifo.fetch_screen_x;
+        let fetch_screen_x = bus.ppu_state().mode3_fifo.fetch_screen_x;
         let bit_x_start = Self::mode3_fetch_bit_x_start(bus, fetch_screen_x);
         if bit_x_start == 0 {
+            let bg_fetch_high = bus.ppu_state().mode3_fifo.bg_fetch_high;
+            let bg_fetch_low = bus.ppu_state().mode3_fifo.bg_fetch_low;
+            let bg_fetch_cgb_attrs = bus.ppu_state().mode3_fifo.bg_fetch_cgb_attrs;
             for lane in 0..8u8 {
                 let bit = 7u8.wrapping_sub(lane);
-                let color_id = (((bus.ppu.mode3_fifo.bg_fetch_high >> bit) & 1) << 1)
-                    | ((bus.ppu.mode3_fifo.bg_fetch_low >> bit) & 1);
-                bus.ppu.mode3_fifo.push(BgFifoPixel {
+                let color_id = (((bg_fetch_high >> bit) & 1) << 1) | ((bg_fetch_low >> bit) & 1);
+                bus.ppu_state_mut().mode3_fifo.push(BgFifoPixel {
                     color_id,
-                    cgb_bg_attrs: bus.ppu.mode3_fifo.bg_fetch_cgb_attrs,
+                    cgb_bg_attrs: bg_fetch_cgb_attrs,
                 });
             }
         } else {
@@ -305,14 +317,14 @@ impl PpuState {
                 );
             }
             for pixel in fetched_pixels {
-                bus.ppu.mode3_fifo.push(pixel);
+                bus.ppu_state_mut().mode3_fifo.push(pixel);
             }
         }
 
-        bus.ppu.mode3_fifo.fetch_screen_x += 8;
-        bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::TileIndex;
-        bus.ppu.mode3_fifo.bg_fetch_dots_remaining = 0;
-        bus.ppu.mode3_fifo.bg_push_substate = BgPushSubstate::ReadyNormal;
+        bus.ppu_state_mut().mode3_fifo.fetch_screen_x += 8;
+        bus.ppu_state_mut().mode3_fifo.bg_fetch_phase = BgFetchPhase::TileIndex;
+        bus.ppu_state_mut().mode3_fifo.bg_fetch_dots_remaining = 0;
+        bus.ppu_state_mut().mode3_fifo.bg_push_substate = BgPushSubstate::ReadyNormal;
     }
 
     pub(super) fn mode3_bg_color_id_for_screen_x(
@@ -325,7 +337,7 @@ impl PpuState {
             return 0;
         }
 
-        if bus.ppu.mode3_fifo.window_active {
+        if bus.ppu_state().mode3_fifo.window_active {
             return Self::window_color_id_for_screen_x(bus, lcdc, screen_x);
         }
 
@@ -339,7 +351,7 @@ impl PpuState {
         screen_x: i16,
     ) -> BgFifoPixel {
         let color_id = Self::mode3_bg_color_id_for_screen_x(bus, lcdc, y, screen_x);
-        if !bus.ppu.cgb_scaffold_runtime_enabled {
+        if !bus.ppu_state().cgb_scaffold_runtime_enabled {
             return BgFifoPixel {
                 color_id,
                 cgb_bg_attrs: CgbBgTileAttrsScaffold::default(),
@@ -358,15 +370,15 @@ impl PpuState {
         y: usize,
         screen_x: i16,
     ) -> (u8, CgbBgTileAttrsScaffold, usize) {
-        let cgb_scaffold_enabled = bus.ppu.cgb_scaffold_runtime_enabled;
-        if bus.ppu.mode3_fifo.window_active {
+        let cgb_scaffold_enabled = bus.ppu_state().cgb_scaffold_runtime_enabled;
+        if bus.ppu_state().mode3_fifo.window_active {
             let window_map_base = if (lcdc & 0x40) != 0 {
                 0x1C00usize
             } else {
                 0x1800usize
             };
-            let window_x = (screen_x - bus.ppu.mode3_fifo.window_start_x).max(0) as usize;
-            let window_y = bus.ppu.window_line_counter as usize;
+            let window_x = (screen_x - bus.ppu_state().mode3_fifo.window_start_x).max(0) as usize;
+            let window_y = bus.ppu_state().window_line_counter as usize;
             let tile_map_index = (window_y / 8) * 32 + (window_x / 8);
             let tile_index = bus.read_vram_index_internal(window_map_base + tile_map_index);
             let cgb_bg_attrs = if cgb_scaffold_enabled {
@@ -416,8 +428,8 @@ impl PpuState {
     }
 
     pub(super) fn mode3_fetch_bit_x_start(bus: &Bus, screen_x: i16) -> u8 {
-        if bus.ppu.mode3_fifo.window_active {
-            let window_x = (screen_x - bus.ppu.mode3_fifo.window_start_x).max(0) as usize;
+        if bus.ppu_state().mode3_fifo.window_active {
+            let window_x = (screen_x - bus.ppu_state().mode3_fifo.window_start_x).max(0) as usize;
             return (window_x & 0x07) as u8;
         }
 
@@ -433,12 +445,12 @@ impl PpuState {
             0x1800usize
         };
 
-        let window_x = screen_x - bus.ppu.mode3_fifo.window_start_x;
+        let window_x = screen_x - bus.ppu_state().mode3_fifo.window_start_x;
         if window_x < 0 {
             return 0;
         }
         let window_x = window_x as usize;
-        let window_y = bus.ppu.window_line_counter as usize;
+        let window_y = bus.ppu_state().window_line_counter as usize;
 
         let tile_map_index = (window_y / 8) * 32 + (window_x / 8);
         let tile_index = bus.read_vram_index_internal(window_map_base + tile_map_index);
@@ -574,28 +586,30 @@ impl PpuState {
             };
         }
 
-        bus.ppu.mode3_fifo.obj_set_sprites(sprites, candidate_count);
+        bus.ppu_state_mut()
+            .mode3_fifo
+            .obj_set_sprites(sprites, candidate_count);
     }
 
     pub(super) fn mode3_step_obj_fetch(bus: &mut Bus, screen_x: i16) -> bool {
         if (bus.ppu_lcdc() & 0x02) == 0 {
-            bus.ppu.mode3_fifo.obj_clear_pending();
+            bus.ppu_state_mut().mode3_fifo.obj_clear_pending();
             return false;
         }
 
-        if bus.ppu.mode3_fifo.obj_fetch_dots_remaining > 0 {
-            bus.ppu.mode3_fifo.obj_fetch_dots_remaining -= 1;
-            if bus.ppu.mode3_fifo.obj_fetch_dots_remaining == 0
-                && let Some(sprite) = bus.ppu.mode3_fifo.obj_active_sprite.take()
+        if bus.ppu_state().mode3_fifo.obj_fetch_dots_remaining > 0 {
+            bus.ppu_state_mut().mode3_fifo.obj_fetch_dots_remaining -= 1;
+            if bus.ppu_state().mode3_fifo.obj_fetch_dots_remaining == 0
+                && let Some(sprite) = bus.ppu_state_mut().mode3_fifo.obj_active_sprite.take()
             {
                 Self::mode3_merge_sprite_into_obj_fifo(bus, sprite, screen_x);
-                bus.ppu.mode3_fifo.obj_shutdown_dots_remaining = sprite.post_fetch_dots;
+                bus.ppu_state_mut().mode3_fifo.obj_shutdown_dots_remaining = sprite.post_fetch_dots;
             }
             return true;
         }
 
-        if bus.ppu.mode3_fifo.obj_shutdown_dots_remaining > 0 {
-            bus.ppu.mode3_fifo.obj_shutdown_dots_remaining -= 1;
+        if bus.ppu_state().mode3_fifo.obj_shutdown_dots_remaining > 0 {
+            bus.ppu_state_mut().mode3_fifo.obj_shutdown_dots_remaining -= 1;
             return true;
         }
 
@@ -603,18 +617,21 @@ impl PpuState {
             return false;
         }
 
-        if bus.ppu.mode3_fifo.obj_next_sprite < bus.ppu.mode3_fifo.obj_sprite_count {
-            let sprite = bus.ppu.mode3_fifo.obj_sprites[bus.ppu.mode3_fifo.obj_next_sprite];
+        if bus.ppu_state().mode3_fifo.obj_next_sprite < bus.ppu_state().mode3_fifo.obj_sprite_count
+        {
+            let sprite_index = bus.ppu_state().mode3_fifo.obj_next_sprite;
+            let sprite = bus.ppu_state().mode3_fifo.obj_sprites[sprite_index];
             let obj_fetch_lookahead = sprite.fetch_dots as i16;
             if sprite.x_left <= screen_x + obj_fetch_lookahead {
-                bus.ppu.mode3_fifo.obj_next_sprite += 1;
-                bus.ppu.mode3_fifo.obj_active_sprite = Some(sprite);
-                bus.ppu.mode3_fifo.obj_fetch_dots_remaining = sprite.fetch_dots.max(1);
-                bus.ppu.mode3_fifo.obj_fetch_dots_remaining -= 1;
-                if bus.ppu.mode3_fifo.obj_fetch_dots_remaining == 0 {
-                    bus.ppu.mode3_fifo.obj_active_sprite = None;
+                bus.ppu_state_mut().mode3_fifo.obj_next_sprite += 1;
+                bus.ppu_state_mut().mode3_fifo.obj_active_sprite = Some(sprite);
+                bus.ppu_state_mut().mode3_fifo.obj_fetch_dots_remaining = sprite.fetch_dots.max(1);
+                bus.ppu_state_mut().mode3_fifo.obj_fetch_dots_remaining -= 1;
+                if bus.ppu_state_mut().mode3_fifo.obj_fetch_dots_remaining == 0 {
+                    bus.ppu_state_mut().mode3_fifo.obj_active_sprite = None;
                     Self::mode3_merge_sprite_into_obj_fifo(bus, sprite, screen_x);
-                    bus.ppu.mode3_fifo.obj_shutdown_dots_remaining = sprite.post_fetch_dots;
+                    bus.ppu_state_mut().mode3_fifo.obj_shutdown_dots_remaining =
+                        sprite.post_fetch_dots;
                 }
                 return true;
             }
@@ -625,11 +642,11 @@ impl PpuState {
 
     pub(super) fn mode3_pop_obj_pixel(bus: &mut Bus) -> ObjFifoPixel {
         if (bus.ppu_lcdc() & 0x02) == 0 {
-            bus.ppu.mode3_fifo.obj_clear_pending();
+            bus.ppu_state_mut().mode3_fifo.obj_clear_pending();
             return ObjFifoPixel::TRANSPARENT;
         }
-        bus.ppu.mode3_fifo.obj_ensure_len(1);
-        bus.ppu.mode3_fifo.obj_pop()
+        bus.ppu_state_mut().mode3_fifo.obj_ensure_len(1);
+        bus.ppu_state_mut().mode3_fifo.obj_pop()
     }
 
     pub(super) fn mode3_merge_sprite_into_obj_fifo(
@@ -657,7 +674,7 @@ impl PpuState {
             }
 
             let rel = rel_offset as usize + (x_in_sprite - lane_start);
-            let cgb_obj_attrs = if bus.ppu.cgb_scaffold_runtime_enabled {
+            let cgb_obj_attrs = if bus.ppu_state_mut().cgb_scaffold_runtime_enabled {
                 Self::decode_cgb_obj_attrs_scaffold(sprite.attr)
             } else {
                 CgbObjAttrsScaffold::default()
@@ -667,7 +684,9 @@ impl PpuState {
                 attr: sprite.attr,
                 cgb_obj_attrs,
             };
-            bus.ppu.mode3_fifo.obj_set_if_transparent(rel, pixel);
+            bus.ppu_state_mut()
+                .mode3_fifo
+                .obj_set_if_transparent(rel, pixel);
         }
     }
 
