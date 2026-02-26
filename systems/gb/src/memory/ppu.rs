@@ -608,14 +608,14 @@ impl PpuState {
     }
 
     pub(super) fn ppu_blocks_oam_read(bus: &Bus) -> bool {
-        bus.dma.active
+        bus.dma_blocks_oam_cpu_read()
             || Self::ppu_startup_mode0_slice_active(bus)
             || (Self::lcd_enabled(bus)
                 && matches!(Self::ppu_mode(bus), STAT_MODE_OAM | STAT_MODE_TRANSFER))
     }
 
     pub(super) fn ppu_blocks_oam_write(bus: &Bus) -> bool {
-        bus.dma.active || !Self::ppu_allows_oam_access(bus)
+        bus.dma_blocks_oam_cpu_write() || !Self::ppu_allows_oam_access(bus)
     }
 
     pub(super) fn ppu_blocks_vram_read(bus: &Bus) -> bool {

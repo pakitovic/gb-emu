@@ -1,5 +1,6 @@
 use super::bus_access::{AddressSegment, SegmentAccess, address_segment};
 use super::cgb_mmio::{CgbMmioRegister, cgb_mmio_register};
+use super::dma::{DmaCpuAccessDecision, DmaCpuAccessKind, DmaSchedulerMode};
 use super::ppu::PpuMode;
 use super::test_utils::{make_test_bus, make_test_bus_with_model, tick_n};
 use super::*;
@@ -151,6 +152,113 @@ fn ppu_mode_edge_events_are_single_tick_pulses() {
     }
 
     panic!("No HBlank edge observed while testing edge pulse behavior");
+}
+
+#[test]
+fn dma_scheduler_mode_edge_events_expose_oam_transfer_lifecycle() {
+    let mut bus = make_test_bus();
+
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Idle);
+    assert!(!bus.debug_dma_mode_edge_events().entered_oam);
+    assert!(!bus.debug_dma_mode_edge_events().exited_oam);
+
+    bus.write_byte(0xFF46, 0x80);
+    bus.tick(7);
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Idle);
+    assert!(!bus.debug_dma_mode_edge_events().entered_oam);
+
+    bus.tick(1);
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Oam);
+    assert!(
+        bus.debug_dma_mode_edge_events().entered_oam,
+        "OAM DMA start should pulse an entered_oam edge on the scheduler tick that starts the transfer"
+    );
+    assert!(
+        !bus.debug_dma_mode_edge_events().exited_oam,
+        "OAM DMA start tick should not also emit exited_oam"
+    );
+
+    bus.tick(1);
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Oam);
+    assert_eq!(
+        bus.debug_dma_mode_edge_events(),
+        Default::default(),
+        "DMA mode entry edge should be a single-tick pulse"
+    );
+
+    tick_n(&mut bus, 638);
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Oam);
+    assert_eq!(bus.debug_dma_mode_edge_events(), Default::default());
+
+    bus.tick(1);
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Idle);
+    assert!(
+        bus.debug_dma_mode_edge_events().exited_oam,
+        "OAM DMA completion should pulse an exited_oam edge"
+    );
+    assert!(
+        !bus.debug_dma_mode_edge_events().entered_oam,
+        "OAM DMA completion tick should not emit entered_oam without a restart"
+    );
+
+    bus.tick(1);
+    assert_eq!(bus.debug_dma_mode_edge_events(), Default::default());
+}
+
+#[test]
+fn dma_scheduler_centralizes_dmg_cpu_access_policy_for_segments() {
+    let mut bus = make_test_bus();
+
+    for &segment in &[
+        AddressSegment::Oam,
+        AddressSegment::Vram,
+        AddressSegment::Wram,
+    ] {
+        assert_eq!(
+            bus.dma_cpu_access_decision_for_segment(segment, DmaCpuAccessKind::Read),
+            DmaCpuAccessDecision::Allow,
+            "DMA should not block CPU segment access while idle ({segment:?}, read)"
+        );
+        assert_eq!(
+            bus.dma_cpu_access_decision_for_segment(segment, DmaCpuAccessKind::Write),
+            DmaCpuAccessDecision::Allow,
+            "DMA should not block CPU segment access while idle ({segment:?}, write)"
+        );
+    }
+
+    bus.write_byte(0xFF46, 0x80);
+    bus.tick(8); // OAM DMA active
+
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Oam);
+    assert_eq!(
+        bus.dma_cpu_access_decision_for_segment(AddressSegment::Oam, DmaCpuAccessKind::Read),
+        DmaCpuAccessDecision::Block
+    );
+    assert_eq!(
+        bus.dma_cpu_access_decision_for_segment(AddressSegment::Oam, DmaCpuAccessKind::Write),
+        DmaCpuAccessDecision::Block
+    );
+
+    for &segment in &[
+        AddressSegment::Rom,
+        AddressSegment::Vram,
+        AddressSegment::Wram,
+        AddressSegment::EchoWram,
+        AddressSegment::Io,
+        AddressSegment::Hram,
+        AddressSegment::Ie,
+    ] {
+        assert_eq!(
+            bus.dma_cpu_access_decision_for_segment(segment, DmaCpuAccessKind::Read),
+            DmaCpuAccessDecision::Allow,
+            "DMG OAM DMA scheduler scaffold should currently block only OAM (read {segment:?})"
+        );
+        assert_eq!(
+            bus.dma_cpu_access_decision_for_segment(segment, DmaCpuAccessKind::Write),
+            DmaCpuAccessDecision::Allow,
+            "DMG OAM DMA scheduler scaffold should currently block only OAM (write {segment:?})"
+        );
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
