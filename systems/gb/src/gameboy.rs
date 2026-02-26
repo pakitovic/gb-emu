@@ -11,7 +11,7 @@ pub const SCREEN_WIDTH: usize = crate::memory::LCD_WIDTH;
 pub const SCREEN_HEIGHT: usize = crate::memory::LCD_HEIGHT;
 
 pub struct GameBoy {
-    pub cpu: Cpu,
+    cpu: Cpu,
     pub bus: Bus,
 }
 
@@ -30,6 +30,14 @@ impl GameBoy {
     // Execute one CPU instruction/dispatch step and return DMG base t-cycles consumed.
     pub fn step(&mut self) -> u8 {
         self.cpu.step(&mut self.bus)
+    }
+
+    pub fn cpu(&self) -> &Cpu {
+        &self.cpu
+    }
+
+    pub fn cpu_mut(&mut self) -> &mut Cpu {
+        &mut self.cpu
     }
 
     pub fn rom_title(&self) -> &str {

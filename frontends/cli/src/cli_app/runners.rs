@@ -25,21 +25,23 @@ pub(super) fn looks_like_tight_loop(pc_window: &[u16; MOONEYE_LOOP_WINDOW]) -> b
 fn print_basic_trace(gb: &GameBoy, cycles: u8) {
     println!(
         "PC: {:04X}, A: {:02X}, cycles: {}",
-        gb.cpu.registers.pc, gb.cpu.registers.a, cycles
+        gb.cpu().registers().pc,
+        gb.cpu().registers().a,
+        cycles
     );
 }
 
 fn print_mooneye_trace(gb: &GameBoy, cycles: u8) {
     println!(
         "PC: {:04X}, A: {:02X}, B: {:02X}, C: {:02X}, D: {:02X}, E: {:02X}, H: {:02X}, L: {:02X}, cycles: {}",
-        gb.cpu.registers.pc,
-        gb.cpu.registers.a,
-        gb.cpu.registers.b,
-        gb.cpu.registers.c,
-        gb.cpu.registers.d,
-        gb.cpu.registers.e,
-        gb.cpu.registers.h,
-        gb.cpu.registers.l,
+        gb.cpu().registers().pc,
+        gb.cpu().registers().a,
+        gb.cpu().registers().b,
+        gb.cpu().registers().c,
+        gb.cpu().registers().d,
+        gb.cpu().registers().e,
+        gb.cpu().registers().h,
+        gb.cpu().registers().l,
         cycles
     );
 }
@@ -98,7 +100,7 @@ pub(super) fn run_mooneye(gb: &mut GameBoy, max_steps: usize, trace: bool) -> Op
             print_mooneye_trace(gb, cycles);
         }
 
-        let pc = gb.cpu.registers.pc;
+        let pc = gb.cpu().registers().pc;
         pc_window[pc_window_pos] = pc;
         pc_window_pos = (pc_window_pos + 1) % MOONEYE_LOOP_WINDOW;
         if pc_window_len < MOONEYE_LOOP_WINDOW {
@@ -106,12 +108,12 @@ pub(super) fn run_mooneye(gb: &mut GameBoy, max_steps: usize, trace: bool) -> Op
         }
 
         let regs = (
-            gb.cpu.registers.b,
-            gb.cpu.registers.c,
-            gb.cpu.registers.d,
-            gb.cpu.registers.e,
-            gb.cpu.registers.h,
-            gb.cpu.registers.l,
+            gb.cpu().registers().b,
+            gb.cpu().registers().c,
+            gb.cpu().registers().d,
+            gb.cpu().registers().e,
+            gb.cpu().registers().h,
+            gb.cpu().registers().l,
         );
         let in_tight_loop =
             pc_window_len == MOONEYE_LOOP_WINDOW && looks_like_tight_loop(&pc_window);
