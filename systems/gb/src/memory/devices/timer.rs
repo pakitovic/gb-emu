@@ -1,18 +1,18 @@
-use super::Bus;
+use super::super::Bus;
 
 #[derive(Default)]
-pub(super) struct TimerState {
-    pub(super) div_counter: u16,
-    pub(super) tima_reload_delay: u8,
-    pub(super) tima_reload_block: u8,
+pub(in crate::memory) struct TimerState {
+    pub(in crate::memory) div_counter: u16,
+    pub(in crate::memory) tima_reload_delay: u8,
+    pub(in crate::memory) tima_reload_block: u8,
 }
 
 impl TimerState {
-    pub(super) fn read_div(bus: &Bus) -> u8 {
+    pub(in crate::memory) fn read_div(bus: &Bus) -> u8 {
         (bus.timer.div_counter >> 8) as u8
     }
 
-    pub(super) fn write_div(bus: &mut Bus, value: u8) {
+    pub(in crate::memory) fn write_div(bus: &mut Bus, value: u8) {
         let _ = value;
         let old_div = bus.timer.div_counter;
         let old_input = bus.timer_input_high();
@@ -24,7 +24,7 @@ impl TimerState {
         }
     }
 
-    pub(super) fn write_tac(bus: &mut Bus, value: u8) {
+    pub(in crate::memory) fn write_tac(bus: &mut Bus, value: u8) {
         let old_input = bus.timer_input_high();
         bus.io[0x07] = value;
         let new_input = bus.timer_input_high();
@@ -33,7 +33,7 @@ impl TimerState {
         }
     }
 
-    pub(super) fn write_tima(bus: &mut Bus, value: u8) {
+    pub(in crate::memory) fn write_tima(bus: &mut Bus, value: u8) {
         if bus.timer.tima_reload_block > 0 {
             // ignored
         } else if bus.timer.tima_reload_delay > 0 {
@@ -44,7 +44,7 @@ impl TimerState {
         }
     }
 
-    pub(super) fn write_tma(bus: &mut Bus, value: u8) {
+    pub(in crate::memory) fn write_tma(bus: &mut Bus, value: u8) {
         bus.io[0x06] = value;
         if bus.timer.tima_reload_block > 0 {
             bus.io[0x05] = value;
@@ -53,9 +53,9 @@ impl TimerState {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct TimerDividerStep {
-    pub(super) old_div: u16,
-    pub(super) new_div: u16,
+pub(in crate::memory) struct TimerDividerStep {
+    pub(in crate::memory) old_div: u16,
+    pub(in crate::memory) new_div: u16,
     old_input: bool,
     new_input: bool,
 }
@@ -67,27 +67,27 @@ impl TimerDividerStep {
 }
 
 impl Bus {
-    pub(super) fn read_div(&self) -> u8 {
+    pub(in crate::memory) fn read_div(&self) -> u8 {
         TimerState::read_div(self)
     }
 
-    pub(super) fn write_div(&mut self, value: u8) {
+    pub(in crate::memory) fn write_div(&mut self, value: u8) {
         TimerState::write_div(self, value);
     }
 
-    pub(super) fn write_tac(&mut self, value: u8) {
+    pub(in crate::memory) fn write_tac(&mut self, value: u8) {
         TimerState::write_tac(self, value);
     }
 
-    pub(super) fn write_tima(&mut self, value: u8) {
+    pub(in crate::memory) fn write_tima(&mut self, value: u8) {
         TimerState::write_tima(self, value);
     }
 
-    pub(super) fn write_tma(&mut self, value: u8) {
+    pub(in crate::memory) fn write_tma(&mut self, value: u8) {
         TimerState::write_tma(self, value);
     }
 
-    pub(super) fn timer_input_high(&self) -> bool {
+    pub(in crate::memory) fn timer_input_high(&self) -> bool {
         let tac = self.io[0x07];
         if (tac & 0x04) == 0 {
             return false;
@@ -104,7 +104,7 @@ impl Bus {
         ((self.timer.div_counter >> bit) & 1) != 0
     }
 
-    pub(super) fn step_timer_divider(&mut self) -> TimerDividerStep {
+    pub(in crate::memory) fn step_timer_divider(&mut self) -> TimerDividerStep {
         let old_div = self.timer.div_counter;
         let old_input = self.timer_input_high();
         self.timer.div_counter = self.timer.div_counter.wrapping_add(1);
@@ -118,19 +118,19 @@ impl Bus {
         }
     }
 
-    pub(super) fn step_timer_falling_edge(&mut self, divider_step: TimerDividerStep) {
+    pub(in crate::memory) fn step_timer_falling_edge(&mut self, divider_step: TimerDividerStep) {
         if divider_step.had_falling_edge() {
             self.increment_tima();
         }
     }
 
-    pub(super) fn step_tima_reload_block(&mut self) {
+    pub(in crate::memory) fn step_tima_reload_block(&mut self) {
         if self.timer.tima_reload_block > 0 {
             self.timer.tima_reload_block -= 1;
         }
     }
 
-    pub(super) fn increment_tima(&mut self) {
+    pub(in crate::memory) fn increment_tima(&mut self) {
         if self.timer.tima_reload_delay != 0 {
             return;
         }
@@ -144,7 +144,7 @@ impl Bus {
         }
     }
 
-    pub(super) fn step_tima_reload(&mut self) {
+    pub(in crate::memory) fn step_tima_reload(&mut self) {
         if self.timer.tima_reload_delay == 0 {
             return;
         }

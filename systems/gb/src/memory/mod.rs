@@ -1,33 +1,24 @@
-mod apu;
+mod api;
+mod apu_bus;
 mod bus_access;
-mod bus_router;
-mod cgb_mmio;
-mod cpu_context;
+mod cpu_bus;
+mod devices;
 mod dma;
 mod init;
-mod interrupts;
-mod io;
-mod io_map;
-mod io_router;
-mod joypad;
-mod map;
+mod mmio;
 #[path = "../ppu.rs"]
 mod ppu;
 mod scheduler;
-mod serial;
-mod timer;
 
 use crate::apu::ApuState;
 use crate::cartridge::Cartridge;
 use crate::hardware::HardwareModel;
 use crate::timing::ClockRatios;
 use bus_access::{VRAM_STORAGE_BYTES, WRAM_STORAGE_BYTES};
-use cgb_mmio::CgbMmioState;
+use devices::{JoypadState, SerialState, TimerState};
 use dma::DmaState;
-use joypad::JoypadState;
+use mmio::CgbMmioState;
 use ppu::PpuState;
-use serial::SerialState;
-use timer::TimerState;
 
 pub const LCD_WIDTH: usize = 160;
 pub const LCD_HEIGHT: usize = 144;
@@ -54,6 +45,6 @@ pub struct Bus {
 }
 
 #[cfg(test)]
-mod test_utils;
+mod test_support;
 #[cfg(test)]
 mod tests;

@@ -2,6 +2,7 @@ mod apu;
 pub mod audio;
 pub mod cartridge;
 pub mod cpu;
+mod cpu_bus_context;
 pub mod gameboy;
 pub mod hardware;
 pub mod input;

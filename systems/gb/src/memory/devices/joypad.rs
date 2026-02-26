@@ -1,4 +1,4 @@
-use super::Bus;
+use super::super::Bus;
 use crate::input::Button;
 
 const P1_DIRECTION_SELECT: u8 = 1 << 4;
@@ -6,7 +6,7 @@ const P1_BUTTON_SELECT: u8 = 1 << 5;
 const JOYPAD_INTERRUPT_BIT: u8 = 1 << 4;
 
 #[derive(Default)]
-pub(super) struct JoypadState {
+pub(in crate::memory) struct JoypadState {
     pressed_mask: u8,
 }
 
@@ -74,7 +74,7 @@ impl JoypadState {
         }
     }
 
-    pub(super) fn write_p1(bus: &mut Bus, value: u8) {
+    pub(in crate::memory) fn write_p1(bus: &mut Bus, value: u8) {
         let old_select = bus.io[0x00] & (P1_DIRECTION_SELECT | P1_BUTTON_SELECT);
         let old_low = Self::selected_low_nibble(bus, old_select);
 
@@ -84,13 +84,13 @@ impl JoypadState {
         Self::request_interrupt_on_new_press(bus, old_low, new_low);
     }
 
-    pub(super) fn read_p1(bus: &Bus) -> u8 {
+    pub(in crate::memory) fn read_p1(bus: &Bus) -> u8 {
         let select = bus.io[0x00] & (P1_DIRECTION_SELECT | P1_BUTTON_SELECT);
         let low = Self::selected_low_nibble(bus, select);
         select | low
     }
 
-    pub(super) fn set_button_pressed(bus: &mut Bus, button: Button, pressed: bool) {
+    pub(in crate::memory) fn set_button_pressed(bus: &mut Bus, button: Button, pressed: bool) {
         let select = bus.io[0x00] & (P1_DIRECTION_SELECT | P1_BUTTON_SELECT);
         let old_low = Self::selected_low_nibble(bus, select);
 
@@ -107,11 +107,11 @@ impl JoypadState {
 }
 
 impl Bus {
-    pub(super) fn write_p1(&mut self, value: u8) {
+    pub(in crate::memory) fn write_p1(&mut self, value: u8) {
         JoypadState::write_p1(self, value);
     }
 
-    pub(super) fn read_p1(&self) -> u8 {
+    pub(in crate::memory) fn read_p1(&self) -> u8 {
         JoypadState::read_p1(self)
     }
 
