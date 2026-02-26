@@ -1,8 +1,9 @@
+use super::bus::PpuStateAdapter;
 use super::*;
 
 impl PpuState {
     pub(in crate::memory) fn configure_model_gates(bus: &mut Bus, model: HardwareModel) {
-        bus.ppu.cgb_scaffold_runtime_enabled = Self::model_supports_cgb_scaffold(model);
+        bus.ppu_state_mut().cgb_scaffold_runtime_enabled = Self::model_supports_cgb_scaffold(model);
     }
 
     pub(in crate::memory) fn write_lcdc(bus: &mut Bus, value: u8) {
@@ -13,34 +14,34 @@ impl PpuState {
         match (was_enabled, now_enabled) {
             (true, false) => {
                 bus.ppu_set_ly(0);
-                bus.ppu.ly_counter = 0;
-                bus.ppu.startup_line = false;
-                bus.ppu.post_enable_phase = 0;
-                bus.ppu.enable_delay = 0;
-                bus.ppu.stat_mode0_enabled_this_line = false;
-                bus.ppu.window_line_counter = 0;
-                bus.ppu.window_triggered_this_line = false;
-                bus.ppu.window_trigger_pending = false;
-                bus.ppu.mode3_dots_latched = 0;
-                bus.ppu.mode3_fifo.reset();
-                bus.ppu.bg_color_ids_line.fill(0);
+                bus.ppu_state_mut().ly_counter = 0;
+                bus.ppu_state_mut().startup_line = false;
+                bus.ppu_state_mut().post_enable_phase = 0;
+                bus.ppu_state_mut().enable_delay = 0;
+                bus.ppu_state_mut().stat_mode0_enabled_this_line = false;
+                bus.ppu_state_mut().window_line_counter = 0;
+                bus.ppu_state_mut().window_triggered_this_line = false;
+                bus.ppu_state_mut().window_trigger_pending = false;
+                bus.ppu_state_mut().mode3_dots_latched = 0;
+                bus.ppu_state_mut().mode3_fifo.reset();
+                bus.ppu_state_mut().bg_color_ids_line.fill(0);
                 Self::force_ppu_mode(bus, PpuMode::HBlank);
                 // LY=LYC flag is retained while LCD is disabled.
                 Self::update_stat_irq_line(bus);
             }
             (false, true) => {
                 bus.ppu_set_ly(0);
-                bus.ppu.ly_counter = 0;
-                bus.ppu.startup_line = true;
-                bus.ppu.post_enable_phase = 0;
-                bus.ppu.enable_delay = 0;
-                bus.ppu.stat_mode0_enabled_this_line = false;
-                bus.ppu.window_line_counter = 0;
-                bus.ppu.window_triggered_this_line = false;
-                bus.ppu.window_trigger_pending = false;
-                bus.ppu.mode3_dots_latched = 0;
-                bus.ppu.mode3_fifo.reset();
-                bus.ppu.bg_color_ids_line.fill(0);
+                bus.ppu_state_mut().ly_counter = 0;
+                bus.ppu_state_mut().startup_line = true;
+                bus.ppu_state_mut().post_enable_phase = 0;
+                bus.ppu_state_mut().enable_delay = 0;
+                bus.ppu_state_mut().stat_mode0_enabled_this_line = false;
+                bus.ppu_state_mut().window_line_counter = 0;
+                bus.ppu_state_mut().window_triggered_this_line = false;
+                bus.ppu_state_mut().window_trigger_pending = false;
+                bus.ppu_state_mut().mode3_dots_latched = 0;
+                bus.ppu_state_mut().mode3_fifo.reset();
+                bus.ppu_state_mut().bg_color_ids_line.fill(0);
                 Self::force_ppu_mode(bus, PpuMode::HBlank);
                 Self::update_lyc_flag(bus);
                 Self::update_stat_irq_line(bus);
@@ -55,9 +56,9 @@ impl PpuState {
         bus.ppu_set_stat((bus.ppu_stat() & 0x07) | (value & 0x78));
         let new_mode0_source = (bus.ppu_stat() & 0x08) != 0;
         if !old_mode0_source && new_mode0_source && Self::lcd_enabled(bus) && bus.ppu_ly() < 144 {
-            bus.ppu.stat_mode0_enabled_this_line = true;
+            bus.ppu_state_mut().stat_mode0_enabled_this_line = true;
         } else if !new_mode0_source {
-            bus.ppu.stat_mode0_enabled_this_line = false;
+            bus.ppu_state_mut().stat_mode0_enabled_this_line = false;
         }
         Self::update_stat_irq_line(bus);
     }
@@ -73,17 +74,17 @@ impl PpuState {
     pub(in crate::memory) fn write_ly(bus: &mut Bus, value: u8) {
         let _ = value;
         bus.ppu_set_ly(0);
-        bus.ppu.ly_counter = 0;
-        bus.ppu.startup_line = false;
-        bus.ppu.post_enable_phase = 0;
-        bus.ppu.enable_delay = 0;
-        bus.ppu.stat_mode0_enabled_this_line = false;
-        bus.ppu.window_line_counter = 0;
-        bus.ppu.window_triggered_this_line = false;
-        bus.ppu.window_trigger_pending = false;
-        bus.ppu.mode3_dots_latched = 0;
-        bus.ppu.mode3_fifo.reset();
-        bus.ppu.bg_color_ids_line.fill(0);
+        bus.ppu_state_mut().ly_counter = 0;
+        bus.ppu_state_mut().startup_line = false;
+        bus.ppu_state_mut().post_enable_phase = 0;
+        bus.ppu_state_mut().enable_delay = 0;
+        bus.ppu_state_mut().stat_mode0_enabled_this_line = false;
+        bus.ppu_state_mut().window_line_counter = 0;
+        bus.ppu_state_mut().window_triggered_this_line = false;
+        bus.ppu_state_mut().window_trigger_pending = false;
+        bus.ppu_state_mut().mode3_dots_latched = 0;
+        bus.ppu_state_mut().mode3_fifo.reset();
+        bus.ppu_state_mut().bg_color_ids_line.fill(0);
         Self::force_ppu_mode(bus, PpuMode::HBlank);
         if Self::lcd_enabled(bus) {
             Self::update_lyc_flag(bus);
@@ -96,23 +97,23 @@ impl PpuState {
     }
 
     pub(super) fn ppu_mode(bus: &Bus) -> u8 {
-        bus.ppu.mode.stat_mode_bits()
+        bus.ppu_state().mode.stat_mode_bits()
     }
 
     pub(super) fn ppu_startup_mode0_slice_active(bus: &Bus) -> bool {
-        bus.ppu.post_enable_phase > 0
+        bus.ppu_state().post_enable_phase > 0
             && bus.ppu_ly() > 0
             && bus.ppu_ly() < 144
             && Self::ppu_mode(bus) == STAT_MODE_HBLANK
-            && bus.ppu.ly_counter < 4
+            && bus.ppu_state().ly_counter < 4
     }
 
     pub(super) fn ppu_startup_mode2_tail_active(bus: &Bus) -> bool {
-        bus.ppu.post_enable_phase > 0
+        bus.ppu_state().post_enable_phase > 0
             && bus.ppu_ly() > 0
             && bus.ppu_ly() < 144
             && Self::ppu_mode(bus) == STAT_MODE_OAM
-            && (80..84).contains(&bus.ppu.ly_counter)
+            && (80..84).contains(&bus.ppu_state().ly_counter)
     }
 
     pub(in crate::memory) fn ppu_blocks_oam_read(bus: &Bus) -> bool {
@@ -162,21 +163,21 @@ impl PpuState {
     }
 
     pub(super) fn force_ppu_mode(bus: &mut Bus, mode: PpuMode) {
-        bus.ppu.mode = mode;
-        bus.ppu.mode_edge_events = PpuModeEdgeEvents::default();
+        bus.ppu_state_mut().mode = mode;
+        bus.ppu_state_mut().mode_edge_events = PpuModeEdgeEvents::default();
         bus.ppu_set_stat_mode_bits(mode.stat_mode_bits());
     }
 
     pub(super) fn set_ppu_mode(bus: &mut Bus, mode: PpuMode) -> PpuModeEdgeEvents {
-        if bus.ppu.mode == mode {
+        if bus.ppu_state().mode == mode {
             bus.ppu_set_stat_mode_bits(mode.stat_mode_bits());
-            bus.ppu.mode_edge_events = PpuModeEdgeEvents::default();
-            return bus.ppu.mode_edge_events;
+            bus.ppu_state_mut().mode_edge_events = PpuModeEdgeEvents::default();
+            return bus.ppu_state().mode_edge_events;
         }
 
         let edges = PpuModeEdgeEvents::for_entered_mode(mode);
-        bus.ppu.mode = mode;
-        bus.ppu.mode_edge_events = edges;
+        bus.ppu_state_mut().mode = mode;
+        bus.ppu_state_mut().mode_edge_events = edges;
         bus.ppu_set_stat_mode_bits(mode.stat_mode_bits());
         edges
     }
@@ -212,27 +213,27 @@ impl PpuState {
             return false;
         }
 
-        let startup_line = bus.ppu.startup_line && ly == 0;
+        let startup_line = bus.ppu_state().startup_line && ly == 0;
         let mode3_end = if startup_line {
-            STARTUP_MODE0_DOTS.saturating_add(bus.ppu.mode3_dots_latched)
+            STARTUP_MODE0_DOTS.saturating_add(bus.ppu_state().mode3_dots_latched)
         } else {
-            80u16.saturating_add(bus.ppu.mode3_dots_latched)
+            80u16.saturating_add(bus.ppu_state().mode3_dots_latched)
         };
 
-        let delay_tcycles = if bus.ppu.stat_mode0_enabled_this_line {
+        let delay_tcycles = if bus.ppu_state().stat_mode0_enabled_this_line {
             0
         } else {
             4
         };
-        bus.ppu.ly_counter >= mode3_end.saturating_add(delay_tcycles)
+        bus.ppu_state().ly_counter >= mode3_end.saturating_add(delay_tcycles)
     }
 
     pub(super) fn update_stat_irq_line(bus: &mut Bus) {
         let high = Self::stat_irq_source_active(bus);
-        if high && !bus.ppu.stat_irq_line {
+        if high && !bus.ppu_state().stat_irq_line {
             let iflags = bus.interrupt_flags() | (1 << 1);
             bus.set_interrupt_flags(iflags);
         }
-        bus.ppu.stat_irq_line = high;
+        bus.ppu_state_mut().stat_irq_line = high;
     }
 }

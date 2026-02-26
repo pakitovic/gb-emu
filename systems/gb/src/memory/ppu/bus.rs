@@ -1,4 +1,20 @@
 use super::super::{Bus, LCD_WIDTH};
+use super::PpuState;
+
+pub(super) trait PpuStateAdapter {
+    fn ppu_state(&self) -> &PpuState;
+    fn ppu_state_mut(&mut self) -> &mut PpuState;
+}
+
+impl PpuStateAdapter for Bus {
+    fn ppu_state(&self) -> &PpuState {
+        &self.ppu
+    }
+
+    fn ppu_state_mut(&mut self) -> &mut PpuState {
+        &mut self.ppu
+    }
+}
 
 // Shared-bus register/framebuffer accessors used by the PPU state machine.
 const IO_SCY: usize = 0x42;
