@@ -1,3 +1,9 @@
-mod boot_and_timing;
-mod interrupt_control;
+mod boot;
+mod halt_bug;
+mod halt_ime_if_ie;
+mod ime_delay_and_reti;
+mod interrupt_dispatch_push_side_effects;
+mod stack_fetch;
+mod stop_dmg_characterization;
 mod support;
+mod timing_policy;

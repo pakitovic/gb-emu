@@ -114,7 +114,7 @@ fn gameboy_step_executes_nop_and_advances_pc() {
     let cycles = gb.step();
 
     assert_eq!(cycles, 4);
-    assert_eq!(gb.cpu.registers.pc, 0x0101);
+    assert_eq!(gb.cpu.registers().pc, 0x0101);
 }
 
 #[test]
@@ -668,8 +668,8 @@ fn cpu_read_from_oam_returns_ff_during_active_oam_dma_via_gameboy_step() {
     let cycles = gb.step();
 
     assert_eq!(cycles, 16);
-    assert_eq!(gb.cpu.registers.pc, 0x0103);
-    assert_eq!(gb.cpu.registers.a, 0xFF);
+    assert_eq!(gb.cpu.registers().pc, 0x0103);
+    assert_eq!(gb.cpu.registers().a, 0xFF);
 }
 
 #[test]
@@ -681,7 +681,7 @@ fn cpu_write_to_oam_is_ignored_during_active_oam_dma_via_gameboy_step() {
 
     let cartridge = Cartridge::from_bytes(rom).expect("valid ROM should load");
     let mut gb = GameBoy::new(cartridge);
-    gb.cpu.registers.a = 0xAA;
+    gb.cpu.registers_mut().a = 0xAA;
 
     gb.bus.write_byte(0xC000, 0x55); // DMA source for OAM[0]
     gb.bus.write_byte(0xFF46, 0xC0); // start OAM DMA
@@ -689,7 +689,7 @@ fn cpu_write_to_oam_is_ignored_during_active_oam_dma_via_gameboy_step() {
 
     let cycles = gb.step();
     assert_eq!(cycles, 16);
-    assert_eq!(gb.cpu.registers.pc, 0x0103);
+    assert_eq!(gb.cpu.registers().pc, 0x0103);
 
     // Finish DMA and verify CPU write did not land; DMA source wins.
     tick_n_tcycles(&mut gb, 700);
@@ -716,8 +716,8 @@ fn cpu_read_from_vram_returns_ff_during_mode3_via_gameboy_step() {
     let cycles = gb.step();
 
     assert_eq!(cycles, 16);
-    assert_eq!(gb.cpu.registers.pc, 0x0103);
-    assert_eq!(gb.cpu.registers.a, 0xFF);
+    assert_eq!(gb.cpu.registers().pc, 0x0103);
+    assert_eq!(gb.cpu.registers().a, 0xFF);
 }
 
 #[test]
@@ -729,7 +729,7 @@ fn cpu_write_to_vram_is_ignored_during_mode3_via_gameboy_step() {
 
     let cartridge = Cartridge::from_bytes(rom).expect("valid ROM should load");
     let mut gb = GameBoy::new(cartridge);
-    gb.cpu.registers.a = 0xA5;
+    gb.cpu.registers_mut().a = 0xA5;
 
     gb.bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
     gb.bus.write_byte(0xFF42, 0x00);
@@ -740,7 +740,7 @@ fn cpu_write_to_vram_is_ignored_during_mode3_via_gameboy_step() {
 
     let cycles = gb.step();
     assert_eq!(cycles, 16);
-    assert_eq!(gb.cpu.registers.pc, 0x0103);
+    assert_eq!(gb.cpu.registers().pc, 0x0103);
 
     wait_until_mode_changes(&mut gb, 3);
     assert_eq!(gb.bus.read_byte(0x8000), 0x5A);
