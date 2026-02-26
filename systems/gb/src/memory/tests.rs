@@ -541,6 +541,23 @@ fn cgb_dma_gdma_scaffold_can_transfer_one_block_when_runtime_is_test_enabled() {
 }
 
 #[test]
+fn ppu_cgb_scaffold_runtime_is_model_gated_off_for_current_dmg_family_models() {
+    for model in [
+        HardwareModel::Dmg0,
+        HardwareModel::Dmg,
+        HardwareModel::Mgb,
+        HardwareModel::Sgb,
+        HardwareModel::Sgb2,
+    ] {
+        let bus = make_test_bus_with_model(model);
+        assert!(
+            !bus.debug_ppu_cgb_scaffold_runtime_enabled(),
+            "PPU CGB scaffold runtime must stay gated off for current DMG-family model {model:?}"
+        );
+    }
+}
+
+#[test]
 fn cgb_dma_hdma_scaffold_uses_hblank_edges_and_stop_request_when_runtime_is_test_enabled() {
     let mut bus = make_test_bus();
     bus.debug_force_enable_cgb_dma_scaffold_runtime(true);
@@ -793,6 +810,7 @@ fn mode3_pixel_metadata_forces_white_backdrop_when_bg_is_disabled() {
 #[test]
 fn mode3_bg_tile_attr_scaffold_reads_vram_bank1_tilemap_metadata_without_changing_dmg_path() {
     let mut bus = make_test_bus();
+    bus.debug_force_enable_ppu_cgb_scaffold_runtime(true);
     let lcdc = 0x91; // BG on, BG map 0x9800
 
     // BG tilemap entry for screen (0,0) lives at VRAM map offset 0x1800.
