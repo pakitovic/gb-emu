@@ -476,6 +476,38 @@ fn bus_internal_cartridge_capabilities_api_surfaces_header_and_mapper_flags() {
 }
 
 #[test]
+fn bus_cartridge_model_compatibility_uses_header_flags_and_selected_model() {
+    let mut rom = vec![0; 32 * 1024];
+    rom[0x0147] = 0x00; // ROM-only
+    rom[0x0148] = 0x00; // 32 KiB
+    rom[0x0149] = 0x00;
+    rom[0x0143] = 0x80; // CGB-compatible
+    rom[0x0146] = 0x03; // SGB-supported
+    let dmg_bus = Bus::new_with_model(
+        Cartridge::from_bytes(rom.clone()).expect("valid cartridge should load"),
+        HardwareModel::Dmg,
+    );
+    let sgb_bus = Bus::new_with_model(
+        Cartridge::from_bytes(rom).expect("valid cartridge should load"),
+        HardwareModel::Sgb,
+    );
+
+    let dmg_compat = dmg_bus.cartridge_model_compatibility();
+    assert!(dmg_compat.mode_request.prefers_cgb());
+    assert!(dmg_compat.dmg_mode_allowed);
+    assert!(!dmg_compat.cgb_mode_supported_by_model);
+    assert!(!dmg_compat.cgb_mode_possible);
+    assert!(dmg_compat.sgb_features_requested);
+    assert!(!dmg_compat.sgb_features_supported_by_model);
+
+    let sgb_compat = sgb_bus.cartridge_model_compatibility();
+    assert!(sgb_compat.sgb_features_requested);
+    assert!(sgb_compat.sgb_features_supported_by_model);
+    assert!(sgb_compat.sgb_features_possible);
+    assert!(!sgb_compat.cgb_mode_possible);
+}
+
+#[test]
 fn cgb_dma_mmio_scaffold_registers_are_dmg_noops_but_capture_shadow_bits_and_request_mode() {
     let mut bus = make_test_bus();
 

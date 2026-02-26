@@ -1,6 +1,7 @@
 use crate::audio::AnalogCalibrationProfile;
 use crate::cartridge::Cartridge;
 use crate::cartridge::CartridgeMetadata;
+use crate::cartridge::CartridgeModelCompatibility;
 use crate::cpu::Cpu;
 use crate::hardware::HardwareModel;
 use crate::input::Button;
@@ -77,6 +78,10 @@ impl GameBoy {
 
     pub fn cartridge_metadata(&self) -> CartridgeMetadata {
         self.bus.cartridge_metadata()
+    }
+
+    pub fn cartridge_model_compatibility(&self) -> CartridgeModelCompatibility {
+        self.bus.cartridge_model_compatibility()
     }
 
     pub fn cartridge_has_rumble(&self) -> bool {

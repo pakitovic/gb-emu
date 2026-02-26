@@ -52,7 +52,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Web demo host now persists battery-backed cartridge data in browser storage (SRAM + MBC3 RTC metadata) with dirty-flag autosave debounce and page-lifecycle flush hooks.
 - Cartridge header diagnostics for Nintendo logo/header checksum/global checksum, exposed as non-blocking warnings in cartridge metadata.
 - Cartridge metadata debug report consumed by CLI (`--cart-info`) and frontends (SDL2 `F1` cart-info panel, web debug panel).
-- Cartridge core now exposes an internal `capabilities()` interface (mapper/ram/battery/timer/rumble/battery-save, compatibility-RAM mode, and normalized CGB header support from the cartridge header flag) so future model/header gating can query cartridge support without threading ad-hoc header checks through the bus.
+- Cartridge core now exposes an internal `capabilities()` interface (mapper/ram/battery/timer/rumble/battery-save, compatibility-RAM mode, and normalized CGB/SGB header flag support) plus a model-aware cartridge compatibility policy (`header flags + selected hardware model`) so future DMG/CGB/SGB mode gating can query cartridge support without threading ad-hoc header checks through the bus.
 
 ### Audio Output Pipeline / Frontend Audio Integration
 - Shared `runtime/` host utilities for frontend frame pacing, realtime audio queueing, adaptive buffering, t-cycle-to-PCM mixer bridging (SDL2/Web), and file-backed cartridge persistence adapters.
@@ -217,7 +217,7 @@ Supported models for `--model`:
 - MBC3 RTC persistence currently uses a sidecar `.rtc` file; this is emulator-specific metadata and not a hardware cartridge dump format.
 - RTC clock source currently remains a core-local convenience (`SystemRtcClock`) for native hosts, while host/frontends can inject RTC epoch time for portability-sensitive targets (web) and future deterministic/libretro integrations.
 - Web demo battery persistence currently uses browser local storage (base64-encoded SRAM/RTC sidecar blobs keyed per ROM file/hash); browser quota/privacy/security settings can disable or evict stored data.
-- Cartridge capabilities now normalize the CGB header support flag (`0x0143`) into an internal interface, but current DMG scope does not use that capability to switch execution mode/model behavior yet (CGB enablement remains out of scope).
+- Cartridge capabilities/compatibility policy now normalize the CGB (`0x0143`) and SGB (`0x0146`) header flags and combine them with the selected hardware model, but the result is currently advisory metadata only: current DMG-family scope does not enforce/reject by CGB header requirements, does not switch to CGB execution, and does not enable SGB-specific features from the header flags.
 
 ### Cartridge Header Diagnostics
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.

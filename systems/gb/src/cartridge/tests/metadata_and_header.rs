@@ -1,6 +1,6 @@
-use super::super::capabilities;
 use super::super::*;
 use super::support::*;
+use crate::hardware::HardwareModel;
 
 #[test]
 fn rom_only_loading_does_not_query_rtc_clock() {
@@ -137,6 +137,7 @@ fn metadata_marks_rom_only_compatibility_ram_mode() {
 fn capabilities_report_mapper_flags_and_cgb_header_support() {
     let mut rom = make_rom(64 * 1024, MBC3_TIMER_RAM_BATTERY, 0x01, 0x03);
     rom[0x0143] = 0x80; // CGB-compatible flag (non-CGB behavior still unchanged in current scope)
+    rom[0x0146] = 0x03; // SGB support flag
     let cart = Cartridge::from_bytes(rom).expect("valid MBC3 timer+RAM ROM should load");
     let capabilities = cart.capabilities();
 
@@ -149,12 +150,12 @@ fn capabilities_report_mapper_flags_and_cgb_header_support() {
     assert!(!capabilities.has_rumble);
     assert!(capabilities.has_battery_save);
     assert_eq!(capabilities.cgb_header_flag_raw, 0x80);
-    assert_eq!(
-        capabilities.cgb_support,
-        capabilities::CartridgeCgbSupport::Supported
-    );
+    assert_eq!(capabilities.cgb_support, CartridgeCgbSupport::Supported);
     assert!(capabilities.supports_cgb);
     assert!(!capabilities.cgb_only);
+    assert_eq!(capabilities.sgb_header_flag_raw, 0x03);
+    assert_eq!(capabilities.sgb_support, CartridgeSgbSupport::Supported);
+    assert!(capabilities.supports_sgb);
 }
 
 #[test]
@@ -173,12 +174,12 @@ fn capabilities_distinguish_declared_vs_effective_ram_and_cgb_only_header() {
     assert!(!capabilities.has_rumble);
     assert!(!capabilities.has_battery_save);
     assert_eq!(capabilities.cgb_header_flag_raw, 0xC0);
-    assert_eq!(
-        capabilities.cgb_support,
-        capabilities::CartridgeCgbSupport::Required
-    );
+    assert_eq!(capabilities.cgb_support, CartridgeCgbSupport::Required);
     assert!(capabilities.supports_cgb);
     assert!(capabilities.cgb_only);
+    assert_eq!(capabilities.sgb_header_flag_raw, 0x00);
+    assert_eq!(capabilities.sgb_support, CartridgeSgbSupport::None);
+    assert!(!capabilities.supports_sgb);
 }
 
 #[test]
@@ -189,12 +190,67 @@ fn capabilities_treat_unknown_cgb_header_flags_as_none() {
     let capabilities = cart.capabilities();
 
     assert_eq!(capabilities.cgb_header_flag_raw, 0x42);
-    assert_eq!(
-        capabilities.cgb_support,
-        capabilities::CartridgeCgbSupport::None
-    );
+    assert_eq!(capabilities.cgb_support, CartridgeCgbSupport::None);
     assert!(!capabilities.supports_cgb);
     assert!(!capabilities.cgb_only);
+    assert_eq!(capabilities.sgb_header_flag_raw, 0x00);
+    assert_eq!(capabilities.sgb_support, CartridgeSgbSupport::None);
+    assert!(!capabilities.supports_sgb);
+}
+
+#[test]
+fn capabilities_parse_sgb_header_flag_explicitly() {
+    let mut rom = make_rom(32 * 1024, ROM_ONLY, 0x00, 0x00);
+    rom[0x0146] = 0x03;
+    let cart = Cartridge::from_bytes(rom).expect("valid ROM-only ROM should load");
+    let capabilities = cart.capabilities();
+
+    assert_eq!(capabilities.sgb_header_flag_raw, 0x03);
+    assert_eq!(capabilities.sgb_support, CartridgeSgbSupport::Supported);
+    assert!(capabilities.supports_sgb);
+    assert_eq!(capabilities.cgb_support, CartridgeCgbSupport::None);
+}
+
+#[test]
+fn compatibility_for_model_reports_cgb_only_header_as_non_dmg_compatible() {
+    let mut rom = make_rom(32 * 1024, ROM_ONLY, 0x00, 0x00);
+    rom[0x0143] = 0xC0; // CGB-only
+    let cart = Cartridge::from_bytes(rom).expect("valid ROM-only ROM should load");
+
+    let dmg_compat = cart.compatibility_for_model(HardwareModel::Dmg);
+
+    assert!(dmg_compat.mode_request.requires_cgb());
+    assert!(!dmg_compat.dmg_mode_allowed);
+    assert!(!dmg_compat.cgb_mode_supported_by_model);
+    assert!(!dmg_compat.cgb_mode_possible);
+    assert!(dmg_compat.cgb_only_header_on_non_cgb_model);
+    assert!(!dmg_compat.sgb_features_requested);
+    assert!(!dmg_compat.sgb_features_supported_by_model);
+}
+
+#[test]
+fn compatibility_for_model_reports_sgb_feature_eligibility_without_enabling_cgb() {
+    let mut rom = make_rom(64 * 1024, MBC1, 0x01, 0x00);
+    rom[0x0143] = 0x80; // CGB-supported
+    rom[0x0146] = 0x03; // SGB-supported
+    let cart = Cartridge::from_bytes(rom).expect("valid MBC1 ROM should load");
+
+    let dmg_compat = cart.compatibility_for_model(HardwareModel::Dmg);
+    let sgb_compat = cart.compatibility_for_model(HardwareModel::Sgb2);
+
+    assert!(dmg_compat.mode_request.prefers_cgb());
+    assert!(dmg_compat.dmg_mode_allowed);
+    assert!(!dmg_compat.cgb_mode_supported_by_model);
+    assert!(!dmg_compat.cgb_mode_possible);
+    assert!(dmg_compat.sgb_features_requested);
+    assert!(!dmg_compat.sgb_features_supported_by_model);
+    assert!(!dmg_compat.sgb_features_possible);
+
+    assert_eq!(sgb_compat.sgb_support, CartridgeSgbSupport::Supported);
+    assert!(sgb_compat.sgb_features_requested);
+    assert!(sgb_compat.sgb_features_supported_by_model);
+    assert!(sgb_compat.sgb_features_possible);
+    assert!(!sgb_compat.cgb_mode_possible);
 }
 
 #[test]

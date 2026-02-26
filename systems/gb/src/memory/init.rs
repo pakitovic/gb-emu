@@ -26,6 +26,7 @@ impl Bus {
             joypad: Default::default(),
             framebuffer: [0xFF; super::LCD_FRAME_PIXELS],
             clock_ratios: ClockRatios::dmg(),
+            hardware_model: model,
             cgb_mmio: Default::default(),
         };
         bus.configure_dma_model_gates(model);
