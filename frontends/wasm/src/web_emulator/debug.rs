@@ -1,4 +1,5 @@
 use super::WebEmulator;
+use gb_runtime::cartridge_debug::format_cartridge_debug_report;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -12,7 +13,7 @@ impl WebEmulator {
     }
 
     pub fn cartridge_debug_report(&self) -> String {
-        self.gb.cartridge_metadata().debug_report()
+        format_cartridge_debug_report(&self.gb.cartridge_metadata())
     }
 
     pub fn cartridge_warning_count(&self) -> u32 {
