@@ -221,7 +221,6 @@ Supported models for `--model`:
 
 ### Cartridge Header Diagnostics
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.
-- `CartridgeMetadata::debug_report()` remains a core convenience formatter for host/frontend debug UIs; moving presentation formatting out of `systems/gb` is deferred unless the cartridge metadata API grows enough to justify a stricter boundary.
 
 ### CPU / Core Fidelity
 - CPU correctness and timing confidence are currently driven by the included Blargg + Gekkio suites and project integration tests; untested instruction/interrupt corner cases may still remain.

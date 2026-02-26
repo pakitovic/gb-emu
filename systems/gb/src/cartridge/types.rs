@@ -45,55 +45,6 @@ pub struct CartridgeMetadata {
     pub header_warnings: Vec<CartridgeHeaderWarning>,
 }
 
-impl CartridgeMetadata {
-    pub fn debug_report(&self) -> String {
-        let mut lines = Vec::with_capacity(12 + self.header_warnings.len());
-        let title = if self.title.trim().is_empty() {
-            "<empty title>".to_string()
-        } else {
-            self.title.clone()
-        };
-        lines.push("Cartridge Metadata".to_string());
-        lines.push(format!("Title: {title}"));
-        lines.push(format!(
-            "Type: 0x{:02X} ({})",
-            self.cart_type_code, self.mapper
-        ));
-        lines.push(format!(
-            "ROM: code 0x{:02X}, {} bytes, {} banks",
-            self.rom_size_code, self.rom_size_bytes, self.rom_bank_count
-        ));
-        lines.push(format!(
-            "RAM: code 0x{:02X}, declared {} bytes, effective {} bytes, {} banks",
-            self.ram_size_code,
-            self.declared_ram_size_bytes,
-            self.effective_ram_size_bytes,
-            self.ram_bank_count
-        ));
-        lines.push(format!(
-            "Compatibility RAM mode: {}",
-            yes_no(self.compatibility_ram_mode)
-        ));
-        lines.push(format!(
-            "Capabilities: battery={}, timer={}, rumble={} (active={}), battery-save={}",
-            yes_no(self.has_battery),
-            yes_no(self.has_timer),
-            yes_no(self.has_rumble),
-            yes_no(self.rumble_active),
-            yes_no(self.has_battery_save)
-        ));
-        lines.push(format!("Header warnings ({}):", self.header_warnings.len()));
-        if self.header_warnings.is_empty() {
-            lines.push("- none".to_string());
-        } else {
-            for warning in &self.header_warnings {
-                lines.push(format!("- {warning}"));
-            }
-        }
-        lines.join("\n")
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CartridgeHeaderWarning {
     NintendoLogoMismatch,
@@ -127,10 +78,6 @@ impl Display for CartridgeHeaderWarning {
             ),
         }
     }
-}
-
-fn yes_no(value: bool) -> &'static str {
-    if value { "yes" } else { "no" }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

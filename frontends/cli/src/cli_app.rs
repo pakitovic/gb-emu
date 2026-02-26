@@ -1,5 +1,6 @@
 use gb_emu::gameboy::GameBoy;
 use gb_emu::hardware::HardwareModel;
+use gb_runtime::cartridge_debug::format_cartridge_debug_report;
 use gb_runtime::cartridge_persistence::load_cartridge_from_file;
 use std::env;
 use std::error::Error;
@@ -36,7 +37,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let (cartridge, persistence) = load_cartridge_from_file(&options.rom_path)?;
     if options.cart_info {
-        println!("{}", cartridge.metadata().debug_report());
+        println!("{}", format_cartridge_debug_report(&cartridge.metadata()));
         return Ok(());
     }
 

@@ -1,5 +1,6 @@
 use gb_emu::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
 use gb_runtime::audio::{AudioMixer, MixerSource};
+use gb_runtime::cartridge_debug::format_cartridge_debug_report;
 use gb_runtime::cartridge_persistence::load_cartridge_from_file;
 use gb_runtime::timing::FramePacer;
 use sdl2::audio::AudioSpecDesired;
@@ -49,7 +50,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut gb = GameBoy::new_with_model(cartridge, model);
     gb.set_audio_tcycle_stream_enabled(true);
     let cartridge_metadata = gb.cartridge_metadata();
-    let cartridge_debug_report = cartridge_metadata.debug_report();
+    let cartridge_debug_report = format_cartridge_debug_report(&cartridge_metadata);
     println!("{cartridge_debug_report}");
 
     let sdl = sdl2::init().map_err(io::Error::other)?;
