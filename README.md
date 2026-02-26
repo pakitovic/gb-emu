@@ -313,6 +313,8 @@ scripts/blargg/fetch_blargg_roms.sh
 scripts/blargg/run_cpu_instrs_guard.sh
 # Targeted audio/realtime mixer guard (local/dev, timeout-based):
 scripts/dev/run_audio_guard.sh
+# Targeted DMA scheduler debug guard (local/dev and CI, timeout-based):
+scripts/dev/run_dma_guard.sh
 # Runs all configured DMG Blargg ROMs:
 scripts/blargg/run_blargg.sh
 
@@ -336,6 +338,7 @@ Useful environment overrides for scripts:
 - `MAX_STEPS` and `TIMEOUT_SECS` to tune execution limits.
 - `GEKKIO_VERSION` to fetch a specific Mooneye bundle version.
 - `TEST_NAME` to override the integration test executed by `scripts/dev/run_audio_guard.sh`.
+- `TEST_NAME` to override the unit test executed by `scripts/dev/run_dma_guard.sh`.
 
 ## Frontend Bootstrap (SDL2 + Web)
 

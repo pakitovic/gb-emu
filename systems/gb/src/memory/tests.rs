@@ -264,6 +264,44 @@ fn dma_scheduler_centralizes_dmg_cpu_access_policy_for_segments() {
     }
 }
 
+#[test]
+fn dma_scheduler_debug_guard_preserves_progress_under_stress() {
+    let mut bus = make_test_bus();
+
+    // Prime a couple of DMA source pages with distinct patterns so the guard
+    // also validates real scheduler work, not only idle fast-path ticking.
+    for i in 0..0x100u16 {
+        bus.write_wram(0xC000 + i, (i as u8).wrapping_mul(3).wrapping_add(1));
+        bus.write_wram(0xC100 + i, (i as u8).wrapping_mul(5).wrapping_add(7));
+    }
+
+    // Stress the common idle path in debug builds. This is intentionally a
+    // timeout-based guard (script/CI owns the threshold), not a timing assert.
+    for _ in 0..32_000_000u32 {
+        bus.tick_dma_scheduler_tcycle();
+    }
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Idle);
+
+    // Then stress active OAM DMA scheduling and completion repeatedly.
+    for round in 0..4_096u16 {
+        let source_high = if (round & 1) == 0 { 0xC0 } else { 0xC1 };
+        bus.write_byte(0xFF46, source_high);
+        for _ in 0..(8 + (0xA0 * 4)) {
+            bus.tick_dma_scheduler_tcycle();
+        }
+        assert_eq!(
+            bus.debug_dma_mode_kind(),
+            DmaSchedulerMode::Idle,
+            "DMA scheduler should complete OAM transfer and return to idle each round"
+        );
+    }
+
+    // Final transfer should come from page C1 and copy the expected bytes.
+    assert_eq!(bus.read_oam(0xFE00, SegmentAccess::Hardware), 0x07);
+    assert_eq!(bus.read_oam(0xFE01, SegmentAccess::Hardware), 0x0C);
+    assert_eq!(bus.read_oam(0xFE02, SegmentAccess::Hardware), 0x11);
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TimingContractSnapshot {
     div: u8,

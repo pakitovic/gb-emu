@@ -33,6 +33,11 @@ jobs:
           TIMEOUT_SECS: "60"
         run: scripts/dev/run_audio_guard.sh
 
+      - name: Run DMA scheduler micro-guard (debug hot path)
+        env:
+          TIMEOUT_SECS: "60"
+        run: scripts/dev/run_dma_guard.sh
+
       - name: Fetch Blargg ROMs
         run: scripts/blargg/fetch_blargg_roms.sh
 
