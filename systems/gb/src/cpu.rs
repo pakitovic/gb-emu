@@ -1,3 +1,4 @@
+mod context;
 mod flags;
 mod helpers;
 mod init;
@@ -8,20 +9,10 @@ mod step;
 
 use registers::Registers;
 
+pub use context::CpuContext;
 use flags::{
     get_flag_c, get_flag_h, get_flag_n, get_flag_z, set_flag_c, set_flag_h, set_flag_n, set_flag_z,
 };
-
-pub trait CpuContext {
-    fn read_byte(&self, addr: u16) -> u8;
-    fn write_byte(&mut self, addr: u16, value: u8);
-    // Advance hardware by DMG base t-cycles (4_194_304 Hz domain).
-    fn tick(&mut self, tcycles: u8);
-    fn cpu_tcycles_for_mcycles(&self, mcycles: u8) -> u8;
-    fn pending_interrupts(&self) -> u8;
-    fn interrupt_flags(&self) -> u8;
-    fn set_interrupt_flags(&mut self, value: u8);
-}
 
 pub struct Cpu {
     pub registers: Registers,

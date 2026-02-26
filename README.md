@@ -84,7 +84,9 @@ systems/
     Cargo.toml
     src/
       audio.rs
+      cartridge.rs
       cartridge/
+      cpu.rs
       cpu/
       gameboy.rs
       hardware.rs
