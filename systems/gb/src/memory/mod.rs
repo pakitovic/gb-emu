@@ -6,7 +6,6 @@ mod devices;
 mod dma;
 mod init;
 mod mmio;
-#[path = "../ppu.rs"]
 mod ppu;
 mod scheduler;
 
