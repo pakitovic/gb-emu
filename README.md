@@ -15,6 +15,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - DMA is now modeled as a scheduler-style state machine with incremental `tick(tcycles)` advancement, formal mode/edge state, centralized DMA CPU access-block policy hooks (currently only DMG OAM DMA behavior is active), and DMG-noop scaffolding for future CGB DMA control registers (`HDMA1..HDMA5`) plus model-gated `GDMA/HDMA` scheduler paths (transfer-state/request wiring and HBlank-edge hook integration, inactive for current DMG-family models) to reduce future HDMA/GDMA integration refactor scope.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
+- Public API now exposes a `gb_emu::bus` alias module (`Bus`, `LCD_WIDTH`, `LCD_HEIGHT`, `LCD_FRAME_PIXELS`) while keeping existing `gb_emu::memory::*` paths stable.
 
 ### PPU / Video (DMG)
 - DMG background layer rendering to a grayscale framebuffer.
@@ -84,15 +85,17 @@ systems/
     Cargo.toml
     src/
       audio.rs
+      bus.rs
       cartridge.rs
       cartridge/
       cpu.rs
       cpu/
       gameboy.rs
+      gameboy/
       hardware.rs
+      input.rs
+      memory.rs
       memory/
-      ppu.rs
-      ppu/
       timing.rs
       lib.rs
     tests/

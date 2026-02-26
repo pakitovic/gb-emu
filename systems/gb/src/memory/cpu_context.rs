@@ -1,5 +1,5 @@
+use super::Bus;
 use crate::cpu::CpuContext;
-use crate::memory::Bus;
 
 impl CpuContext for Bus {
     fn read_byte(&self, addr: u16) -> u8 {
