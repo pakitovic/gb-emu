@@ -10,6 +10,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Core timing contract now exposes an explicit DMG clock-ratio policy layer (CPU m-cycles -> base t-cycles) used at the CPU/bus boundary, keeping current DMG behavior unchanged while reducing future CGB double-speed refactor scope.
 - CPU timing plumbing now derives control/jump/ALU/load/CB instruction return timings from the clock-ratio policy (`mcycles -> tcycles`), and non-instruction CPU timing paths (HALT idle step + interrupt service dispatch) also use explicit policy-derived timing returns, while keeping behavior unchanged in current DMG scope.
 - Bus/memory access now routes VRAM/WRAM/OAM through internal segment helpers (CPU-visible vs hardware-internal access modes) with centralized VRAM/OAM blocking rules, reducing future CGB banking (`VBK`/`SVBK`) refactor scope.
+- MMIO decode now includes DMG-noop scaffolding for CGB-only registers (`KEY1`, `VBK`, `SVBK`) with internal shadowed fields, so future CGB double-speed/banking wiring can stay localized to the bus/MMIO layer.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
 
@@ -221,6 +222,7 @@ Supported models for `--model`:
 - Cross-subsystem cycle accuracy (CPU vs PPU/APU/DMA/bus contention) is implemented incrementally and is only guaranteed for the timing cases explicitly covered by current tests and documented PPU/DMA behavior.
 - CPU timing plumbing is mostly policy-derived in current DMG scope, but some CPU timing work remains outside this migration (for example future CGB-specific timing behavior/policies and additional non-instruction edge cases not yet explicitly characterized).
 - The bus/memory segment helper layer is currently DMG single-bank only; future CGB VRAM/WRAM bank selection (`VBK`/`SVBK`) and CGB-specific bus access rules are not implemented yet.
+- `KEY1`/`VBK`/`SVBK` MMIO scaffolding is decode-only in current DMG scope: reads still behave as unmapped (`0xFF`) and writes do not alter emulation behavior (only internal placeholder shadows are recorded for future CGB wiring).
 - `GameBoy`/`Bus` currently expose a small set of persistence-byte bridge helpers for `gb_runtime::cartridge_persistence`; tightening or reshaping that host-facing boundary is deferred unless the core API surface grows significantly.
 
 ### Runtime / Host Utility Maintainability

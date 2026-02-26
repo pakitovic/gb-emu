@@ -1,6 +1,7 @@
 mod apu;
 mod bus_access;
 mod bus_router;
+mod cgb_mmio;
 mod cpu_context;
 mod dma;
 mod init;
@@ -18,6 +19,7 @@ mod timer;
 use crate::apu::ApuState;
 use crate::cartridge::Cartridge;
 use crate::timing::ClockRatios;
+use cgb_mmio::CgbMmioState;
 use dma::DmaState;
 use joypad::JoypadState;
 use ppu::PpuState;
@@ -44,6 +46,7 @@ pub struct Bus {
     joypad: JoypadState,
     framebuffer: [u8; LCD_FRAME_PIXELS],
     clock_ratios: ClockRatios,
+    cgb_mmio: CgbMmioState,
 }
 
 #[cfg(test)]

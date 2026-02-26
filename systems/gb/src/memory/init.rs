@@ -25,6 +25,7 @@ impl Bus {
             joypad: Default::default(),
             framebuffer: [0xFF; super::LCD_FRAME_PIXELS],
             clock_ratios: ClockRatios::dmg(),
+            cgb_mmio: Default::default(),
         };
         bus.apply_boot_defaults(model);
         bus.sync_apu_boot_state(model);

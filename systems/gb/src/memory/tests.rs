@@ -1,4 +1,5 @@
 use super::bus_access::{AddressSegment, SegmentAccess, address_segment};
+use super::cgb_mmio::{CgbMmioRegister, cgb_mmio_register};
 use super::test_utils::{make_test_bus, make_test_bus_with_model, tick_n};
 use super::*;
 use crate::hardware::HardwareModel;
@@ -136,6 +137,39 @@ fn address_segment_classifies_main_bus_regions() {
     assert_eq!(address_segment(0xFF00), AddressSegment::Io);
     assert_eq!(address_segment(0xFF80), AddressSegment::Hram);
     assert_eq!(address_segment(0xFFFF), AddressSegment::Ie);
+}
+
+#[test]
+fn cgb_mmio_scaffold_decodes_key1_vbk_and_svbk_registers() {
+    assert_eq!(cgb_mmio_register(0xFF4D), Some(CgbMmioRegister::Key1));
+    assert_eq!(cgb_mmio_register(0xFF4F), Some(CgbMmioRegister::Vbk));
+    assert_eq!(cgb_mmio_register(0xFF70), Some(CgbMmioRegister::Svbk));
+    assert_eq!(cgb_mmio_register(0xFF4C), None);
+    assert_eq!(cgb_mmio_register(0xFF50), None);
+}
+
+#[test]
+fn cgb_mmio_scaffold_registers_are_dmg_noops_but_capture_shadow_bits() {
+    let mut bus = make_test_bus();
+
+    // DMG-visible behavior remains unmapped-like (0xFF) reads.
+    assert_eq!(bus.read_byte(0xFF4D), 0xFF);
+    assert_eq!(bus.read_byte(0xFF4F), 0xFF);
+    assert_eq!(bus.read_byte(0xFF70), 0xFF);
+
+    bus.write_byte(0xFF4D, 0x81);
+    bus.write_byte(0xFF4F, 0xA3);
+    bus.write_byte(0xFF70, 0xFE);
+
+    assert_eq!(bus.read_byte(0xFF4D), 0xFF);
+    assert_eq!(bus.read_byte(0xFF4F), 0xFF);
+    assert_eq!(bus.read_byte(0xFF70), 0xFF);
+
+    assert_eq!(
+        bus.debug_cgb_mmio_shadows(),
+        (0x01, 0x01, 0x06),
+        "scaffolding should store masked future-relevant bits while remaining DMG-noop"
+    );
 }
 
 #[test]
