@@ -2,6 +2,7 @@ mod api;
 mod apu_bus;
 mod bus_access;
 mod cpu_bus;
+mod cpu_context;
 mod devices;
 mod dma;
 mod init;
