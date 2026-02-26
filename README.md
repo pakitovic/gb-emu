@@ -10,7 +10,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Core timing contract now exposes an explicit DMG clock-ratio policy layer (CPU m-cycles -> base t-cycles) used at the CPU/bus boundary, keeping current DMG behavior unchanged while reducing future CGB double-speed refactor scope.
 - CPU timing plumbing now derives control/jump/ALU/load/CB instruction return timings from the clock-ratio policy (`mcycles -> tcycles`), and non-instruction CPU timing paths (HALT idle step + interrupt service dispatch) also use explicit policy-derived timing returns, while keeping behavior unchanged in current DMG scope.
 - Bus/memory access now routes VRAM/WRAM/OAM through internal segment helpers (CPU-visible vs hardware-internal access modes) with centralized VRAM/OAM blocking rules, reducing future CGB banking (`VBK`/`SVBK`) refactor scope.
-- MMIO decode now includes DMG-noop scaffolding for CGB-only registers (`KEY1`, `VBK`, `SVBK`) with internal shadowed fields, so future CGB double-speed/banking wiring can stay localized to the bus/MMIO layer.
+- MMIO decode now includes DMG-noop scaffolding for CGB-only registers (`KEY1`, `VBK`, `SVBK`) with internal shadowed fields, and the VRAM/WRAM bus helpers now resolve through DMG-fixed bank-selection scaffolding hooks so future CGB banking wiring can stay localized to the bus/MMIO layer.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
 
@@ -29,6 +29,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - On shared Mode 3 takeover boundaries, queued window restarts now defer to an immediately-eligible OBJ fetch start, with regression coverage for the resulting STAT/VRAM/OAM blocking behavior on that arbitration edge.
 - Mode 3 OBJ/window arbitration now uses the same OBJ fetch-start lookahead as the OBJ fetcher path (including `Push` boundary handling), reducing window/OBJ overlap corruption seen in commercial scenes (e.g. mid-line window restarts around active sprites).
 - Mode 3 pixel composition now carries intermediate DMG pixel metadata (`source`, `color_id`, priority flags, palette selector) and applies DMG grayscale mapping in a final color step, reducing future CGB BG/OBJ palette/priority integration refactor scope.
+- PPU now keeps an explicit formal mode state plus one-tick mode-entry edge events (`entered OAM/Transfer/HBlank/VBlank`) synchronized with STAT mode bits and used internally for mode-sensitive interrupt timing hooks (including VBlank entry), reducing future HBlank-DMA/HDMA integration refactor scope.
 - Mode 3 window restarts now clear any remaining BG fine-scroll discard (`SCX & 7`) so WX-aligned HUD/window lines stay fixed instead of inheriting BG scroll jitter (e.g. Kirby's Dream Land HUD).
 - Mode 3 line-start BG fine-scroll discard now advances the OBJ FIFO in lockstep with discarded BG pixels, fixing left-edge sprite column misalignment when `SCX` uses sub-tile offsets (e.g. Super Mario Land at the camera left boundary).
 - Mode 3 line duration now grows from runtime OBJ fetch contention (including mid-line OBJ enable/disable effects), reducing reliance on static per-line penalty estimates.
@@ -222,7 +223,7 @@ Supported models for `--model`:
 - Cross-subsystem cycle accuracy (CPU vs PPU/APU/DMA/bus contention) is implemented incrementally and is only guaranteed for the timing cases explicitly covered by current tests and documented PPU/DMA behavior.
 - CPU timing plumbing is mostly policy-derived in current DMG scope, but some CPU timing work remains outside this migration (for example future CGB-specific timing behavior/policies and additional non-instruction edge cases not yet explicitly characterized).
 - The bus/memory segment helper layer is currently DMG single-bank only; future CGB VRAM/WRAM bank selection (`VBK`/`SVBK`) and CGB-specific bus access rules are not implemented yet.
-- `KEY1`/`VBK`/`SVBK` MMIO scaffolding is decode-only in current DMG scope: reads still behave as unmapped (`0xFF`) and writes do not alter emulation behavior (only internal placeholder shadows are recorded for future CGB wiring).
+- `KEY1`/`VBK`/`SVBK` MMIO scaffolding is still DMG-noop in current scope: reads behave as unmapped (`0xFF`), writes do not alter emulation behavior, and VRAM/WRAM bank-selection hooks remain pinned to DMG-fixed effective banks while only internal placeholder shadows are recorded for future CGB wiring.
 - `GameBoy`/`Bus` currently expose a small set of persistence-byte bridge helpers for `gb_runtime::cartridge_persistence`; tightening or reshaping that host-facing boundary is deferred unless the core API surface grows significantly.
 
 ### Runtime / Host Utility Maintainability
@@ -233,6 +234,7 @@ Supported models for `--model`:
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 - Dot-stepped OBJ fetch contention now extends Mode 3 at runtime and takeover boundaries include FIFO-stall arbitration; some DMG fetcher bus-phase details (for example full hardware sleep/push micro-ops) are still approximated.
 - The Mode 3 pixel pipeline now carries DMG-oriented intermediate metadata for composition, but CGB BG tile attributes (palette index, tile priority, VRAM bank select) and CGB OBJ palette metadata are not implemented yet.
+- Formal PPU mode-entry edge hooks now exist for future HBlank-DMA/HDMA wiring, but no HDMA/HBlank DMA behavior is implemented in current DMG scope.
 - Recent Mode 3 BG `Push` fetcher work refines the internal state-machine (explicit latched `RecoverySleep` substate) and improves regression observability for the `stall/recovery` path, but it does not yet introduce additional hardware-visible micro-ops outside that `stall -> recovery sleep -> push-ready` flow.
 - Remaining high-impact PPU fidelity work is concentrated in timing-sensitive Mode 3 corner cases (finer fetcher micro-ops / bus-phase modeling and additional DMA/STAT contention edge cases beyond the currently covered regressions).
 

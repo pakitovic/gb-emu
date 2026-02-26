@@ -16,6 +16,53 @@ const MODE3_WINDOW_RESTART_DOTS: u16 = BG_FETCH_TILE_DOTS as u16;
 const OBJ_FETCH_BASE_DOTS: u8 = 6;
 const OBJ_SESSION_SHUTDOWN_PENALTY: [u8; 8] = [3, 2, 3, 2, 3, 2, 2, 2];
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub(in crate::memory) enum PpuMode {
+    #[default]
+    HBlank = STAT_MODE_HBLANK,
+    VBlank = STAT_MODE_VBLANK,
+    Oam = STAT_MODE_OAM,
+    Transfer = STAT_MODE_TRANSFER,
+}
+
+impl PpuMode {
+    fn from_stat_mode_bits(bits: u8) -> Self {
+        match bits & 0x03 {
+            STAT_MODE_HBLANK => Self::HBlank,
+            STAT_MODE_VBLANK => Self::VBlank,
+            STAT_MODE_OAM => Self::Oam,
+            STAT_MODE_TRANSFER => Self::Transfer,
+            _ => unreachable!(),
+        }
+    }
+
+    fn stat_mode_bits(self) -> u8 {
+        self as u8
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::memory) struct PpuModeEdgeEvents {
+    pub(in crate::memory) entered_hblank: bool,
+    pub(in crate::memory) entered_vblank: bool,
+    pub(in crate::memory) entered_oam: bool,
+    pub(in crate::memory) entered_transfer: bool,
+}
+
+impl PpuModeEdgeEvents {
+    fn for_entered_mode(mode: PpuMode) -> Self {
+        let mut events = Self::default();
+        match mode {
+            PpuMode::HBlank => events.entered_hblank = true,
+            PpuMode::VBlank => events.entered_vblank = true,
+            PpuMode::Oam => events.entered_oam = true,
+            PpuMode::Transfer => events.entered_transfer = true,
+        }
+        events
+    }
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 #[repr(u8)]
 enum BgFetchPhase {
@@ -307,6 +354,8 @@ pub(super) struct PpuState {
     pub(super) startup_line: bool,
     pub(super) post_enable_phase: u8,
     pub(super) enable_delay: u8,
+    pub(super) mode: PpuMode,
+    pub(super) mode_edge_events: PpuModeEdgeEvents,
     pub(super) stat_irq_line: bool,
     pub(super) stat_mode0_enabled_this_line: bool,
     pub(super) frame_counter: u64,
@@ -325,6 +374,8 @@ impl Default for PpuState {
             startup_line: false,
             post_enable_phase: 0,
             enable_delay: 0,
+            mode: PpuMode::HBlank,
+            mode_edge_events: PpuModeEdgeEvents::default(),
             stat_irq_line: false,
             stat_mode0_enabled_this_line: false,
             frame_counter: 0,
@@ -358,7 +409,7 @@ impl PpuState {
                 bus.ppu.mode3_dots_latched = 0;
                 bus.ppu.mode3_fifo.reset();
                 bus.ppu.bg_color_ids_line.fill(0);
-                Self::set_stat_mode(bus, STAT_MODE_HBLANK);
+                Self::force_ppu_mode(bus, PpuMode::HBlank);
                 // LY=LYC flag is retained while LCD is disabled.
                 Self::update_stat_irq_line(bus);
             }
@@ -375,7 +426,7 @@ impl PpuState {
                 bus.ppu.mode3_dots_latched = 0;
                 bus.ppu.mode3_fifo.reset();
                 bus.ppu.bg_color_ids_line.fill(0);
-                Self::set_stat_mode(bus, STAT_MODE_HBLANK);
+                Self::force_ppu_mode(bus, PpuMode::HBlank);
                 Self::update_lyc_flag(bus);
                 Self::update_stat_irq_line(bus);
             }
@@ -418,7 +469,7 @@ impl PpuState {
         bus.ppu.mode3_dots_latched = 0;
         bus.ppu.mode3_fifo.reset();
         bus.ppu.bg_color_ids_line.fill(0);
-        Self::set_stat_mode(bus, STAT_MODE_HBLANK);
+        Self::force_ppu_mode(bus, PpuMode::HBlank);
         if Self::lcd_enabled(bus) {
             Self::update_lyc_flag(bus);
         }
@@ -426,6 +477,8 @@ impl PpuState {
     }
 
     pub(super) fn step(bus: &mut Bus) {
+        bus.ppu.mode_edge_events = PpuModeEdgeEvents::default();
+
         if !Self::lcd_enabled(bus) {
             return;
         }
@@ -472,11 +525,7 @@ impl PpuState {
             } else if bus.ppu.post_enable_phase > 0 {
                 bus.ppu.post_enable_phase -= 1;
             }
-            if next_ly == 144 {
-                let iflags = bus.interrupt_flags() | (1 << 0);
-                bus.set_interrupt_flags(iflags);
-                bus.ppu.frame_counter = bus.ppu.frame_counter.wrapping_add(1);
-            } else if next_ly == 0 {
+            if next_ly == 0 {
                 bus.ppu.window_line_counter = 0;
             }
         }
@@ -492,7 +541,12 @@ impl PpuState {
                 bus.ppu.startup_line && ly == 0,
             )
         };
-        Self::set_stat_mode(bus, mode);
+        let mode_edges = Self::set_ppu_mode(bus, PpuMode::from_stat_mode_bits(mode));
+        if mode_edges.entered_vblank {
+            let iflags = bus.interrupt_flags() | (1 << 0);
+            bus.set_interrupt_flags(iflags);
+            bus.ppu.frame_counter = bus.ppu.frame_counter.wrapping_add(1);
+        }
         Self::update_lyc_flag(bus);
         Self::update_stat_irq_line(bus);
     }
@@ -502,7 +556,7 @@ impl PpuState {
     }
 
     fn ppu_mode(bus: &Bus) -> u8 {
-        bus.io[0x41] & 0x03
+        bus.ppu.mode.stat_mode_bits()
     }
 
     fn ppu_startup_mode0_slice_active(bus: &Bus) -> bool {
@@ -1305,8 +1359,24 @@ impl PpuState {
         }
     }
 
-    fn set_stat_mode(bus: &mut Bus, mode: u8) {
-        bus.io[0x41] = (bus.io[0x41] & !0x03) | (mode & 0x03);
+    fn force_ppu_mode(bus: &mut Bus, mode: PpuMode) {
+        bus.ppu.mode = mode;
+        bus.ppu.mode_edge_events = PpuModeEdgeEvents::default();
+        bus.io[0x41] = (bus.io[0x41] & !0x03) | mode.stat_mode_bits();
+    }
+
+    fn set_ppu_mode(bus: &mut Bus, mode: PpuMode) -> PpuModeEdgeEvents {
+        if bus.ppu.mode == mode {
+            bus.io[0x41] = (bus.io[0x41] & !0x03) | mode.stat_mode_bits();
+            bus.ppu.mode_edge_events = PpuModeEdgeEvents::default();
+            return bus.ppu.mode_edge_events;
+        }
+
+        let edges = PpuModeEdgeEvents::for_entered_mode(mode);
+        bus.ppu.mode = mode;
+        bus.ppu.mode_edge_events = edges;
+        bus.io[0x41] = (bus.io[0x41] & !0x03) | mode.stat_mode_bits();
+        edges
     }
 
     fn update_lyc_flag(bus: &mut Bus) {
@@ -1320,12 +1390,13 @@ impl PpuState {
 
     pub(super) fn stat_irq_source_active(bus: &Bus) -> bool {
         let stat = bus.io[0x41];
-        let mode = stat & 0x03;
+        let mode = bus.ppu_mode_kind().stat_mode_bits();
         let lyc = (stat & 0x04) != 0;
+        let mode_edges = bus.ppu_mode_edge_events();
         // DMG quirk: if mode 2 interrupt is enabled, entering LY=144 also
         // raises STAT alongside VBlank.
-        let mode2_or_vblank_start = mode == STAT_MODE_OAM
-            || (mode == STAT_MODE_VBLANK && bus.io[0x44] == 144 && bus.ppu.ly_counter == 0);
+        let mode2_or_vblank_start =
+            mode == STAT_MODE_OAM || (mode == STAT_MODE_VBLANK && mode_edges.entered_vblank);
         let mode0_active = mode == STAT_MODE_HBLANK && Self::mode0_stat_source_active_now(bus);
         ((stat & 0x40) != 0 && lyc)
             || ((stat & 0x20) != 0 && mode2_or_vblank_start)
@@ -1365,6 +1436,10 @@ impl PpuState {
 }
 
 impl Bus {
+    pub(super) fn sync_ppu_mode_from_stat_register(&mut self) {
+        PpuState::force_ppu_mode(self, PpuMode::from_stat_mode_bits(self.io[0x41]));
+    }
+
     pub(super) fn ppu_blocks_oam_read(&self) -> bool {
         PpuState::ppu_blocks_oam_read(self)
     }
@@ -1407,6 +1482,24 @@ impl Bus {
 
     pub(super) fn stat_irq_source_active(&self) -> bool {
         PpuState::stat_irq_source_active(self)
+    }
+
+    pub(in crate::memory) fn ppu_mode_kind(&self) -> PpuMode {
+        self.ppu.mode
+    }
+
+    pub(in crate::memory) fn ppu_mode_edge_events(&self) -> PpuModeEdgeEvents {
+        self.ppu.mode_edge_events
+    }
+
+    #[cfg(test)]
+    pub(super) fn debug_ppu_mode_kind(&self) -> PpuMode {
+        self.ppu.mode
+    }
+
+    #[cfg(test)]
+    pub(super) fn debug_ppu_mode_edge_events(&self) -> PpuModeEdgeEvents {
+        self.ppu.mode_edge_events
     }
 
     #[cfg(test)]

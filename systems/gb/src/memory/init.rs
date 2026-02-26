@@ -29,6 +29,7 @@ impl Bus {
         };
         bus.apply_boot_defaults(model);
         bus.sync_apu_boot_state(model);
+        bus.sync_ppu_mode_from_stat_register();
         bus.ppu.stat_irq_line = bus.stat_irq_source_active();
         bus
     }

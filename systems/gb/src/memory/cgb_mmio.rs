@@ -36,6 +36,18 @@ impl CgbMmioState {
             CgbMmioRegister::Svbk => self.svbk_shadow = value & 0x07,
         }
     }
+
+    pub(in crate::memory) fn dmg_effective_vram_bank(&self) -> u8 {
+        let _future_vbk = self.vbk_shadow;
+        0
+    }
+
+    pub(in crate::memory) fn dmg_effective_wram_bank_slot(&self) -> u8 {
+        let _future_svbk = self.svbk_shadow;
+        // CGB semantics map SVBK=0 to bank 1 for the switchable D000-DFFF window.
+        // DMG has a fixed second 4 KiB region, so we keep the effective slot pinned to 1.
+        1
+    }
 }
 
 impl Bus {
@@ -61,6 +73,14 @@ impl Bus {
             self.cgb_mmio.key1_shadow,
             self.cgb_mmio.vbk_shadow,
             self.cgb_mmio.svbk_shadow,
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn debug_cgb_effective_bank_selection(&self) -> (u8, u8) {
+        (
+            self.cgb_mmio.dmg_effective_vram_bank(),
+            self.cgb_mmio.dmg_effective_wram_bank_slot(),
         )
     }
 }

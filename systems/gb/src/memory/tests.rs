@@ -1,5 +1,6 @@
 use super::bus_access::{AddressSegment, SegmentAccess, address_segment};
 use super::cgb_mmio::{CgbMmioRegister, cgb_mmio_register};
+use super::ppu::PpuMode;
 use super::test_utils::{make_test_bus, make_test_bus_with_model, tick_n};
 use super::*;
 use crate::hardware::HardwareModel;
@@ -75,6 +76,81 @@ fn wait_for_next_frame(bus: &mut Bus) {
         bus.tick(1);
     }
     panic!("Frame boundary not observed");
+}
+
+#[test]
+fn ppu_mode_edge_events_expose_mode_entries_and_vblank_irq_hook() {
+    let mut bus = make_test_bus();
+    let mut saw_oam = false;
+    let mut saw_transfer = false;
+    let mut saw_hblank = false;
+    let mut saw_vblank = false;
+
+    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 0));
+
+    for _ in 0..(154 * 456 * 3) {
+        bus.tick(1);
+        let mode = bus.debug_ppu_mode_kind();
+        let edges = bus.debug_ppu_mode_edge_events();
+
+        assert_eq!(
+            mode as u8,
+            bus.read_byte(0xFF41) & 0x03,
+            "formal PPU mode should stay in sync with STAT mode bits"
+        );
+
+        if edges.entered_oam {
+            assert_eq!(mode, PpuMode::Oam);
+            saw_oam = true;
+        }
+        if edges.entered_transfer {
+            assert_eq!(mode, PpuMode::Transfer);
+            saw_transfer = true;
+        }
+        if edges.entered_hblank {
+            assert_eq!(mode, PpuMode::HBlank);
+            saw_hblank = true;
+        }
+        if edges.entered_vblank {
+            assert_eq!(mode, PpuMode::VBlank);
+            assert_eq!(bus.read_byte(0xFF44), 144);
+            assert_ne!(
+                bus.interrupt_flags() & (1 << 0),
+                0,
+                "entered_vblank edge should coincide with VBlank IF request"
+            );
+            saw_vblank = true;
+        }
+
+        if saw_oam && saw_transfer && saw_hblank && saw_vblank {
+            return;
+        }
+    }
+
+    panic!(
+        "Did not observe all PPU mode entry edges (oam={saw_oam} transfer={saw_transfer} hblank={saw_hblank} vblank={saw_vblank})"
+    );
+}
+
+#[test]
+fn ppu_mode_edge_events_are_single_tick_pulses() {
+    let mut bus = make_test_bus();
+
+    for _ in 0..(154 * 456 * 2) {
+        bus.tick(1);
+        let edges = bus.debug_ppu_mode_edge_events();
+        if edges.entered_hblank {
+            bus.tick(1);
+            let next_edges = bus.debug_ppu_mode_edge_events();
+            assert!(
+                !next_edges.entered_hblank,
+                "HBlank entry edge should not remain latched beyond the entry tick"
+            );
+            return;
+        }
+    }
+
+    panic!("No HBlank edge observed while testing edge pulse behavior");
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,6 +246,27 @@ fn cgb_mmio_scaffold_registers_are_dmg_noops_but_capture_shadow_bits() {
         (0x01, 0x01, 0x06),
         "scaffolding should store masked future-relevant bits while remaining DMG-noop"
     );
+}
+
+#[test]
+fn cgb_mmio_bank_selection_scaffold_is_connected_but_dmg_fixed() {
+    let mut bus = make_test_bus();
+
+    assert_eq!(bus.debug_cgb_effective_bank_selection(), (0, 1));
+
+    bus.write_byte(0xFF4F, 0x01);
+    bus.write_byte(0xFF70, 0x07);
+
+    assert_eq!(
+        bus.debug_cgb_effective_bank_selection(),
+        (0, 1),
+        "DMG scope should keep effective VRAM/WRAM bank selection fixed even when VBK/SVBK shadows change"
+    );
+
+    bus.write_vram(0x8000, 0x5A, SegmentAccess::Hardware);
+    bus.write_wram(0xD000, 0xC3);
+    assert_eq!(bus.read_vram(0x8000, SegmentAccess::Hardware), 0x5A);
+    assert_eq!(bus.read_wram(0xD000), 0xC3);
 }
 
 #[test]
