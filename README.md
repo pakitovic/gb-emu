@@ -52,6 +52,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Web demo host now persists battery-backed cartridge data in browser storage (SRAM + MBC3 RTC metadata) with dirty-flag autosave debounce and page-lifecycle flush hooks.
 - Cartridge header diagnostics for Nintendo logo/header checksum/global checksum, exposed as non-blocking warnings in cartridge metadata.
 - Cartridge metadata debug report consumed by CLI (`--cart-info`) and frontends (SDL2 `F1` cart-info panel, web debug panel).
+- Cartridge core now exposes an internal `capabilities()` interface (mapper/ram/battery/timer/rumble/battery-save, compatibility-RAM mode, and normalized CGB header support from the cartridge header flag) so future model/header gating can query cartridge support without threading ad-hoc header checks through the bus.
 
 ### Audio Output Pipeline / Frontend Audio Integration
 - Shared `runtime/` host utilities for frontend frame pacing, realtime audio queueing, adaptive buffering, t-cycle-to-PCM mixer bridging (SDL2/Web), and file-backed cartridge persistence adapters.
@@ -215,6 +216,7 @@ Supported models for `--model`:
 - MBC3 RTC persistence currently uses a sidecar `.rtc` file; this is emulator-specific metadata and not a hardware cartridge dump format.
 - RTC clock source currently remains a core-local convenience (`SystemRtcClock`) for native hosts, while host/frontends can inject RTC epoch time for portability-sensitive targets (web) and future deterministic/libretro integrations.
 - Web demo battery persistence currently uses browser local storage (base64-encoded SRAM/RTC sidecar blobs keyed per ROM file/hash); browser quota/privacy/security settings can disable or evict stored data.
+- Cartridge capabilities now normalize the CGB header support flag (`0x0143`) into an internal interface, but current DMG scope does not use that capability to switch execution mode/model behavior yet (CGB enablement remains out of scope).
 
 ### Cartridge Header Diagnostics
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.

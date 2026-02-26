@@ -7,6 +7,7 @@ use super::dma::{
 use super::ppu::PpuMode;
 use super::test_utils::{make_test_bus, make_test_bus_with_model, tick_n};
 use super::*;
+use crate::cartridge::{Cartridge, CartridgeMapper};
 use crate::hardware::HardwareModel;
 use crate::input::Button;
 use crate::timing::DMG_CPU_T_CYCLES_PER_M_CYCLE;
@@ -446,6 +447,32 @@ fn cgb_mmio_scaffold_registers_are_dmg_noops_but_capture_shadow_bits() {
     assert_eq!(bus.debug_cgb_palette_shadow_byte(false, 0x03), 0x12);
     assert_eq!(bus.debug_cgb_palette_shadow_byte(false, 0x04), 0x34);
     assert_eq!(bus.debug_cgb_palette_shadow_byte(true, 0x02), 0x56);
+}
+
+#[test]
+fn bus_internal_cartridge_capabilities_api_surfaces_header_and_mapper_flags() {
+    let mut rom = vec![0; 64 * 1024];
+    rom[0x0147] = 0x1E; // MBC5 rumble+RAM+battery
+    rom[0x0148] = 0x01; // 64 KiB
+    rom[0x0149] = 0x03; // 32 KiB RAM
+    rom[0x0143] = 0x80;
+    let cartridge = Cartridge::from_bytes(rom).expect("valid cartridge should load");
+    let mut bus = Bus::new(cartridge);
+
+    let caps = bus.cartridge_capabilities();
+    assert_eq!(caps.mapper, CartridgeMapper::Mbc5);
+    assert!(caps.has_declared_ram);
+    assert!(caps.has_effective_ram);
+    assert!(caps.has_battery);
+    assert!(!caps.has_timer);
+    assert!(caps.has_rumble);
+    assert!(caps.has_battery_save);
+    assert!(caps.supports_cgb);
+    assert!(!caps.cgb_only);
+
+    bus.write_byte(0x4000, 0x08); // enable rumble bit on MBC5 rumble register
+    assert!(bus.rumble_active());
+    assert!(bus.cartridge_has_rumble());
 }
 
 #[test]
