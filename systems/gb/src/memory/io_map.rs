@@ -14,15 +14,3 @@ pub(super) fn io_unused_bits_mask(addr: u16) -> u8 {
         _ => 0x00,
     }
 }
-
-pub(super) fn is_unmapped_io(addr: u16) -> bool {
-    matches!(
-        addr,
-        0xFF03
-            | 0xFF08..=0xFF0E
-            | 0xFF15
-            | 0xFF1F
-            | 0xFF27..=0xFF2F
-            | 0xFF4C..=0xFF7F
-    )
-}

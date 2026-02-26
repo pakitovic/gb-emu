@@ -368,6 +368,10 @@ fn address_segment_classifies_main_bus_regions() {
 fn cgb_mmio_scaffold_decodes_key1_vbk_and_svbk_registers() {
     assert_eq!(cgb_mmio_register(0xFF4D), Some(CgbMmioRegister::Key1));
     assert_eq!(cgb_mmio_register(0xFF4F), Some(CgbMmioRegister::Vbk));
+    assert_eq!(cgb_mmio_register(0xFF68), Some(CgbMmioRegister::Bgpi));
+    assert_eq!(cgb_mmio_register(0xFF69), Some(CgbMmioRegister::Bgpd));
+    assert_eq!(cgb_mmio_register(0xFF6A), Some(CgbMmioRegister::Obpi));
+    assert_eq!(cgb_mmio_register(0xFF6B), Some(CgbMmioRegister::Obpd));
     assert_eq!(cgb_mmio_register(0xFF70), Some(CgbMmioRegister::Svbk));
     assert_eq!(cgb_mmio_register(0xFF4C), None);
     assert_eq!(cgb_mmio_register(0xFF50), None);
@@ -406,14 +410,27 @@ fn cgb_mmio_scaffold_registers_are_dmg_noops_but_capture_shadow_bits() {
     // DMG-visible behavior remains unmapped-like (0xFF) reads.
     assert_eq!(bus.read_byte(0xFF4D), 0xFF);
     assert_eq!(bus.read_byte(0xFF4F), 0xFF);
+    assert_eq!(bus.read_byte(0xFF68), 0xFF);
+    assert_eq!(bus.read_byte(0xFF69), 0xFF);
+    assert_eq!(bus.read_byte(0xFF6A), 0xFF);
+    assert_eq!(bus.read_byte(0xFF6B), 0xFF);
     assert_eq!(bus.read_byte(0xFF70), 0xFF);
 
     bus.write_byte(0xFF4D, 0x81);
     bus.write_byte(0xFF4F, 0xA3);
+    bus.write_byte(0xFF68, 0x83); // BGPI idx=3 auto-inc
+    bus.write_byte(0xFF69, 0x12); // BGPD[3]=0x12, idx->4
+    bus.write_byte(0xFF69, 0x34); // BGPD[4]=0x34, idx->5
+    bus.write_byte(0xFF6A, 0x02); // OBPI idx=2 no auto-inc
+    bus.write_byte(0xFF6B, 0x56); // OBPD[2]=0x56
     bus.write_byte(0xFF70, 0xFE);
 
     assert_eq!(bus.read_byte(0xFF4D), 0xFF);
     assert_eq!(bus.read_byte(0xFF4F), 0xFF);
+    assert_eq!(bus.read_byte(0xFF68), 0xFF);
+    assert_eq!(bus.read_byte(0xFF69), 0xFF);
+    assert_eq!(bus.read_byte(0xFF6A), 0xFF);
+    assert_eq!(bus.read_byte(0xFF6B), 0xFF);
     assert_eq!(bus.read_byte(0xFF70), 0xFF);
 
     assert_eq!(
@@ -421,6 +438,14 @@ fn cgb_mmio_scaffold_registers_are_dmg_noops_but_capture_shadow_bits() {
         (0x01, 0x01, 0x06),
         "scaffolding should store masked future-relevant bits while remaining DMG-noop"
     );
+    assert_eq!(
+        bus.debug_cgb_palette_index_shadows(),
+        (0x85, 0x02),
+        "palette index scaffolds should store masked index/autoincrement bits and advance BGPI on BGPD writes when auto-increment is set"
+    );
+    assert_eq!(bus.debug_cgb_palette_shadow_byte(false, 0x03), 0x12);
+    assert_eq!(bus.debug_cgb_palette_shadow_byte(false, 0x04), 0x34);
+    assert_eq!(bus.debug_cgb_palette_shadow_byte(true, 0x02), 0x56);
 }
 
 #[test]
