@@ -1,6 +1,9 @@
 use super::bus_access::{AddressSegment, SegmentAccess, address_segment};
 use super::cgb_mmio::{CgbMmioRegister, cgb_mmio_register};
-use super::dma::{DmaCpuAccessDecision, DmaCpuAccessKind, DmaSchedulerMode};
+use super::dma::{
+    CgbDmaMmioRegister, DmaCpuAccessDecision, DmaCpuAccessKind, DmaSchedulerMode,
+    cgb_dma_mmio_register,
+};
 use super::ppu::PpuMode;
 use super::test_utils::{make_test_bus, make_test_bus_with_model, tick_n};
 use super::*;
@@ -333,6 +336,32 @@ fn cgb_mmio_scaffold_decodes_key1_vbk_and_svbk_registers() {
 }
 
 #[test]
+fn cgb_dma_mmio_scaffold_decodes_hdma_registers() {
+    assert_eq!(
+        cgb_dma_mmio_register(0xFF51),
+        Some(CgbDmaMmioRegister::Hdma1)
+    );
+    assert_eq!(
+        cgb_dma_mmio_register(0xFF52),
+        Some(CgbDmaMmioRegister::Hdma2)
+    );
+    assert_eq!(
+        cgb_dma_mmio_register(0xFF53),
+        Some(CgbDmaMmioRegister::Hdma3)
+    );
+    assert_eq!(
+        cgb_dma_mmio_register(0xFF54),
+        Some(CgbDmaMmioRegister::Hdma4)
+    );
+    assert_eq!(
+        cgb_dma_mmio_register(0xFF55),
+        Some(CgbDmaMmioRegister::Hdma5)
+    );
+    assert_eq!(cgb_dma_mmio_register(0xFF50), None);
+    assert_eq!(cgb_dma_mmio_register(0xFF56), None);
+}
+
+#[test]
 fn cgb_mmio_scaffold_registers_are_dmg_noops_but_capture_shadow_bits() {
     let mut bus = make_test_bus();
 
@@ -354,6 +383,55 @@ fn cgb_mmio_scaffold_registers_are_dmg_noops_but_capture_shadow_bits() {
         (0x01, 0x01, 0x06),
         "scaffolding should store masked future-relevant bits while remaining DMG-noop"
     );
+}
+
+#[test]
+fn cgb_dma_mmio_scaffold_registers_are_dmg_noops_but_capture_shadow_bits_and_request_mode() {
+    let mut bus = make_test_bus();
+
+    assert_eq!(bus.read_byte(0xFF51), 0xFF);
+    assert_eq!(bus.read_byte(0xFF52), 0xFF);
+    assert_eq!(bus.read_byte(0xFF53), 0xFF);
+    assert_eq!(bus.read_byte(0xFF54), 0xFF);
+    assert_eq!(bus.read_byte(0xFF55), 0xFF);
+
+    bus.write_byte(0xFF51, 0xAB);
+    bus.write_byte(0xFF52, 0xCD);
+    bus.write_byte(0xFF53, 0xEF);
+    bus.write_byte(0xFF54, 0x12);
+    bus.write_byte(0xFF55, 0x83); // HDMA mode request scaffold
+
+    assert_eq!(bus.read_byte(0xFF51), 0xFF);
+    assert_eq!(bus.read_byte(0xFF52), 0xFF);
+    assert_eq!(bus.read_byte(0xFF53), 0xFF);
+    assert_eq!(bus.read_byte(0xFF54), 0xFF);
+    assert_eq!(bus.read_byte(0xFF55), 0xFF);
+    assert_eq!(
+        bus.debug_cgb_dma_scaffold_shadows(),
+        (0xAB, 0xC0, 0x0F, 0x10, 0x83),
+        "HDMA scaffold should capture masked future-relevant fields while remaining DMG-noop"
+    );
+    assert_eq!(
+        bus.debug_cgb_dma_scaffold_last_requested_mode(),
+        Some(DmaSchedulerMode::Hdma)
+    );
+    assert_eq!(
+        bus.debug_dma_mode_kind(),
+        DmaSchedulerMode::Idle,
+        "DMG scope should not enter CGB DMA scheduler modes when HDMA registers are written"
+    );
+    assert_eq!(
+        bus.debug_dma_mode_edge_events(),
+        Default::default(),
+        "HDMA scaffold writes should not emit DMA scheduler mode edges in DMG scope"
+    );
+
+    bus.write_byte(0xFF55, 0x04); // GDMA mode request scaffold
+    assert_eq!(
+        bus.debug_cgb_dma_scaffold_last_requested_mode(),
+        Some(DmaSchedulerMode::Gdma)
+    );
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Idle);
 }
 
 #[test]
