@@ -68,7 +68,8 @@ mod tests {
     #[test]
     fn cgb_scaffold_registers_are_not_classified_as_reserved_unmapped() {
         for addr in [
-            0xFF4D, 0xFF4F, 0xFF51, 0xFF52, 0xFF53, 0xFF54, 0xFF55, 0xFF70,
+            0xFF4D, 0xFF4F, 0xFF51, 0xFF52, 0xFF53, 0xFF54, 0xFF55, 0xFF68, 0xFF69, 0xFF6A, 0xFF6B,
+            0xFF70,
         ] {
             let route = decode_io_register(addr);
             assert!(
