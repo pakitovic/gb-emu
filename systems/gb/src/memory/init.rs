@@ -28,6 +28,7 @@ impl Bus {
             clock_ratios: ClockRatios::dmg(),
             cgb_mmio: Default::default(),
         };
+        bus.configure_dma_model_gates(model);
         bus.apply_boot_defaults(model);
         bus.sync_apu_boot_state(model);
         bus.sync_ppu_mode_from_stat_register();

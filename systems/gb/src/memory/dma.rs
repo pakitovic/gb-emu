@@ -1,5 +1,6 @@
 use super::Bus;
-use super::bus_access::AddressSegment;
+use super::bus_access::{AddressSegment, SegmentAccess};
+use crate::hardware::HardwareModel;
 
 const OAM_DMA_START_DELAY_T_CYCLES: u8 = 8;
 const OAM_DMA_BYTE_PERIOD_T_CYCLES: u8 = 4;
@@ -54,12 +55,17 @@ pub(in crate::memory) enum CgbDmaMmioRegister {
 
 #[derive(Default)]
 struct CgbDmaScaffoldState {
+    runtime_enabled: bool,
     hdma1_shadow: u8,
     hdma2_shadow: u8,
     hdma3_shadow: u8,
     hdma4_shadow: u8,
     hdma5_shadow: u8,
     last_requested_mode: Option<DmaSchedulerMode>,
+    pending_request_mode: Option<DmaSchedulerMode>,
+    transfer_source: u16,
+    transfer_dest: u16,
+    transfer_blocks_remaining: u8,
 }
 
 #[derive(Default)]
@@ -92,6 +98,10 @@ pub(in crate::memory) fn cgb_dma_mmio_register(addr: u16) -> Option<CgbDmaMmioRe
 }
 
 impl DmaState {
+    pub(super) fn configure_model_gates(bus: &mut Bus, model: HardwareModel) {
+        bus.dma.cgb_scaffold.runtime_enabled = Self::model_supports_cgb_dma(model);
+    }
+
     pub(super) fn write_register(bus: &mut Bus, source_high: u8) {
         bus.io[0x46] = source_high;
         Self::request_oam_transfer(bus, source_high);
@@ -160,6 +170,8 @@ impl DmaState {
             // transfer takes over on the following scheduler tick.
             Self::start_or_restart_oam_transfer(bus);
         }
+
+        Self::start_pending_cgb_dma_transfer(bus);
     }
 
     fn record_cgb_dma_scaffold_write(bus: &mut Bus, reg: CgbDmaMmioRegister, value: u8) {
@@ -171,10 +183,46 @@ impl DmaState {
             CgbDmaMmioRegister::Hdma4 => bus.dma.cgb_scaffold.hdma4_shadow = value & 0xF0,
             CgbDmaMmioRegister::Hdma5 => {
                 bus.dma.cgb_scaffold.hdma5_shadow = value;
-                bus.dma.cgb_scaffold.last_requested_mode =
-                    Some(Self::cgb_scheduler_mode_from_hdma5(value));
+                let requested_mode = Self::cgb_scheduler_mode_from_hdma5(value);
+                bus.dma.cgb_scaffold.last_requested_mode = Some(requested_mode);
+                Self::handle_hdma5_transfer_request_scaffold(bus, value, requested_mode);
             }
         }
+    }
+
+    fn handle_hdma5_transfer_request_scaffold(
+        bus: &mut Bus,
+        value: u8,
+        requested_mode: DmaSchedulerMode,
+    ) {
+        if !bus.dma.cgb_scaffold.runtime_enabled {
+            return;
+        }
+
+        if matches!(bus.dma.mode, DmaSchedulerMode::Hdma)
+            && matches!(requested_mode, DmaSchedulerMode::Gdma)
+        {
+            // CGB: writing HDMA5 with bit7=0 while HBlank DMA is active requests stop.
+            Self::stop_active_hdma_scaffold(bus);
+            return;
+        }
+
+        if matches!(
+            bus.dma.mode,
+            DmaSchedulerMode::Gdma | DmaSchedulerMode::Hdma
+        ) {
+            // Keep the decode/shadow side effects but avoid restart semantics until
+            // CGB mode support is implemented for real.
+            return;
+        }
+
+        let (source, dest, blocks_remaining) =
+            Self::cgb_transfer_params_from_hdma_shadows(bus, value);
+        bus.dma.cgb_scaffold.transfer_source = source;
+        bus.dma.cgb_scaffold.transfer_dest = dest;
+        bus.dma.cgb_scaffold.transfer_blocks_remaining = blocks_remaining;
+        bus.dma.cgb_scaffold.pending_request_mode = Some(requested_mode);
+        Self::update_hdma5_status_shadow(bus);
     }
 
     fn cgb_scheduler_mode_from_hdma5(value: u8) -> DmaSchedulerMode {
@@ -183,6 +231,23 @@ impl DmaState {
         } else {
             DmaSchedulerMode::Gdma
         }
+    }
+
+    fn cgb_transfer_params_from_hdma_shadows(bus: &Bus, hdma5_value: u8) -> (u16, u16, u8) {
+        let source = (((bus.dma.cgb_scaffold.hdma1_shadow as u16) << 8)
+            | (bus.dma.cgb_scaffold.hdma2_shadow as u16))
+            & 0xFFF0;
+        let dest = 0x8000
+            | ((((bus.dma.cgb_scaffold.hdma3_shadow as u16) & 0x1F) << 8)
+                | (bus.dma.cgb_scaffold.hdma4_shadow as u16))
+                & 0x1FF0;
+        let blocks_remaining = (hdma5_value & 0x7F).wrapping_add(1);
+        (source, dest, blocks_remaining)
+    }
+
+    fn model_supports_cgb_dma(_model: HardwareModel) -> bool {
+        // Current project scope exposes only DMG-family models.
+        false
     }
 
     fn request_oam_transfer(bus: &mut Bus, source_high: u8) {
@@ -232,9 +297,63 @@ impl DmaState {
                     Self::set_mode(bus, DmaSchedulerMode::Idle);
                 }
             }
-            // Future CGB-only DMA modes (decode/state scaffold exists, no behavior yet in DMG scope).
-            DmaSchedulerMode::Gdma | DmaSchedulerMode::Hdma => {}
+            DmaSchedulerMode::Gdma => Self::step_gdma_transfer_scaffold(bus),
+            DmaSchedulerMode::Hdma => Self::step_hdma_transfer_scaffold(bus),
         }
+    }
+
+    fn step_gdma_transfer_scaffold(bus: &mut Bus) {
+        if !bus.dma.cgb_scaffold.runtime_enabled {
+            return;
+        }
+
+        if !Self::cgb_dma_transfer_one_block_scaffold(bus) {
+            Self::set_mode(bus, DmaSchedulerMode::Idle);
+            Self::update_hdma5_status_shadow(bus);
+        }
+    }
+
+    fn step_hdma_transfer_scaffold(bus: &mut Bus) {
+        if !bus.dma.cgb_scaffold.runtime_enabled {
+            return;
+        }
+
+        if !bus.ppu_mode_edge_events().entered_hblank {
+            return;
+        }
+
+        if !Self::cgb_dma_transfer_one_block_scaffold(bus) {
+            Self::set_mode(bus, DmaSchedulerMode::Idle);
+            Self::update_hdma5_status_shadow(bus);
+        }
+    }
+
+    fn cgb_dma_transfer_one_block_scaffold(bus: &mut Bus) -> bool {
+        if bus.dma.cgb_scaffold.transfer_blocks_remaining == 0 {
+            return false;
+        }
+
+        for _ in 0..0x10 {
+            let src = bus.dma.cgb_scaffold.transfer_source;
+            let dst = bus.dma.cgb_scaffold.transfer_dest;
+            let value = bus.read_byte_raw(src);
+            bus.write_vram(dst, value, SegmentAccess::Hardware);
+            bus.dma.cgb_scaffold.transfer_source = src.wrapping_add(1);
+            bus.dma.cgb_scaffold.transfer_dest = Self::cgb_dma_next_vram_dest_addr(dst);
+        }
+
+        bus.dma.cgb_scaffold.transfer_blocks_remaining = bus
+            .dma
+            .cgb_scaffold
+            .transfer_blocks_remaining
+            .saturating_sub(1);
+        Self::update_hdma5_status_shadow(bus);
+        bus.dma.cgb_scaffold.transfer_blocks_remaining > 0
+    }
+
+    fn cgb_dma_next_vram_dest_addr(addr: u16) -> u16 {
+        let offset = (addr.wrapping_sub(0x8000).wrapping_add(1)) & 0x1FFF;
+        0x8000 | offset
     }
 
     fn start_or_restart_oam_transfer(bus: &mut Bus) {
@@ -247,6 +366,54 @@ impl DmaState {
         bus.dma.oam.byte_phase_tcycles = 0;
         bus.dma.oam.index = 0;
         Self::set_mode(bus, DmaSchedulerMode::Oam);
+    }
+
+    fn start_pending_cgb_dma_transfer(bus: &mut Bus) {
+        if !bus.dma.cgb_scaffold.runtime_enabled {
+            return;
+        }
+        if !matches!(bus.dma.mode, DmaSchedulerMode::Idle) {
+            return;
+        }
+
+        let Some(mode) = bus.dma.cgb_scaffold.pending_request_mode.take() else {
+            return;
+        };
+        debug_assert!(matches!(
+            mode,
+            DmaSchedulerMode::Gdma | DmaSchedulerMode::Hdma
+        ));
+        if bus.dma.cgb_scaffold.transfer_blocks_remaining == 0 {
+            Self::update_hdma5_status_shadow(bus);
+            return;
+        }
+
+        Self::set_mode(bus, mode);
+        Self::update_hdma5_status_shadow(bus);
+    }
+
+    fn stop_active_hdma_scaffold(bus: &mut Bus) {
+        debug_assert!(matches!(bus.dma.mode, DmaSchedulerMode::Hdma));
+        bus.dma.cgb_scaffold.pending_request_mode = None;
+        Self::set_mode(bus, DmaSchedulerMode::Idle);
+        Self::update_hdma5_status_shadow(bus);
+    }
+
+    fn update_hdma5_status_shadow(bus: &mut Bus) {
+        let low = bus
+            .dma
+            .cgb_scaffold
+            .transfer_blocks_remaining
+            .saturating_sub(1)
+            & 0x7F;
+        let active = matches!(
+            bus.dma.mode,
+            DmaSchedulerMode::Gdma | DmaSchedulerMode::Hdma
+        ) || matches!(
+            bus.dma.cgb_scaffold.pending_request_mode,
+            Some(DmaSchedulerMode::Gdma | DmaSchedulerMode::Hdma)
+        );
+        bus.dma.cgb_scaffold.hdma5_shadow = if active { low } else { 0x80 | low };
     }
 
     fn reset_mode_edge_events(bus: &mut Bus) {
@@ -282,6 +449,10 @@ impl Bus {
 
     pub(super) fn tick_dma_scheduler(&mut self, tcycles: u8) {
         DmaState::tick(self, tcycles);
+    }
+
+    pub(super) fn configure_dma_model_gates(&mut self, model: HardwareModel) {
+        DmaState::configure_model_gates(self, model);
     }
 
     pub(super) fn read_cgb_dma_mmio_scaffold(&self, addr: u16) -> Option<u8> {
@@ -333,5 +504,24 @@ impl Bus {
     #[cfg(test)]
     pub(super) fn debug_cgb_dma_scaffold_last_requested_mode(&self) -> Option<DmaSchedulerMode> {
         self.dma.cgb_scaffold.last_requested_mode
+    }
+
+    #[cfg(test)]
+    pub(super) fn debug_force_enable_cgb_dma_scaffold_runtime(&mut self, enabled: bool) {
+        self.dma.cgb_scaffold.runtime_enabled = enabled;
+    }
+
+    #[cfg(test)]
+    pub(super) fn debug_cgb_dma_scaffold_runtime_enabled(&self) -> bool {
+        self.dma.cgb_scaffold.runtime_enabled
+    }
+
+    #[cfg(test)]
+    pub(super) fn debug_cgb_dma_transfer_scaffold_state(&self) -> (u16, u16, u8) {
+        (
+            self.dma.cgb_scaffold.transfer_source,
+            self.dma.cgb_scaffold.transfer_dest,
+            self.dma.cgb_scaffold.transfer_blocks_remaining,
+        )
     }
 }

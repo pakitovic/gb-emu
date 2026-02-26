@@ -435,6 +435,152 @@ fn cgb_dma_mmio_scaffold_registers_are_dmg_noops_but_capture_shadow_bits_and_req
 }
 
 #[test]
+fn cgb_dma_scaffold_runtime_is_model_gated_off_for_current_dmg_family_models() {
+    for model in [
+        HardwareModel::Dmg0,
+        HardwareModel::Dmg,
+        HardwareModel::Mgb,
+        HardwareModel::Sgb,
+        HardwareModel::Sgb2,
+    ] {
+        let bus = make_test_bus_with_model(model);
+        assert!(
+            !bus.debug_cgb_dma_scaffold_runtime_enabled(),
+            "CGB DMA runtime scaffold must stay gated off for current DMG-family model {model:?}"
+        );
+    }
+}
+
+#[test]
+fn cgb_dma_gdma_scaffold_can_transfer_one_block_when_runtime_is_test_enabled() {
+    let mut bus = make_test_bus();
+    bus.debug_force_enable_cgb_dma_scaffold_runtime(true);
+
+    for i in 0..0x20u16 {
+        bus.write_wram(0xC000 + i, (i as u8).wrapping_mul(7).wrapping_add(3));
+    }
+
+    bus.write_byte(0xFF51, 0xC0);
+    bus.write_byte(0xFF52, 0x0F); // low nibble masked, source aligns to C000
+    bus.write_byte(0xFF53, 0x00);
+    bus.write_byte(0xFF54, 0x00);
+    bus.write_byte(0xFF55, 0x00); // GDMA, 1 block (0x10 bytes)
+
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Idle);
+    assert_eq!(
+        bus.debug_cgb_dma_scaffold_last_requested_mode(),
+        Some(DmaSchedulerMode::Gdma)
+    );
+    assert_eq!(
+        bus.debug_cgb_dma_transfer_scaffold_state(),
+        (0xC000, 0x8000, 1)
+    );
+
+    bus.tick(1);
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Gdma);
+    assert!(bus.debug_dma_mode_edge_events().entered_gdma);
+
+    bus.tick(1);
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Idle);
+    assert!(bus.debug_dma_mode_edge_events().exited_gdma);
+    assert_eq!(
+        bus.debug_cgb_dma_transfer_scaffold_state(),
+        (0xC010, 0x8010, 0)
+    );
+
+    for i in 0..0x10u16 {
+        assert_eq!(
+            bus.read_vram(0x8000 + i, SegmentAccess::Hardware),
+            ((i as u8).wrapping_mul(7)).wrapping_add(3),
+            "GDMA scaffold should copy the first 0x10-byte block into VRAM"
+        );
+    }
+    assert_eq!(
+        bus.read_vram(0x8010, SegmentAccess::Hardware),
+        0x00,
+        "GDMA scaffold with length=0 should stop after one block"
+    );
+}
+
+#[test]
+fn cgb_dma_hdma_scaffold_uses_hblank_edges_and_stop_request_when_runtime_is_test_enabled() {
+    let mut bus = make_test_bus();
+    bus.debug_force_enable_cgb_dma_scaffold_runtime(true);
+
+    for i in 0..0x20u16 {
+        bus.write_wram(0xC000 + i, 0x80u8.wrapping_add(i as u8));
+    }
+
+    bus.write_byte(0xFF51, 0xC0);
+    bus.write_byte(0xFF52, 0x00);
+    bus.write_byte(0xFF53, 0x00);
+    bus.write_byte(0xFF54, 0x20); // dest 0x8020
+    bus.write_byte(0xFF55, 0x81); // HDMA, 2 blocks
+
+    bus.tick(1); // scheduler latches pending request into active HDMA mode
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Hdma);
+    assert!(bus.debug_dma_mode_edge_events().entered_hdma);
+    assert_eq!(
+        bus.read_vram(0x8020, SegmentAccess::Hardware),
+        0x00,
+        "HDMA scaffold should wait for an HBlank entry edge before copying a block"
+    );
+
+    let mut saw_hblank_transfer = false;
+    for _ in 0..(154 * 456 * 2) {
+        bus.tick(1);
+        if bus.debug_ppu_mode_edge_events().entered_hblank {
+            saw_hblank_transfer = true;
+            break;
+        }
+    }
+    assert!(
+        saw_hblank_transfer,
+        "Expected an HBlank edge for HDMA scaffold test"
+    );
+
+    for i in 0..0x10u16 {
+        assert_eq!(
+            bus.read_vram(0x8020 + i, SegmentAccess::Hardware),
+            0x80u8.wrapping_add(i as u8),
+            "HDMA scaffold should copy exactly one block on each HBlank edge"
+        );
+    }
+    assert_eq!(
+        bus.read_vram(0x8030, SegmentAccess::Hardware),
+        0x00,
+        "Second HDMA block should not copy until a later HBlank edge"
+    );
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Hdma);
+    assert_eq!(
+        bus.debug_cgb_dma_transfer_scaffold_state(),
+        (0xC010, 0x8030, 1)
+    );
+
+    bus.write_byte(0xFF55, 0x00); // stop active HDMA (CGB behavior scaffolded, DMG public behavior unaffected)
+    assert_eq!(bus.debug_dma_mode_kind(), DmaSchedulerMode::Idle);
+
+    let before_second_block = bus.read_vram(0x8030, SegmentAccess::Hardware);
+    let mut saw_next_hblank = false;
+    for _ in 0..(154 * 456 * 2) {
+        bus.tick(1);
+        if bus.debug_ppu_mode_edge_events().entered_hblank {
+            saw_next_hblank = true;
+            break;
+        }
+    }
+    assert!(
+        saw_next_hblank,
+        "Expected another HBlank edge after HDMA stop"
+    );
+    assert_eq!(
+        bus.read_vram(0x8030, SegmentAccess::Hardware),
+        before_second_block,
+        "Stopping the HDMA scaffold should prevent later HBlank edges from copying more blocks"
+    );
+}
+
+#[test]
 fn cgb_mmio_bank_selection_scaffold_is_connected_but_dmg_fixed() {
     let mut bus = make_test_bus();
 
