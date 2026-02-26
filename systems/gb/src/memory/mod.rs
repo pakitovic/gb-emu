@@ -11,6 +11,7 @@ mod io_map;
 mod io_router;
 mod joypad;
 mod map;
+#[path = "../ppu.rs"]
 mod ppu;
 mod scheduler;
 mod serial;

@@ -4,7 +4,6 @@ use super::dma::{
     CgbDmaMmioRegister, DmaCpuAccessDecision, DmaCpuAccessKind, DmaSchedulerMode,
     cgb_dma_mmio_register,
 };
-use super::ppu::PpuMode;
 use super::test_utils::{make_test_bus, make_test_bus_with_model, tick_n};
 use super::*;
 use crate::cartridge::{Cartridge, CartridgeMapper};
@@ -81,81 +80,6 @@ fn wait_for_next_frame(bus: &mut Bus) {
         bus.tick(1);
     }
     panic!("Frame boundary not observed");
-}
-
-#[test]
-fn ppu_mode_edge_events_expose_mode_entries_and_vblank_irq_hook() {
-    let mut bus = make_test_bus();
-    let mut saw_oam = false;
-    let mut saw_transfer = false;
-    let mut saw_hblank = false;
-    let mut saw_vblank = false;
-
-    bus.set_interrupt_flags(bus.interrupt_flags() & !(1 << 0));
-
-    for _ in 0..(154 * 456 * 3) {
-        bus.tick(1);
-        let mode = bus.debug_ppu_mode_kind();
-        let edges = bus.debug_ppu_mode_edge_events();
-
-        assert_eq!(
-            mode as u8,
-            bus.read_byte(0xFF41) & 0x03,
-            "formal PPU mode should stay in sync with STAT mode bits"
-        );
-
-        if edges.entered_oam {
-            assert_eq!(mode, PpuMode::Oam);
-            saw_oam = true;
-        }
-        if edges.entered_transfer {
-            assert_eq!(mode, PpuMode::Transfer);
-            saw_transfer = true;
-        }
-        if edges.entered_hblank {
-            assert_eq!(mode, PpuMode::HBlank);
-            saw_hblank = true;
-        }
-        if edges.entered_vblank {
-            assert_eq!(mode, PpuMode::VBlank);
-            assert_eq!(bus.read_byte(0xFF44), 144);
-            assert_ne!(
-                bus.interrupt_flags() & (1 << 0),
-                0,
-                "entered_vblank edge should coincide with VBlank IF request"
-            );
-            saw_vblank = true;
-        }
-
-        if saw_oam && saw_transfer && saw_hblank && saw_vblank {
-            return;
-        }
-    }
-
-    panic!(
-        "Did not observe all PPU mode entry edges (oam={saw_oam} transfer={saw_transfer} hblank={saw_hblank} vblank={saw_vblank})"
-    );
-}
-
-#[test]
-fn ppu_mode_edge_events_are_single_tick_pulses() {
-    let mut bus = make_test_bus();
-
-    for _ in 0..(154 * 456 * 2) {
-        bus.tick(1);
-        let edges = bus.debug_ppu_mode_edge_events();
-        if edges.entered_hblank {
-            bus.tick(1);
-            let next_edges = bus.debug_ppu_mode_edge_events();
-            assert!(
-                !next_edges.entered_hblank,
-                "HBlank entry edge should not remain latched beyond the entry tick"
-            );
-            return;
-        }
-    }
-
-    panic!("No HBlank edge observed while testing edge pulse behavior");
 }
 
 #[test]
@@ -625,23 +549,6 @@ fn cgb_dma_gdma_scaffold_can_transfer_one_block_when_runtime_is_test_enabled() {
 }
 
 #[test]
-fn ppu_cgb_scaffold_runtime_is_model_gated_off_for_current_dmg_family_models() {
-    for model in [
-        HardwareModel::Dmg0,
-        HardwareModel::Dmg,
-        HardwareModel::Mgb,
-        HardwareModel::Sgb,
-        HardwareModel::Sgb2,
-    ] {
-        let bus = make_test_bus_with_model(model);
-        assert!(
-            !bus.debug_ppu_cgb_scaffold_runtime_enabled(),
-            "PPU CGB scaffold runtime must stay gated off for current DMG-family model {model:?}"
-        );
-    }
-}
-
-#[test]
 fn cgb_dma_hdma_scaffold_uses_hblank_edges_and_stop_request_when_runtime_is_test_enabled() {
     let mut bus = make_test_bus();
     bus.debug_force_enable_cgb_dma_scaffold_runtime(true);
@@ -823,138 +730,6 @@ fn oam_segment_helpers_centralize_cpu_blocking_and_internal_access() {
 
     bus.write_oam(0xFE00, 0x34, SegmentAccess::Hardware);
     assert_eq!(bus.read_oam(0xFE00, SegmentAccess::Hardware), 0x34);
-}
-
-#[test]
-fn mode3_pixel_metadata_mixer_keeps_dmg_priority_and_palette_selection() {
-    let mut bus = make_test_bus();
-    bus.write_byte(0xFF47, 0b11_10_01_00); // BGP: c0->0, c1->1, c2->2, c3->3
-    bus.write_byte(0xFF48, 0b00_11_10_01); // OBP0 distinct mapping
-    bus.write_byte(0xFF49, 0b01_00_11_10); // OBP1 distinct mapping
-
-    let (source_obj, color_id, palette_code, obj_behind_bg, bg_nonzero, shade_id) =
-        bus.debug_compose_mode3_pixel_metadata_and_shade(0x93, 2, 1, 0x00);
-    assert_eq!(
-        source_obj, 1,
-        "OBJ should win when not hidden by BG priority"
-    );
-    assert_eq!(color_id, 1);
-    assert_eq!(palette_code, 2, "OBJ palette select should choose OBP0");
-    assert!(!obj_behind_bg);
-    assert!(bg_nonzero);
-    assert_eq!(
-        shade_id, 2,
-        "OBP0 color1 should map through final DMG color step"
-    );
-
-    let (source_obj, color_id, palette_code, obj_behind_bg, bg_nonzero, shade_id) =
-        bus.debug_compose_mode3_pixel_metadata_and_shade(0x93, 2, 1, 0x80);
-    assert_eq!(
-        source_obj, 0,
-        "BG should win when OBJ is behind non-zero BG"
-    );
-    assert_eq!(color_id, 2);
-    assert_eq!(palette_code, 1, "BG path should select BGP");
-    assert!(obj_behind_bg);
-    assert!(bg_nonzero);
-    assert_eq!(
-        shade_id, 2,
-        "BGP color2 should map through final DMG color step"
-    );
-}
-
-#[test]
-fn mode3_pixel_metadata_forces_white_backdrop_when_bg_is_disabled() {
-    let mut bus = make_test_bus();
-    bus.write_byte(0xFF47, 0b00_00_00_11); // Would make color0 non-white if BGP were used.
-
-    let (source_obj, color_id, palette_code, obj_behind_bg, bg_nonzero, shade_id) =
-        bus.debug_compose_mode3_pixel_metadata_and_shade(0x92, 3, 0, 0x00);
-
-    assert_eq!(
-        source_obj, 0,
-        "Transparent OBJ should leave BG/backdrop path selected"
-    );
-    assert_eq!(
-        color_id, 0,
-        "DMG BG-disabled path should force backdrop color id 0"
-    );
-    assert_eq!(
-        palette_code, 0,
-        "BG-disabled path should bypass BGP and use forced-white DMG mapping"
-    );
-    assert!(!obj_behind_bg);
-    assert!(!bg_nonzero);
-    assert_eq!(
-        shade_id, 0,
-        "BG-disabled backdrop should remain white regardless of BGP"
-    );
-}
-
-#[test]
-fn mode3_bg_tile_attr_scaffold_reads_vram_bank1_tilemap_metadata_without_changing_dmg_path() {
-    let mut bus = make_test_bus();
-    bus.debug_force_enable_ppu_cgb_scaffold_runtime(true);
-    let lcdc = 0x91; // BG on, BG map 0x9800
-
-    // BG tilemap entry for screen (0,0) lives at VRAM map offset 0x1800.
-    bus.write_vram_bank_index_internal(0, 0x1800, 0x2A);
-    bus.write_vram_bank_index_internal(1, 0x1800, 0b1110_1010);
-
-    let (palette_index, vram_bank, x_flip, y_flip, bg_priority) =
-        bus.debug_mode3_bg_tile_attrs_scaffold_for_screen_x(lcdc, 0, 0);
-    assert_eq!(palette_index, 0b010);
-    assert_eq!(vram_bank, 1);
-    assert!(x_flip);
-    assert!(y_flip);
-    assert!(bg_priority);
-
-    // DMG fetch path still uses bank 0 tile index and DMG color rules.
-    let (palette_index, vram_bank, x_flip, bg_priority, obj_palette, obj_vram_bank, shade_id) =
-        bus.debug_compose_mode3_pixel_cgb_scaffold_and_shade(lcdc, 1, 0b1110_1010, 0, 0);
-    assert_eq!(palette_index, 0b010);
-    assert_eq!(vram_bank, 1);
-    assert!(x_flip);
-    assert!(bg_priority);
-    assert_eq!(obj_palette, 0);
-    assert_eq!(obj_vram_bank, 0);
-    assert_eq!(
-        shade_id, 3,
-        "DMG final shade should still come from BGP mapping only"
-    );
-}
-
-#[test]
-fn mode3_pixel_metadata_carries_cgb_obj_palette_scaffold_without_affecting_dmg_obj_palette_choice()
-{
-    let mut bus = make_test_bus();
-    bus.write_byte(0xFF48, 0b00_11_10_01); // OBP0
-    let lcdc = 0x93;
-
-    let (
-        bg_palette_index,
-        bg_vram_bank,
-        _x_flip,
-        _bg_priority,
-        obj_palette,
-        obj_vram_bank,
-        shade_id,
-    ) = bus.debug_compose_mode3_pixel_cgb_scaffold_and_shade(
-        lcdc,
-        2,
-        0b1000_0101, // BG attrs scaffold only
-        1,
-        0b0000_1011, // OBJ attrs: cgb palette=3, vram_bank=1, DMG OBP0
-    );
-
-    assert_eq!(bg_palette_index, 0b101);
-    assert_eq!(bg_vram_bank, 0);
-    assert_eq!(obj_palette, 0b011);
-    assert_eq!(obj_vram_bank, 1);
-    assert_eq!(
-        shade_id, 2,
-        "DMG final shade must remain driven by OBP0/OBP1 selection, not CGB scaffold palette bits"
-    );
 }
 
 #[test]

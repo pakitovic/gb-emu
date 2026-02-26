@@ -91,6 +91,8 @@ systems/
       gameboy.rs
       hardware.rs
       memory/
+      ppu.rs
+      ppu/
       timing.rs
       lib.rs
     tests/
