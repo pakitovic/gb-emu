@@ -2,7 +2,6 @@ use super::Bus;
 use crate::hardware::HardwareModel;
 
 #[cfg(test)]
-#[path = "ppu/tests.rs"]
 mod tests;
 
 const STAT_MODE_HBLANK: u8 = 0;
@@ -21,21 +20,13 @@ const MODE3_WINDOW_RESTART_DOTS: u16 = BG_FETCH_TILE_DOTS as u16;
 const OBJ_FETCH_BASE_DOTS: u8 = 6;
 const OBJ_SESSION_SHUTDOWN_PENALTY: [u8; 8] = [3, 2, 3, 2, 3, 2, 2, 2];
 
-#[path = "ppu/bus.rs"]
 mod bus;
-#[path = "ppu/host.rs"]
 mod host;
-#[path = "ppu/mmio.rs"]
 mod mmio;
-#[path = "ppu/mode3.rs"]
 mod mode3;
-#[path = "ppu/modes.rs"]
 mod modes;
-#[path = "ppu/render.rs"]
 mod render;
-#[path = "ppu/state.rs"]
 mod state;
-#[path = "ppu/step.rs"]
 mod step;
 
 pub(in crate::memory) use modes::{PpuMode, PpuModeEdgeEvents};
