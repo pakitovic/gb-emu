@@ -55,6 +55,11 @@ impl ObjCandidate {
 }
 
 #[derive(Clone, Copy, Default)]
+struct BgFifoPixel {
+    color_id: u8,
+}
+
+#[derive(Clone, Copy, Default)]
 struct ObjFifoPixel {
     color_id: u8,
     attr: u8,
@@ -65,6 +70,34 @@ impl ObjFifoPixel {
         color_id: 0,
         attr: 0,
     };
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode3PixelSource {
+    Bg,
+    Obj,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Mode3PixelPriorityFlags {
+    obj_behind_bg: bool,
+    bg_color_nonzero: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DmgPaletteSelector {
+    ForcedWhite,
+    Bg,
+    Obj0,
+    Obj1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Mode3PixelMeta {
+    color_id: u8,
+    source: Mode3PixelSource,
+    priority_flags: Mode3PixelPriorityFlags,
+    dmg_palette: DmgPaletteSelector,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -99,7 +132,7 @@ struct Mode3FifoState {
     window_start_x: i16,
     head: usize,
     len: usize,
-    pixels: [u8; BG_FIFO_CAPACITY],
+    pixels: [BgFifoPixel; BG_FIFO_CAPACITY],
     bg_fetch_phase: BgFetchPhase,
     bg_fetch_dots_remaining: u8,
     bg_fetch_tile_index: u8,
@@ -198,23 +231,23 @@ impl Mode3FifoState {
         self.bg_push_substate = BgPushSubstate::ReadyNormal;
     }
 
-    fn push(&mut self, color_id: u8) {
+    fn push(&mut self, pixel: BgFifoPixel) {
         if self.len == self.pixels.len() {
             return;
         }
         let tail = (self.head + self.len) % self.pixels.len();
-        self.pixels[tail] = color_id;
+        self.pixels[tail] = pixel;
         self.len += 1;
     }
 
-    fn pop(&mut self) -> Option<u8> {
+    fn pop(&mut self) -> Option<BgFifoPixel> {
         if self.len == 0 {
             return None;
         }
-        let color_id = self.pixels[self.head];
+        let pixel = self.pixels[self.head];
         self.head = (self.head + 1) % self.pixels.len();
         self.len -= 1;
-        Some(color_id)
+        Some(pixel)
     }
 
     fn obj_set_sprites(&mut self, sprites: [Mode3ObjSprite; MAX_SPRITES_PER_LINE], count: usize) {
@@ -655,14 +688,14 @@ impl PpuState {
         let y = ly as usize;
         Self::mode3_step_bg_fetch(bus, lcdc, y);
 
-        let color_id = if bus.ppu.mode3_fifo.warmup_dots > 0 {
+        let bg_pixel = if bus.ppu.mode3_fifo.warmup_dots > 0 {
             bus.ppu.mode3_fifo.warmup_dots -= 1;
             None
         } else {
             bus.ppu.mode3_fifo.pop()
         };
 
-        let Some(color_id) = color_id else {
+        let Some(bg_pixel) = bg_pixel else {
             return;
         };
         Self::mode3_latch_bg_push_recovery_sleep_after_pop(bus);
@@ -680,9 +713,10 @@ impl PpuState {
             let x = bus.ppu.mode3_fifo.output_x as usize;
             bus.ppu.mode3_fifo.output_x = bus.ppu.mode3_fifo.output_x.saturating_add(1);
             let obj_pixel = Self::mode3_pop_obj_pixel(bus);
-            let shade_id = Self::compose_mode3_shade_id(bus, lcdc, color_id, obj_pixel);
+            let pixel_meta = Self::compose_mode3_pixel_meta(lcdc, bg_pixel, obj_pixel);
+            let shade_id = Self::map_mode3_dmg_shade_id(bus, pixel_meta);
             let row_start = y * super::LCD_WIDTH;
-            bus.ppu.bg_color_ids_line[x] = color_id;
+            bus.ppu.bg_color_ids_line[x] = bg_pixel.color_id;
             bus.framebuffer[row_start + x] = DMG_SHADE_TO_LUMA[shade_id as usize];
         }
     }
@@ -878,20 +912,22 @@ impl PpuState {
                 let bit = 7u8.wrapping_sub(lane);
                 let color_id = (((bus.ppu.mode3_fifo.bg_fetch_high >> bit) & 1) << 1)
                     | ((bus.ppu.mode3_fifo.bg_fetch_low >> bit) & 1);
-                bus.ppu.mode3_fifo.push(color_id);
+                bus.ppu.mode3_fifo.push(BgFifoPixel { color_id });
             }
         } else {
-            let mut fetched_pixels = [0u8; 8];
+            let mut fetched_pixels = [BgFifoPixel::default(); 8];
             for (lane, pixel) in fetched_pixels.iter_mut().enumerate() {
-                *pixel = Self::mode3_bg_color_id_for_screen_x(
-                    bus,
-                    lcdc,
-                    y,
-                    fetch_screen_x + lane as i16,
-                );
+                *pixel = BgFifoPixel {
+                    color_id: Self::mode3_bg_color_id_for_screen_x(
+                        bus,
+                        lcdc,
+                        y,
+                        fetch_screen_x + lane as i16,
+                    ),
+                };
             }
-            for color_id in fetched_pixels {
-                bus.ppu.mode3_fifo.push(color_id);
+            for pixel in fetched_pixels {
+                bus.ppu.mode3_fifo.push(pixel);
             }
         }
 
@@ -1208,28 +1244,55 @@ impl PpuState {
         }
     }
 
-    fn compose_mode3_shade_id(bus: &Bus, lcdc: u8, bg_color_id: u8, obj_pixel: ObjFifoPixel) -> u8 {
-        let bg_shade_id = if (lcdc & 0x01) == 0 {
-            0
-        } else {
-            (bus.io[0x47] >> (bg_color_id * 2)) & 0x03
+    fn compose_mode3_pixel_meta(
+        lcdc: u8,
+        bg_pixel: BgFifoPixel,
+        obj_pixel: ObjFifoPixel,
+    ) -> Mode3PixelMeta {
+        let bg_enabled = (lcdc & 0x01) != 0;
+        let bg_visible_color_id = if bg_enabled { bg_pixel.color_id } else { 0 };
+        let priority_flags = Mode3PixelPriorityFlags {
+            obj_behind_bg: (obj_pixel.attr & 0x80) != 0,
+            bg_color_nonzero: bg_visible_color_id != 0,
         };
 
-        if obj_pixel.color_id == 0 {
-            return bg_shade_id;
+        if obj_pixel.color_id == 0
+            || (priority_flags.obj_behind_bg && priority_flags.bg_color_nonzero)
+        {
+            return Mode3PixelMeta {
+                color_id: bg_visible_color_id,
+                source: Mode3PixelSource::Bg,
+                priority_flags,
+                dmg_palette: if bg_enabled {
+                    DmgPaletteSelector::Bg
+                } else {
+                    DmgPaletteSelector::ForcedWhite
+                },
+            };
         }
 
-        let obj_behind_bg = (obj_pixel.attr & 0x80) != 0;
-        if obj_behind_bg && bg_color_id != 0 {
-            return bg_shade_id;
+        Mode3PixelMeta {
+            color_id: obj_pixel.color_id,
+            source: Mode3PixelSource::Obj,
+            priority_flags,
+            dmg_palette: if (obj_pixel.attr & 0x10) != 0 {
+                DmgPaletteSelector::Obj1
+            } else {
+                DmgPaletteSelector::Obj0
+            },
         }
+    }
 
-        let palette = if (obj_pixel.attr & 0x10) != 0 {
-            bus.io[0x49]
-        } else {
-            bus.io[0x48]
+    fn map_mode3_dmg_shade_id(bus: &Bus, pixel: Mode3PixelMeta) -> u8 {
+        let _ = pixel.source;
+        let _ = pixel.priority_flags;
+        let palette = match pixel.dmg_palette {
+            DmgPaletteSelector::ForcedWhite => return 0,
+            DmgPaletteSelector::Bg => bus.io[0x47],
+            DmgPaletteSelector::Obj0 => bus.io[0x48],
+            DmgPaletteSelector::Obj1 => bus.io[0x49],
         };
-        (palette >> (obj_pixel.color_id * 2)) & 0x03
+        (palette >> (pixel.color_id * 2)) & 0x03
     }
 
     fn bg_tile_line_addr(lcdc: u8, tile_index: u8, line_in_tile: usize) -> usize {
@@ -1414,5 +1477,44 @@ impl Bus {
     #[cfg(test)]
     pub(super) fn mode3_bg_takeover_boundary(&self) -> bool {
         PpuState::mode3_bg_takeover_boundary(self)
+    }
+
+    #[cfg(test)]
+    pub(super) fn debug_compose_mode3_pixel_metadata_and_shade(
+        &self,
+        lcdc: u8,
+        bg_color_id: u8,
+        obj_color_id: u8,
+        obj_attr: u8,
+    ) -> (u8, u8, u8, bool, bool, u8) {
+        let pixel = PpuState::compose_mode3_pixel_meta(
+            lcdc,
+            BgFifoPixel {
+                color_id: bg_color_id,
+            },
+            ObjFifoPixel {
+                color_id: obj_color_id,
+                attr: obj_attr,
+            },
+        );
+        let palette_code = match pixel.dmg_palette {
+            DmgPaletteSelector::ForcedWhite => 0,
+            DmgPaletteSelector::Bg => 1,
+            DmgPaletteSelector::Obj0 => 2,
+            DmgPaletteSelector::Obj1 => 3,
+        };
+        let source_code = match pixel.source {
+            Mode3PixelSource::Bg => 0,
+            Mode3PixelSource::Obj => 1,
+        };
+        let shade_id = PpuState::map_mode3_dmg_shade_id(self, pixel);
+        (
+            source_code,
+            pixel.color_id,
+            palette_code,
+            pixel.priority_flags.obj_behind_bg,
+            pixel.priority_flags.bg_color_nonzero,
+            shade_id,
+        )
     }
 }

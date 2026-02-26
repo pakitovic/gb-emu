@@ -27,6 +27,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Mode 3 `Push` substate corner coverage now explicitly checks the `stalled -> recovery sleep -> push-ready` sequence, including shared window/OBJ arbitration and delayed takeover behavior on the first valid post-sleep boundary.
 - On shared Mode 3 takeover boundaries, queued window restarts now defer to an immediately-eligible OBJ fetch start, with regression coverage for the resulting STAT/VRAM/OAM blocking behavior on that arbitration edge.
 - Mode 3 OBJ/window arbitration now uses the same OBJ fetch-start lookahead as the OBJ fetcher path (including `Push` boundary handling), reducing window/OBJ overlap corruption seen in commercial scenes (e.g. mid-line window restarts around active sprites).
+- Mode 3 pixel composition now carries intermediate DMG pixel metadata (`source`, `color_id`, priority flags, palette selector) and applies DMG grayscale mapping in a final color step, reducing future CGB BG/OBJ palette/priority integration refactor scope.
 - Mode 3 window restarts now clear any remaining BG fine-scroll discard (`SCX & 7`) so WX-aligned HUD/window lines stay fixed instead of inheriting BG scroll jitter (e.g. Kirby's Dream Land HUD).
 - Mode 3 line-start BG fine-scroll discard now advances the OBJ FIFO in lockstep with discarded BG pixels, fixing left-edge sprite column misalignment when `SCX` uses sub-tile offsets (e.g. Super Mario Land at the camera left boundary).
 - Mode 3 line duration now grows from runtime OBJ fetch contention (including mid-line OBJ enable/disable effects), reducing reliance on static per-line penalty estimates.
@@ -229,6 +230,7 @@ Supported models for `--model`:
 ### PPU / Rendering / Timing Fidelity
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 - Dot-stepped OBJ fetch contention now extends Mode 3 at runtime and takeover boundaries include FIFO-stall arbitration; some DMG fetcher bus-phase details (for example full hardware sleep/push micro-ops) are still approximated.
+- The Mode 3 pixel pipeline now carries DMG-oriented intermediate metadata for composition, but CGB BG tile attributes (palette index, tile priority, VRAM bank select) and CGB OBJ palette metadata are not implemented yet.
 - Recent Mode 3 BG `Push` fetcher work refines the internal state-machine (explicit latched `RecoverySleep` substate) and improves regression observability for the `stall/recovery` path, but it does not yet introduce additional hardware-visible micro-ops outside that `stall -> recovery sleep -> push-ready` flow.
 - Remaining high-impact PPU fidelity work is concentrated in timing-sensitive Mode 3 corner cases (finer fetcher micro-ops / bus-phase modeling and additional DMA/STAT contention edge cases beyond the currently covered regressions).
 

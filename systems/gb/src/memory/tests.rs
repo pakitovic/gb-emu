@@ -193,6 +193,72 @@ fn oam_segment_helpers_centralize_cpu_blocking_and_internal_access() {
 }
 
 #[test]
+fn mode3_pixel_metadata_mixer_keeps_dmg_priority_and_palette_selection() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF47, 0b11_10_01_00); // BGP: c0->0, c1->1, c2->2, c3->3
+    bus.write_byte(0xFF48, 0b00_11_10_01); // OBP0 distinct mapping
+    bus.write_byte(0xFF49, 0b01_00_11_10); // OBP1 distinct mapping
+
+    let (source_obj, color_id, palette_code, obj_behind_bg, bg_nonzero, shade_id) =
+        bus.debug_compose_mode3_pixel_metadata_and_shade(0x93, 2, 1, 0x00);
+    assert_eq!(
+        source_obj, 1,
+        "OBJ should win when not hidden by BG priority"
+    );
+    assert_eq!(color_id, 1);
+    assert_eq!(palette_code, 2, "OBJ palette select should choose OBP0");
+    assert!(!obj_behind_bg);
+    assert!(bg_nonzero);
+    assert_eq!(
+        shade_id, 2,
+        "OBP0 color1 should map through final DMG color step"
+    );
+
+    let (source_obj, color_id, palette_code, obj_behind_bg, bg_nonzero, shade_id) =
+        bus.debug_compose_mode3_pixel_metadata_and_shade(0x93, 2, 1, 0x80);
+    assert_eq!(
+        source_obj, 0,
+        "BG should win when OBJ is behind non-zero BG"
+    );
+    assert_eq!(color_id, 2);
+    assert_eq!(palette_code, 1, "BG path should select BGP");
+    assert!(obj_behind_bg);
+    assert!(bg_nonzero);
+    assert_eq!(
+        shade_id, 2,
+        "BGP color2 should map through final DMG color step"
+    );
+}
+
+#[test]
+fn mode3_pixel_metadata_forces_white_backdrop_when_bg_is_disabled() {
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF47, 0b00_00_00_11); // Would make color0 non-white if BGP were used.
+
+    let (source_obj, color_id, palette_code, obj_behind_bg, bg_nonzero, shade_id) =
+        bus.debug_compose_mode3_pixel_metadata_and_shade(0x92, 3, 0, 0x00);
+
+    assert_eq!(
+        source_obj, 0,
+        "Transparent OBJ should leave BG/backdrop path selected"
+    );
+    assert_eq!(
+        color_id, 0,
+        "DMG BG-disabled path should force backdrop color id 0"
+    );
+    assert_eq!(
+        palette_code, 0,
+        "BG-disabled path should bypass BGP and use forced-white DMG mapping"
+    );
+    assert!(!obj_behind_bg);
+    assert!(!bg_nonzero);
+    assert_eq!(
+        shade_id, 0,
+        "BG-disabled backdrop should remain white regardless of BGP"
+    );
+}
+
+#[test]
 fn dmg_family_models_use_fixed_dmg_clock_ratio_policy() {
     for model in [
         HardwareModel::Dmg0,
