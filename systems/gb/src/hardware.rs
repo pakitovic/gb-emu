@@ -21,6 +21,16 @@ impl HardwareModel {
             Self::Sgb2 => "sgb2",
         }
     }
+
+    #[inline]
+    pub fn supports_cgb_mode(self) -> bool {
+        false
+    }
+
+    #[inline]
+    pub fn supports_sgb_features(self) -> bool {
+        matches!(self, Self::Sgb | Self::Sgb2)
+    }
 }
 
 impl Display for HardwareModel {
@@ -81,5 +91,24 @@ mod tests {
     #[test]
     fn rejects_unknown_model() {
         assert!("cgb".parse::<HardwareModel>().is_err());
+    }
+
+    #[test]
+    fn reports_current_family_capability_gates() {
+        for model in [
+            HardwareModel::Dmg0,
+            HardwareModel::Dmg,
+            HardwareModel::Mgb,
+            HardwareModel::Sgb,
+            HardwareModel::Sgb2,
+        ] {
+            assert!(
+                !model.supports_cgb_mode(),
+                "current model set should remain DMG-family only for CGB-ready scaffolding"
+            );
+        }
+        assert!(!HardwareModel::Dmg.supports_sgb_features());
+        assert!(HardwareModel::Sgb.supports_sgb_features());
+        assert!(HardwareModel::Sgb2.supports_sgb_features());
     }
 }

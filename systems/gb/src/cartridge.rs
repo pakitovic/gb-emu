@@ -12,6 +12,8 @@ mod spec;
 mod types;
 
 pub(crate) use self::capabilities::CartridgeCapabilities;
+pub use self::capabilities::{CartridgeModelCompatibility, CartridgeModelModeRequest};
+pub use self::header::{CartridgeCgbSupport, CartridgeSgbSupport};
 pub use self::types::{CartridgeError, CartridgeHeaderWarning, CartridgeMapper, CartridgeMetadata};
 
 use self::clock::{FixedRtcClock, RtcClock, SystemRtcClock};

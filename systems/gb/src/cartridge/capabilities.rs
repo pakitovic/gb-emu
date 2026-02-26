@@ -1,23 +1,39 @@
+use super::header::{CartridgeCgbSupport, CartridgeSgbSupport, parse_header_mode_flags};
 use super::{Cartridge, CartridgeMapper, public_mapper};
-
-const HEADER_CGB_FLAG_OFFSET: usize = 0x0143;
+use crate::hardware::HardwareModel;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CartridgeCgbSupport {
-    None,
-    Supported,
-    Required,
+pub struct CartridgeModelModeRequest {
+    pub cgb_support: CartridgeCgbSupport,
 }
 
-impl CartridgeCgbSupport {
+impl CartridgeModelModeRequest {
     #[inline]
-    fn from_header_flag_raw(flag: u8) -> Self {
-        match flag {
-            0x80 => Self::Supported,
-            0xC0 => Self::Required,
-            _ => Self::None,
-        }
+    pub fn prefers_cgb(self) -> bool {
+        matches!(
+            self.cgb_support,
+            CartridgeCgbSupport::Supported | CartridgeCgbSupport::Required
+        )
     }
+
+    #[inline]
+    pub fn requires_cgb(self) -> bool {
+        matches!(self.cgb_support, CartridgeCgbSupport::Required)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CartridgeModelCompatibility {
+    pub model: HardwareModel,
+    pub mode_request: CartridgeModelModeRequest,
+    pub dmg_mode_allowed: bool,
+    pub cgb_mode_supported_by_model: bool,
+    pub cgb_mode_possible: bool,
+    pub cgb_only_header_on_non_cgb_model: bool,
+    pub sgb_support: CartridgeSgbSupport,
+    pub sgb_features_requested: bool,
+    pub sgb_features_supported_by_model: bool,
+    pub sgb_features_possible: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,17 +50,41 @@ pub(crate) struct CartridgeCapabilities {
     pub(crate) cgb_support: CartridgeCgbSupport,
     pub(crate) supports_cgb: bool,
     pub(crate) cgb_only: bool,
+    pub(crate) sgb_header_flag_raw: u8,
+    pub(crate) sgb_support: CartridgeSgbSupport,
+    pub(crate) supports_sgb: bool,
+}
+
+impl CartridgeCapabilities {
+    pub fn compatibility_for_model(self, model: HardwareModel) -> CartridgeModelCompatibility {
+        let mode_request = CartridgeModelModeRequest {
+            cgb_support: self.cgb_support,
+        };
+        let cgb_mode_supported_by_model = model.supports_cgb_mode();
+        let cgb_mode_possible = mode_request.prefers_cgb() && cgb_mode_supported_by_model;
+        let dmg_mode_allowed = !self.cgb_only;
+        let sgb_features_requested = self.supports_sgb;
+        let sgb_features_supported_by_model =
+            sgb_features_requested && model.supports_sgb_features();
+
+        CartridgeModelCompatibility {
+            model,
+            mode_request,
+            dmg_mode_allowed,
+            cgb_mode_supported_by_model,
+            cgb_mode_possible,
+            cgb_only_header_on_non_cgb_model: self.cgb_only && !cgb_mode_supported_by_model,
+            sgb_support: self.sgb_support,
+            sgb_features_requested,
+            sgb_features_supported_by_model,
+            sgb_features_possible: sgb_features_supported_by_model,
+        }
+    }
 }
 
 impl Cartridge {
     pub(crate) fn capabilities(&self) -> CartridgeCapabilities {
-        let cgb_header_flag_raw = self
-            .rom
-            .get(HEADER_CGB_FLAG_OFFSET)
-            .copied()
-            .unwrap_or(0x00);
-
-        let cgb_support = CartridgeCgbSupport::from_header_flag_raw(cgb_header_flag_raw);
+        let header_flags = parse_header_mode_flags(&self.rom);
 
         CartridgeCapabilities {
             mapper: public_mapper(self.mapper),
@@ -55,13 +95,20 @@ impl Cartridge {
             has_timer: self.has_timer,
             has_rumble: self.has_rumble,
             has_battery_save: self.has_battery_save(),
-            cgb_header_flag_raw,
-            cgb_support,
-            supports_cgb: matches!(
-                cgb_support,
-                CartridgeCgbSupport::Supported | CartridgeCgbSupport::Required
-            ),
-            cgb_only: matches!(cgb_support, CartridgeCgbSupport::Required),
+            cgb_header_flag_raw: header_flags.cgb_header_flag_raw,
+            cgb_support: header_flags.cgb_support,
+            supports_cgb: header_flags.supports_cgb,
+            cgb_only: header_flags.cgb_only,
+            sgb_header_flag_raw: header_flags.sgb_header_flag_raw,
+            sgb_support: header_flags.sgb_support,
+            supports_sgb: header_flags.supports_sgb,
         }
+    }
+
+    pub(crate) fn compatibility_for_model(
+        &self,
+        model: HardwareModel,
+    ) -> CartridgeModelCompatibility {
+        self.capabilities().compatibility_for_model(model)
     }
 }

@@ -18,6 +18,7 @@ mod timer;
 
 use crate::apu::ApuState;
 use crate::cartridge::Cartridge;
+use crate::hardware::HardwareModel;
 use crate::timing::ClockRatios;
 use bus_access::{VRAM_STORAGE_BYTES, WRAM_STORAGE_BYTES};
 use cgb_mmio::CgbMmioState;
@@ -47,6 +48,7 @@ pub struct Bus {
     joypad: JoypadState,
     framebuffer: [u8; LCD_FRAME_PIXELS],
     clock_ratios: ClockRatios,
+    hardware_model: HardwareModel,
     cgb_mmio: CgbMmioState,
 }
 

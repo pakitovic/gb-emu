@@ -4,6 +4,80 @@ use super::{
     HEADER_LOGO_START, NINTENDO_LOGO_BYTES,
 };
 
+pub(crate) use self::mode_flags::parse_header_mode_flags;
+pub use self::mode_flags::{CartridgeCgbSupport, CartridgeSgbSupport};
+
+pub(crate) mod mode_flags {
+    const HEADER_CGB_FLAG_OFFSET: usize = 0x0143;
+    const HEADER_SGB_FLAG_OFFSET: usize = 0x0146;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum CartridgeCgbSupport {
+        None,
+        Supported,
+        Required,
+    }
+
+    impl CartridgeCgbSupport {
+        #[inline]
+        pub(crate) fn from_header_flag_raw(flag: u8) -> Self {
+            match flag {
+                0x80 => Self::Supported,
+                0xC0 => Self::Required,
+                _ => Self::None,
+            }
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum CartridgeSgbSupport {
+        None,
+        Supported,
+    }
+
+    impl CartridgeSgbSupport {
+        #[inline]
+        pub(crate) fn from_header_flag_raw(flag: u8) -> Self {
+            if flag == 0x03 {
+                Self::Supported
+            } else {
+                Self::None
+            }
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(crate) struct CartridgeHeaderModeFlags {
+        pub(crate) cgb_header_flag_raw: u8,
+        pub(crate) cgb_support: CartridgeCgbSupport,
+        pub(crate) supports_cgb: bool,
+        pub(crate) cgb_only: bool,
+        pub(crate) sgb_header_flag_raw: u8,
+        pub(crate) sgb_support: CartridgeSgbSupport,
+        pub(crate) supports_sgb: bool,
+    }
+
+    pub(crate) fn parse_header_mode_flags(rom: &[u8]) -> CartridgeHeaderModeFlags {
+        let cgb_header_flag_raw = rom.get(HEADER_CGB_FLAG_OFFSET).copied().unwrap_or(0x00);
+        let cgb_support = CartridgeCgbSupport::from_header_flag_raw(cgb_header_flag_raw);
+        let sgb_header_flag_raw = rom.get(HEADER_SGB_FLAG_OFFSET).copied().unwrap_or(0x00);
+        let sgb_support = CartridgeSgbSupport::from_header_flag_raw(sgb_header_flag_raw);
+
+        CartridgeHeaderModeFlags {
+            cgb_header_flag_raw,
+            cgb_support,
+            supports_cgb: matches!(
+                cgb_support,
+                CartridgeCgbSupport::Supported | CartridgeCgbSupport::Required
+            ),
+            cgb_only: matches!(cgb_support, CartridgeCgbSupport::Required),
+            sgb_header_flag_raw,
+            sgb_support,
+            supports_sgb: matches!(sgb_support, CartridgeSgbSupport::Supported),
+        }
+    }
+}
+
 pub(super) fn diagnose_header(rom: &[u8]) -> Vec<CartridgeHeaderWarning> {
     let mut warnings = Vec::new();
 
