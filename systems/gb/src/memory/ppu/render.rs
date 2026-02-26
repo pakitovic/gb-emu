@@ -53,9 +53,9 @@ impl PpuState {
         let _ = pixel.priority_flags;
         let palette = match pixel.dmg_palette {
             DmgPaletteSelector::ForcedWhite => return 0,
-            DmgPaletteSelector::Bg => bus.io[0x47],
-            DmgPaletteSelector::Obj0 => bus.io[0x48],
-            DmgPaletteSelector::Obj1 => bus.io[0x49],
+            DmgPaletteSelector::Bg => bus.ppu_bgp(),
+            DmgPaletteSelector::Obj0 => bus.ppu_obp0(),
+            DmgPaletteSelector::Obj1 => bus.ppu_obp1(),
         };
         (palette >> (pixel.color_id * 2)) & 0x03
     }

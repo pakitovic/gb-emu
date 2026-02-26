@@ -33,11 +33,9 @@ impl PpuState {
         }
 
         if line_cycle == mode3_start {
-            let row_start = (ly as usize) * crate::memory::LCD_WIDTH;
-            bus.framebuffer[row_start..row_start + crate::memory::LCD_WIDTH]
-                .fill(DMG_SHADE_TO_LUMA[0]);
+            bus.ppu_clear_framebuffer_line(ly, DMG_SHADE_TO_LUMA[0]);
             bus.ppu.bg_color_ids_line.fill(0);
-            let discard_pixels = bus.io[0x43] & 0x07;
+            let discard_pixels = bus.ppu_scx() & 0x07;
             bus.ppu.mode3_fifo.start(discard_pixels);
             Self::prepare_mode3_obj_line(bus, ly as usize);
         }
@@ -53,7 +51,7 @@ impl PpuState {
             return;
         }
 
-        let lcdc = bus.io[0x40];
+        let lcdc = bus.ppu_lcdc();
         let y = ly as usize;
         Self::mode3_step_bg_fetch(bus, lcdc, y);
 
@@ -84,9 +82,8 @@ impl PpuState {
             let obj_pixel = Self::mode3_pop_obj_pixel(bus);
             let pixel_meta = Self::compose_mode3_pixel_meta(lcdc, bg_pixel, obj_pixel);
             let shade_id = Self::map_mode3_dmg_shade_id(bus, pixel_meta);
-            let row_start = y * crate::memory::LCD_WIDTH;
             bus.ppu.bg_color_ids_line[x] = bg_pixel.color_id;
-            bus.framebuffer[row_start + x] = DMG_SHADE_TO_LUMA[shade_id as usize];
+            bus.ppu_write_framebuffer_pixel(y, x, DMG_SHADE_TO_LUMA[shade_id as usize]);
         }
     }
 
@@ -107,14 +104,14 @@ impl PpuState {
     }
 
     pub(super) fn mode3_window_enabled_on_line(bus: &Bus, ly: u8) -> bool {
-        let lcdc = bus.io[0x40];
-        let wy = bus.io[0x4A];
-        let wx = bus.io[0x4B];
+        let lcdc = bus.ppu_lcdc();
+        let wy = bus.ppu_wy();
+        let wx = bus.ppu_wx();
         (lcdc & 0x20) != 0 && wy < 144 && wx <= 166 && ly >= wy
     }
 
     pub(super) fn mode3_window_trigger_screen_x(bus: &Bus) -> i16 {
-        bus.io[0x4B] as i16 - 7
+        bus.ppu_wx() as i16 - 7
     }
 
     pub(super) fn mode3_bg_takeover_boundary(bus: &Bus) -> bool {
@@ -167,7 +164,7 @@ impl PpuState {
     }
 
     pub(super) fn mode3_obj_can_takeover_now(bus: &Bus, screen_x: i16) -> bool {
-        if (bus.io[0x40] & 0x02) == 0 || !Self::mode3_obj_takeover_boundary(bus) {
+        if (bus.ppu_lcdc() & 0x02) == 0 || !Self::mode3_obj_takeover_boundary(bus) {
             return false;
         }
         if bus.ppu.mode3_fifo.obj_next_sprite >= bus.ppu.mode3_fifo.obj_sprite_count {
@@ -383,8 +380,8 @@ impl PpuState {
             return (tile_index, cgb_bg_attrs, tile_line_addr);
         }
 
-        let scx = bus.io[0x43];
-        let scy = bus.io[0x42];
+        let scx = bus.ppu_scx();
+        let scy = bus.ppu_scy();
         let bg_map_base = if (lcdc & 0x08) != 0 {
             0x1C00usize
         } else {
@@ -424,7 +421,7 @@ impl PpuState {
             return (window_x & 0x07) as u8;
         }
 
-        let scx = bus.io[0x43];
+        let scx = bus.ppu_scx();
         let bg_x = (screen_x as i32 + scx as i32).rem_euclid(256) as usize;
         (bg_x & 0x07) as u8
     }
@@ -458,8 +455,8 @@ impl PpuState {
         y: usize,
         screen_x: i16,
     ) -> u8 {
-        let scx = bus.io[0x43];
-        let scy = bus.io[0x42];
+        let scx = bus.ppu_scx();
+        let scy = bus.ppu_scy();
 
         let bg_map_base = if (lcdc & 0x08) != 0 {
             0x1C00usize
@@ -483,7 +480,7 @@ impl PpuState {
     }
 
     pub(super) fn prepare_mode3_obj_line(bus: &mut Bus, y: usize) {
-        let lcdc = bus.io[0x40];
+        let lcdc = bus.ppu_lcdc();
         let sprite_height: usize = if (lcdc & 0x04) != 0 { 16 } else { 8 };
         let y_i = y as i16;
 
@@ -581,7 +578,7 @@ impl PpuState {
     }
 
     pub(super) fn mode3_step_obj_fetch(bus: &mut Bus, screen_x: i16) -> bool {
-        if (bus.io[0x40] & 0x02) == 0 {
+        if (bus.ppu_lcdc() & 0x02) == 0 {
             bus.ppu.mode3_fifo.obj_clear_pending();
             return false;
         }
@@ -627,7 +624,7 @@ impl PpuState {
     }
 
     pub(super) fn mode3_pop_obj_pixel(bus: &mut Bus) -> ObjFifoPixel {
-        if (bus.io[0x40] & 0x02) == 0 {
+        if (bus.ppu_lcdc() & 0x02) == 0 {
             bus.ppu.mode3_fifo.obj_clear_pending();
             return ObjFifoPixel::TRANSPARENT;
         }

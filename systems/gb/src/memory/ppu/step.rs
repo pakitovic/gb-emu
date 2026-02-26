@@ -15,7 +15,7 @@ impl PpuState {
             return;
         }
 
-        let ly = bus.io[0x44];
+        let ly = bus.ppu_ly();
         if ly < 144 && bus.ppu.ly_counter == 0 {
             let startup_line = bus.ppu.startup_line && ly == 0;
             bus.ppu.mode3_dots_latched = Self::mode3_length_tcycles(bus, ly, startup_line);
@@ -39,7 +39,7 @@ impl PpuState {
                 bus.ppu.mode3_fifo.reset();
             }
             let next_ly = if ly >= 153 { 0 } else { ly.wrapping_add(1) };
-            bus.io[0x44] = next_ly;
+            bus.ppu_set_ly(next_ly);
             bus.ppu.stat_mode0_enabled_this_line = false;
             bus.ppu.window_triggered_this_line = false;
             bus.ppu.window_trigger_pending = false;
@@ -55,7 +55,7 @@ impl PpuState {
             }
         }
 
-        let ly = bus.io[0x44];
+        let ly = bus.ppu_ly();
         let mode = if ly >= 144 {
             STAT_MODE_VBLANK
         } else {
@@ -144,7 +144,7 @@ impl PpuState {
     }
 
     pub(super) fn mode3_extra_tcycles(bus: &Bus) -> u16 {
-        (bus.io[0x43] & 0x07) as u16
+        (bus.ppu_scx() & 0x07) as u16
     }
 
     pub(super) fn extend_mode3_dots(bus: &mut Bus, ly: u8, startup_line: bool, dots: u16) {

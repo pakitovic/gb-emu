@@ -8,11 +8,11 @@ impl PpuState {
     pub(in crate::memory) fn write_lcdc(bus: &mut Bus, value: u8) {
         let was_enabled = Self::lcd_enabled(bus);
         let now_enabled = (value & 0x80) != 0;
-        bus.io[0x40] = value;
+        bus.ppu_set_lcdc(value);
 
         match (was_enabled, now_enabled) {
             (true, false) => {
-                bus.io[0x44] = 0;
+                bus.ppu_set_ly(0);
                 bus.ppu.ly_counter = 0;
                 bus.ppu.startup_line = false;
                 bus.ppu.post_enable_phase = 0;
@@ -29,7 +29,7 @@ impl PpuState {
                 Self::update_stat_irq_line(bus);
             }
             (false, true) => {
-                bus.io[0x44] = 0;
+                bus.ppu_set_ly(0);
                 bus.ppu.ly_counter = 0;
                 bus.ppu.startup_line = true;
                 bus.ppu.post_enable_phase = 0;
@@ -51,10 +51,10 @@ impl PpuState {
 
     pub(in crate::memory) fn write_stat(bus: &mut Bus, value: u8) {
         // Bits 3..6 are writable. Bits 0..2 are PPU-generated.
-        let old_mode0_source = (bus.io[0x41] & 0x08) != 0;
-        bus.io[0x41] = (bus.io[0x41] & 0x07) | (value & 0x78);
-        let new_mode0_source = (bus.io[0x41] & 0x08) != 0;
-        if !old_mode0_source && new_mode0_source && Self::lcd_enabled(bus) && bus.io[0x44] < 144 {
+        let old_mode0_source = (bus.ppu_stat() & 0x08) != 0;
+        bus.ppu_set_stat((bus.ppu_stat() & 0x07) | (value & 0x78));
+        let new_mode0_source = (bus.ppu_stat() & 0x08) != 0;
+        if !old_mode0_source && new_mode0_source && Self::lcd_enabled(bus) && bus.ppu_ly() < 144 {
             bus.ppu.stat_mode0_enabled_this_line = true;
         } else if !new_mode0_source {
             bus.ppu.stat_mode0_enabled_this_line = false;
@@ -63,7 +63,7 @@ impl PpuState {
     }
 
     pub(in crate::memory) fn write_lyc(bus: &mut Bus, value: u8) {
-        bus.io[0x45] = value;
+        bus.ppu_set_lyc(value);
         if Self::lcd_enabled(bus) {
             Self::update_lyc_flag(bus);
             Self::update_stat_irq_line(bus);
@@ -72,7 +72,7 @@ impl PpuState {
 
     pub(in crate::memory) fn write_ly(bus: &mut Bus, value: u8) {
         let _ = value;
-        bus.io[0x44] = 0;
+        bus.ppu_set_ly(0);
         bus.ppu.ly_counter = 0;
         bus.ppu.startup_line = false;
         bus.ppu.post_enable_phase = 0;
@@ -92,7 +92,7 @@ impl PpuState {
     }
 
     pub(super) fn lcd_enabled(bus: &Bus) -> bool {
-        (bus.io[0x40] & 0x80) != 0
+        (bus.ppu_lcdc() & 0x80) != 0
     }
 
     pub(super) fn ppu_mode(bus: &Bus) -> u8 {
@@ -101,16 +101,16 @@ impl PpuState {
 
     pub(super) fn ppu_startup_mode0_slice_active(bus: &Bus) -> bool {
         bus.ppu.post_enable_phase > 0
-            && bus.io[0x44] > 0
-            && bus.io[0x44] < 144
+            && bus.ppu_ly() > 0
+            && bus.ppu_ly() < 144
             && Self::ppu_mode(bus) == STAT_MODE_HBLANK
             && bus.ppu.ly_counter < 4
     }
 
     pub(super) fn ppu_startup_mode2_tail_active(bus: &Bus) -> bool {
         bus.ppu.post_enable_phase > 0
-            && bus.io[0x44] > 0
-            && bus.io[0x44] < 144
+            && bus.ppu_ly() > 0
+            && bus.ppu_ly() < 144
             && Self::ppu_mode(bus) == STAT_MODE_OAM
             && (80..84).contains(&bus.ppu.ly_counter)
     }
@@ -135,7 +135,7 @@ impl PpuState {
     }
 
     pub(in crate::memory) fn stat_read_value(bus: &Bus) -> u8 {
-        let mut value = bus.io[0x41];
+        let mut value = bus.ppu_stat();
         if Self::ppu_startup_mode0_slice_active(bus) {
             value &= !0x04;
         }
@@ -158,18 +158,18 @@ impl PpuState {
         if !Self::lcd_enabled(bus) {
             return true;
         }
-        (bus.io[0x41] & 0x03) != STAT_MODE_TRANSFER
+        (bus.ppu_stat() & 0x03) != STAT_MODE_TRANSFER
     }
 
     pub(super) fn force_ppu_mode(bus: &mut Bus, mode: PpuMode) {
         bus.ppu.mode = mode;
         bus.ppu.mode_edge_events = PpuModeEdgeEvents::default();
-        bus.io[0x41] = (bus.io[0x41] & !0x03) | mode.stat_mode_bits();
+        bus.ppu_set_stat_mode_bits(mode.stat_mode_bits());
     }
 
     pub(super) fn set_ppu_mode(bus: &mut Bus, mode: PpuMode) -> PpuModeEdgeEvents {
         if bus.ppu.mode == mode {
-            bus.io[0x41] = (bus.io[0x41] & !0x03) | mode.stat_mode_bits();
+            bus.ppu_set_stat_mode_bits(mode.stat_mode_bits());
             bus.ppu.mode_edge_events = PpuModeEdgeEvents::default();
             return bus.ppu.mode_edge_events;
         }
@@ -177,21 +177,21 @@ impl PpuState {
         let edges = PpuModeEdgeEvents::for_entered_mode(mode);
         bus.ppu.mode = mode;
         bus.ppu.mode_edge_events = edges;
-        bus.io[0x41] = (bus.io[0x41] & !0x03) | mode.stat_mode_bits();
+        bus.ppu_set_stat_mode_bits(mode.stat_mode_bits());
         edges
     }
 
     pub(super) fn update_lyc_flag(bus: &mut Bus) {
-        let lyc_match = bus.io[0x44] == bus.io[0x45];
+        let lyc_match = bus.ppu_ly() == bus.ppu_lyc();
         if lyc_match {
-            bus.io[0x41] |= 0x04;
+            bus.ppu_set_stat_bits(0x04);
         } else {
-            bus.io[0x41] &= !0x04;
+            bus.ppu_clear_stat_bits(0x04);
         }
     }
 
     pub(in crate::memory) fn stat_irq_source_active(bus: &Bus) -> bool {
-        let stat = bus.io[0x41];
+        let stat = bus.ppu_stat();
         let mode = bus.ppu_mode_kind().stat_mode_bits();
         let lyc = (stat & 0x04) != 0;
         let mode_edges = bus.ppu_mode_edge_events();
@@ -207,7 +207,7 @@ impl PpuState {
     }
 
     pub(super) fn mode0_stat_source_active_now(bus: &Bus) -> bool {
-        let ly = bus.io[0x44];
+        let ly = bus.ppu_ly();
         if ly >= 144 {
             return false;
         }
