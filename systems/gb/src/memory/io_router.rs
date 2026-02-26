@@ -5,6 +5,10 @@ use super::{
 
 impl Bus {
     pub(super) fn write_io_register(&mut self, addr: u16, value: u8) {
+        if self.write_cgb_mmio_scaffold(addr, value) {
+            return;
+        }
+
         if is_unmapped_io(addr) {
             return;
         }
@@ -30,6 +34,10 @@ impl Bus {
     }
 
     pub(super) fn read_io_register(&self, addr: u16) -> u8 {
+        if let Some(value) = self.read_cgb_mmio_scaffold(addr) {
+            return value;
+        }
+
         if is_unmapped_io(addr) {
             return 0xFF;
         }
