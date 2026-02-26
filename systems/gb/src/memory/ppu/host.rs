@@ -1,47 +1,5 @@
-use super::Bus;
-use crate::hardware::HardwareModel;
-
-#[cfg(test)]
-#[path = "ppu/tests.rs"]
-mod tests;
-
-const STAT_MODE_HBLANK: u8 = 0;
-const STAT_MODE_VBLANK: u8 = 1;
-const STAT_MODE_OAM: u8 = 2;
-const STAT_MODE_TRANSFER: u8 = 3;
-const STARTUP_MODE0_DOTS: u16 = 80;
-const STARTUP_LINE_DOTS: u16 = 452;
-const DMG_SHADE_TO_LUMA: [u8; 4] = [0xFF, 0xAA, 0x55, 0x00];
-const MAX_SPRITES_PER_LINE: usize = 10;
-const MODE3_BG_WARMUP_DOTS: u8 = 12;
-const BG_FIFO_CAPACITY: usize = 16;
-const BG_FETCH_TILE_DOTS: u8 = 6;
-const BG_FETCH_PHASE_DOTS: u8 = 2;
-const MODE3_WINDOW_RESTART_DOTS: u16 = BG_FETCH_TILE_DOTS as u16;
-const OBJ_FETCH_BASE_DOTS: u8 = 6;
-const OBJ_SESSION_SHUTDOWN_PENALTY: [u8; 8] = [3, 2, 3, 2, 3, 2, 2, 2];
-
-#[path = "ppu/mmio.rs"]
-mod mmio;
-#[path = "ppu/mode3.rs"]
-mod mode3;
-#[path = "ppu/modes.rs"]
-mod modes;
-#[path = "ppu/render.rs"]
-mod render;
-#[path = "ppu/state.rs"]
-mod state;
-#[path = "ppu/step.rs"]
-mod step;
-
-pub(in crate::memory) use modes::{PpuMode, PpuModeEdgeEvents};
-pub(in crate::memory) use state::PpuState;
-
-use state::{
-    BgFetchPhase, BgFifoPixel, BgPushSubstate, CgbBgTileAttrsScaffold, CgbObjAttrsScaffold,
-    DmgPaletteSelector, Mode3CgbPixelMetaScaffold, Mode3ObjSprite, Mode3PixelMeta,
-    Mode3PixelPriorityFlags, Mode3PixelSource, ObjCandidate, ObjFifoPixel,
-};
+use super::bus::PpuStateAdapter;
+use super::*;
 
 impl Bus {
     pub(in crate::memory) fn configure_ppu_model_gates(&mut self, model: HardwareModel) {
@@ -49,7 +7,7 @@ impl Bus {
     }
 
     pub(in crate::memory) fn sync_ppu_mode_from_stat_register(&mut self) {
-        PpuState::force_ppu_mode(self, PpuMode::from_stat_mode_bits(self.io[0x41]));
+        PpuState::force_ppu_mode(self, PpuMode::from_stat_mode_bits(self.ppu_stat()));
     }
 
     pub(in crate::memory) fn ppu_blocks_oam_read(&self) -> bool {
@@ -97,61 +55,61 @@ impl Bus {
     }
 
     pub(in crate::memory) fn ppu_mode_kind(&self) -> PpuMode {
-        self.ppu.mode
+        self.ppu_state().mode
     }
 
     pub(in crate::memory) fn ppu_mode_edge_events(&self) -> PpuModeEdgeEvents {
-        self.ppu.mode_edge_events
+        self.ppu_state().mode_edge_events
     }
 
     #[cfg(test)]
     pub(in crate::memory) fn debug_ppu_mode_kind(&self) -> PpuMode {
-        self.ppu.mode
+        self.ppu_state().mode
     }
 
     #[cfg(test)]
     pub(in crate::memory) fn debug_ppu_mode_edge_events(&self) -> PpuModeEdgeEvents {
-        self.ppu.mode_edge_events
+        self.ppu_state().mode_edge_events
     }
 
     #[cfg(test)]
     pub(in crate::memory) fn mode3_bg_fifo_len(&self) -> usize {
-        self.ppu.mode3_fifo.len
+        self.ppu_state().mode3_fifo.len
     }
 
     #[cfg(test)]
     pub(in crate::memory) fn mode3_bg_fetch_dots_remaining(&self) -> u8 {
-        self.ppu.mode3_fifo.bg_fetch_dots_remaining
+        self.ppu_state().mode3_fifo.bg_fetch_dots_remaining
     }
 
     #[cfg(test)]
     pub(in crate::memory) fn mode3_bg_fetch_phase(&self) -> u8 {
-        self.ppu.mode3_fifo.bg_fetch_phase as u8
+        self.ppu_state().mode3_fifo.bg_fetch_phase as u8
     }
 
     #[cfg(test)]
     pub(in crate::memory) fn mode3_obj_fetch_dots_remaining(&self) -> u8 {
-        self.ppu.mode3_fifo.obj_fetch_dots_remaining
+        self.ppu_state().mode3_fifo.obj_fetch_dots_remaining
     }
 
     #[cfg(test)]
     pub(in crate::memory) fn mode3_obj_shutdown_dots_remaining(&self) -> u8 {
-        self.ppu.mode3_fifo.obj_shutdown_dots_remaining
+        self.ppu_state().mode3_fifo.obj_shutdown_dots_remaining
     }
 
     #[cfg(test)]
     pub(in crate::memory) fn mode3_obj_next_sprite_index(&self) -> usize {
-        self.ppu.mode3_fifo.obj_next_sprite
+        self.ppu_state().mode3_fifo.obj_next_sprite
     }
 
     #[cfg(test)]
     pub(in crate::memory) fn mode3_window_triggered_this_line(&self) -> bool {
-        self.ppu.window_triggered_this_line
+        self.ppu_state().window_triggered_this_line
     }
 
     #[cfg(test)]
     pub(in crate::memory) fn mode3_window_trigger_pending(&self) -> bool {
-        self.ppu.window_trigger_pending
+        self.ppu_state().window_trigger_pending
     }
 
     #[cfg(test)]
@@ -161,12 +119,12 @@ impl Bus {
 
     #[cfg(test)]
     pub(in crate::memory) fn mode3_output_x(&self) -> u8 {
-        self.ppu.mode3_fifo.output_x
+        self.ppu_state().mode3_fifo.output_x
     }
 
     #[cfg(test)]
     pub(in crate::memory) fn mode3_bg_push_stalled_for_fifo(&self) -> bool {
-        self.ppu.mode3_fifo.bg_push_substate == BgPushSubstate::Stalled
+        self.ppu_state().mode3_fifo.bg_push_substate == BgPushSubstate::Stalled
     }
 
     #[cfg(test)]
@@ -280,11 +238,11 @@ impl Bus {
 
     #[cfg(test)]
     pub(in crate::memory) fn debug_force_enable_ppu_cgb_scaffold_runtime(&mut self, enabled: bool) {
-        self.ppu.cgb_scaffold_runtime_enabled = enabled;
+        self.ppu_state_mut().cgb_scaffold_runtime_enabled = enabled;
     }
 
     #[cfg(test)]
     pub(in crate::memory) fn debug_ppu_cgb_scaffold_runtime_enabled(&self) -> bool {
-        self.ppu.cgb_scaffold_runtime_enabled
+        self.ppu_state().cgb_scaffold_runtime_enabled
     }
 }
