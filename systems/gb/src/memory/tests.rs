@@ -83,7 +83,9 @@ fn wait_for_next_frame(bus: &mut Bus) {
 }
 
 // PPU timing-sensitive tests remain under memory because they exercise bus/MMIO/DMA/STAT integration.
-mod ppu_integration;
+mod ppu_framebuffer_integration;
+mod ppu_mode3_boundaries_integration;
+mod ppu_startup_stat_integration;
 
 #[test]
 fn dma_scheduler_mode_edge_events_expose_oam_transfer_lifecycle() {
