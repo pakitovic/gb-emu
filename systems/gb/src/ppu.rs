@@ -1,6 +1,10 @@
 use super::Bus;
 use crate::hardware::HardwareModel;
 
+#[cfg(test)]
+#[path = "ppu/tests.rs"]
+mod tests;
+
 const STAT_MODE_HBLANK: u8 = 0;
 const STAT_MODE_VBLANK: u8 = 1;
 const STAT_MODE_OAM: u8 = 2;
@@ -382,23 +386,23 @@ impl Mode3FifoState {
     }
 }
 
-pub(super) struct PpuState {
-    pub(super) ly_counter: u16,
-    pub(super) startup_line: bool,
-    pub(super) post_enable_phase: u8,
-    pub(super) enable_delay: u8,
-    pub(super) mode: PpuMode,
-    pub(super) mode_edge_events: PpuModeEdgeEvents,
-    pub(super) stat_irq_line: bool,
-    pub(super) stat_mode0_enabled_this_line: bool,
-    pub(super) frame_counter: u64,
+pub(in crate::memory) struct PpuState {
+    pub(in crate::memory) ly_counter: u16,
+    pub(in crate::memory) startup_line: bool,
+    pub(in crate::memory) post_enable_phase: u8,
+    pub(in crate::memory) enable_delay: u8,
+    pub(in crate::memory) mode: PpuMode,
+    pub(in crate::memory) mode_edge_events: PpuModeEdgeEvents,
+    pub(in crate::memory) stat_irq_line: bool,
+    pub(in crate::memory) stat_mode0_enabled_this_line: bool,
+    pub(in crate::memory) frame_counter: u64,
     window_line_counter: u8,
     window_triggered_this_line: bool,
     window_trigger_pending: bool,
     mode3_dots_latched: u16,
     cgb_scaffold_runtime_enabled: bool,
     mode3_fifo: Mode3FifoState,
-    bg_color_ids_line: [u8; super::LCD_WIDTH],
+    bg_color_ids_line: [u8; crate::memory::LCD_WIDTH],
 }
 
 impl Default for PpuState {
@@ -419,17 +423,17 @@ impl Default for PpuState {
             mode3_dots_latched: 0,
             cgb_scaffold_runtime_enabled: false,
             mode3_fifo: Mode3FifoState::default(),
-            bg_color_ids_line: [0; super::LCD_WIDTH],
+            bg_color_ids_line: [0; crate::memory::LCD_WIDTH],
         }
     }
 }
 
 impl PpuState {
-    pub(super) fn configure_model_gates(bus: &mut Bus, model: HardwareModel) {
+    pub(in crate::memory) fn configure_model_gates(bus: &mut Bus, model: HardwareModel) {
         bus.ppu.cgb_scaffold_runtime_enabled = Self::model_supports_cgb_scaffold(model);
     }
 
-    pub(super) fn write_lcdc(bus: &mut Bus, value: u8) {
+    pub(in crate::memory) fn write_lcdc(bus: &mut Bus, value: u8) {
         let was_enabled = Self::lcd_enabled(bus);
         let now_enabled = (value & 0x80) != 0;
         bus.io[0x40] = value;
@@ -473,7 +477,7 @@ impl PpuState {
         }
     }
 
-    pub(super) fn write_stat(bus: &mut Bus, value: u8) {
+    pub(in crate::memory) fn write_stat(bus: &mut Bus, value: u8) {
         // Bits 3..6 are writable. Bits 0..2 are PPU-generated.
         let old_mode0_source = (bus.io[0x41] & 0x08) != 0;
         bus.io[0x41] = (bus.io[0x41] & 0x07) | (value & 0x78);
@@ -486,7 +490,7 @@ impl PpuState {
         Self::update_stat_irq_line(bus);
     }
 
-    pub(super) fn write_lyc(bus: &mut Bus, value: u8) {
+    pub(in crate::memory) fn write_lyc(bus: &mut Bus, value: u8) {
         bus.io[0x45] = value;
         if Self::lcd_enabled(bus) {
             Self::update_lyc_flag(bus);
@@ -494,7 +498,7 @@ impl PpuState {
         }
     }
 
-    pub(super) fn write_ly(bus: &mut Bus, value: u8) {
+    pub(in crate::memory) fn write_ly(bus: &mut Bus, value: u8) {
         let _ = value;
         bus.io[0x44] = 0;
         bus.ppu.ly_counter = 0;
@@ -515,7 +519,7 @@ impl PpuState {
         Self::update_stat_irq_line(bus);
     }
 
-    pub(super) fn step(bus: &mut Bus) {
+    pub(in crate::memory) fn step(bus: &mut Bus) {
         bus.ppu.mode_edge_events = PpuModeEdgeEvents::default();
 
         if !Self::lcd_enabled(bus) {
@@ -614,26 +618,26 @@ impl PpuState {
             && (80..84).contains(&bus.ppu.ly_counter)
     }
 
-    pub(super) fn ppu_blocks_oam_read(bus: &Bus) -> bool {
+    pub(in crate::memory) fn ppu_blocks_oam_read(bus: &Bus) -> bool {
         bus.dma_blocks_oam_cpu_read()
             || Self::ppu_startup_mode0_slice_active(bus)
             || (Self::lcd_enabled(bus)
                 && matches!(Self::ppu_mode(bus), STAT_MODE_OAM | STAT_MODE_TRANSFER))
     }
 
-    pub(super) fn ppu_blocks_oam_write(bus: &Bus) -> bool {
+    pub(in crate::memory) fn ppu_blocks_oam_write(bus: &Bus) -> bool {
         bus.dma_blocks_oam_cpu_write() || !Self::ppu_allows_oam_access(bus)
     }
 
-    pub(super) fn ppu_blocks_vram_read(bus: &Bus) -> bool {
+    pub(in crate::memory) fn ppu_blocks_vram_read(bus: &Bus) -> bool {
         Self::ppu_startup_mode2_tail_active(bus) || !Self::ppu_allows_vram_access(bus)
     }
 
-    pub(super) fn ppu_blocks_vram_write(bus: &Bus) -> bool {
+    pub(in crate::memory) fn ppu_blocks_vram_write(bus: &Bus) -> bool {
         !Self::ppu_allows_vram_access(bus)
     }
 
-    pub(super) fn stat_read_value(bus: &Bus) -> u8 {
+    pub(in crate::memory) fn stat_read_value(bus: &Bus) -> u8 {
         let mut value = bus.io[0x41];
         if Self::ppu_startup_mode0_slice_active(bus) {
             value &= !0x04;
@@ -758,8 +762,9 @@ impl PpuState {
         }
 
         if line_cycle == mode3_start {
-            let row_start = (ly as usize) * super::LCD_WIDTH;
-            bus.framebuffer[row_start..row_start + super::LCD_WIDTH].fill(DMG_SHADE_TO_LUMA[0]);
+            let row_start = (ly as usize) * crate::memory::LCD_WIDTH;
+            bus.framebuffer[row_start..row_start + crate::memory::LCD_WIDTH]
+                .fill(DMG_SHADE_TO_LUMA[0]);
             bus.ppu.bg_color_ids_line.fill(0);
             let discard_pixels = bus.io[0x43] & 0x07;
             bus.ppu.mode3_fifo.start(discard_pixels);
@@ -802,13 +807,13 @@ impl PpuState {
             return;
         }
 
-        if (bus.ppu.mode3_fifo.output_x as usize) < super::LCD_WIDTH {
+        if (bus.ppu.mode3_fifo.output_x as usize) < crate::memory::LCD_WIDTH {
             let x = bus.ppu.mode3_fifo.output_x as usize;
             bus.ppu.mode3_fifo.output_x = bus.ppu.mode3_fifo.output_x.saturating_add(1);
             let obj_pixel = Self::mode3_pop_obj_pixel(bus);
             let pixel_meta = Self::compose_mode3_pixel_meta(lcdc, bg_pixel, obj_pixel);
             let shade_id = Self::map_mode3_dmg_shade_id(bus, pixel_meta);
-            let row_start = y * super::LCD_WIDTH;
+            let row_start = y * crate::memory::LCD_WIDTH;
             bus.ppu.bg_color_ids_line[x] = bg_pixel.color_id;
             bus.framebuffer[row_start + x] = DMG_SHADE_TO_LUMA[shade_id as usize];
         }
@@ -1511,7 +1516,7 @@ impl PpuState {
         }
     }
 
-    pub(super) fn stat_irq_source_active(bus: &Bus) -> bool {
+    pub(in crate::memory) fn stat_irq_source_active(bus: &Bus) -> bool {
         let stat = bus.io[0x41];
         let mode = bus.ppu_mode_kind().stat_mode_bits();
         let lyc = (stat & 0x04) != 0;
@@ -1559,55 +1564,55 @@ impl PpuState {
 }
 
 impl Bus {
-    pub(super) fn configure_ppu_model_gates(&mut self, model: HardwareModel) {
+    pub(in crate::memory) fn configure_ppu_model_gates(&mut self, model: HardwareModel) {
         PpuState::configure_model_gates(self, model);
     }
 
-    pub(super) fn sync_ppu_mode_from_stat_register(&mut self) {
+    pub(in crate::memory) fn sync_ppu_mode_from_stat_register(&mut self) {
         PpuState::force_ppu_mode(self, PpuMode::from_stat_mode_bits(self.io[0x41]));
     }
 
-    pub(super) fn ppu_blocks_oam_read(&self) -> bool {
+    pub(in crate::memory) fn ppu_blocks_oam_read(&self) -> bool {
         PpuState::ppu_blocks_oam_read(self)
     }
 
-    pub(super) fn ppu_blocks_oam_write(&self) -> bool {
+    pub(in crate::memory) fn ppu_blocks_oam_write(&self) -> bool {
         PpuState::ppu_blocks_oam_write(self)
     }
 
-    pub(super) fn ppu_blocks_vram_read(&self) -> bool {
+    pub(in crate::memory) fn ppu_blocks_vram_read(&self) -> bool {
         PpuState::ppu_blocks_vram_read(self)
     }
 
-    pub(super) fn ppu_blocks_vram_write(&self) -> bool {
+    pub(in crate::memory) fn ppu_blocks_vram_write(&self) -> bool {
         PpuState::ppu_blocks_vram_write(self)
     }
 
-    pub(super) fn stat_read_value(&self) -> u8 {
+    pub(in crate::memory) fn stat_read_value(&self) -> u8 {
         PpuState::stat_read_value(self)
     }
 
-    pub(super) fn write_lcdc(&mut self, value: u8) {
+    pub(in crate::memory) fn write_lcdc(&mut self, value: u8) {
         PpuState::write_lcdc(self, value);
     }
 
-    pub(super) fn write_stat(&mut self, value: u8) {
+    pub(in crate::memory) fn write_stat(&mut self, value: u8) {
         PpuState::write_stat(self, value);
     }
 
-    pub(super) fn write_lyc(&mut self, value: u8) {
+    pub(in crate::memory) fn write_lyc(&mut self, value: u8) {
         PpuState::write_lyc(self, value);
     }
 
-    pub(super) fn write_ly(&mut self, value: u8) {
+    pub(in crate::memory) fn write_ly(&mut self, value: u8) {
         PpuState::write_ly(self, value);
     }
 
-    pub(super) fn step_ppu(&mut self) {
+    pub(in crate::memory) fn step_ppu(&mut self) {
         PpuState::step(self);
     }
 
-    pub(super) fn stat_irq_source_active(&self) -> bool {
+    pub(in crate::memory) fn stat_irq_source_active(&self) -> bool {
         PpuState::stat_irq_source_active(self)
     }
 
@@ -1620,87 +1625,87 @@ impl Bus {
     }
 
     #[cfg(test)]
-    pub(super) fn debug_ppu_mode_kind(&self) -> PpuMode {
+    pub(in crate::memory) fn debug_ppu_mode_kind(&self) -> PpuMode {
         self.ppu.mode
     }
 
     #[cfg(test)]
-    pub(super) fn debug_ppu_mode_edge_events(&self) -> PpuModeEdgeEvents {
+    pub(in crate::memory) fn debug_ppu_mode_edge_events(&self) -> PpuModeEdgeEvents {
         self.ppu.mode_edge_events
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_bg_fifo_len(&self) -> usize {
+    pub(in crate::memory) fn mode3_bg_fifo_len(&self) -> usize {
         self.ppu.mode3_fifo.len
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_bg_fetch_dots_remaining(&self) -> u8 {
+    pub(in crate::memory) fn mode3_bg_fetch_dots_remaining(&self) -> u8 {
         self.ppu.mode3_fifo.bg_fetch_dots_remaining
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_bg_fetch_phase(&self) -> u8 {
+    pub(in crate::memory) fn mode3_bg_fetch_phase(&self) -> u8 {
         self.ppu.mode3_fifo.bg_fetch_phase as u8
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_obj_fetch_dots_remaining(&self) -> u8 {
+    pub(in crate::memory) fn mode3_obj_fetch_dots_remaining(&self) -> u8 {
         self.ppu.mode3_fifo.obj_fetch_dots_remaining
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_obj_shutdown_dots_remaining(&self) -> u8 {
+    pub(in crate::memory) fn mode3_obj_shutdown_dots_remaining(&self) -> u8 {
         self.ppu.mode3_fifo.obj_shutdown_dots_remaining
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_obj_next_sprite_index(&self) -> usize {
+    pub(in crate::memory) fn mode3_obj_next_sprite_index(&self) -> usize {
         self.ppu.mode3_fifo.obj_next_sprite
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_window_triggered_this_line(&self) -> bool {
+    pub(in crate::memory) fn mode3_window_triggered_this_line(&self) -> bool {
         self.ppu.window_triggered_this_line
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_window_trigger_pending(&self) -> bool {
+    pub(in crate::memory) fn mode3_window_trigger_pending(&self) -> bool {
         self.ppu.window_trigger_pending
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_window_takeover_boundary(&self) -> bool {
+    pub(in crate::memory) fn mode3_window_takeover_boundary(&self) -> bool {
         PpuState::mode3_window_takeover_boundary(self)
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_output_x(&self) -> u8 {
+    pub(in crate::memory) fn mode3_output_x(&self) -> u8 {
         self.ppu.mode3_fifo.output_x
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_bg_push_stalled_for_fifo(&self) -> bool {
+    pub(in crate::memory) fn mode3_bg_push_stalled_for_fifo(&self) -> bool {
         self.ppu.mode3_fifo.bg_push_substate == BgPushSubstate::Stalled
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_bg_push_recovery_sleep_pending(&self) -> bool {
+    pub(in crate::memory) fn mode3_bg_push_recovery_sleep_pending(&self) -> bool {
         PpuState::mode3_bg_push_recovery_sleep_pending(self)
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_bg_push_ready_takeover_boundary(&self) -> bool {
+    pub(in crate::memory) fn mode3_bg_push_ready_takeover_boundary(&self) -> bool {
         PpuState::mode3_bg_push_ready_takeover_boundary(self)
     }
 
     #[cfg(test)]
-    pub(super) fn mode3_bg_takeover_boundary(&self) -> bool {
+    pub(in crate::memory) fn mode3_bg_takeover_boundary(&self) -> bool {
         PpuState::mode3_bg_takeover_boundary(self)
     }
 
     #[cfg(test)]
-    pub(super) fn debug_compose_mode3_pixel_metadata_and_shade(
+    pub(in crate::memory) fn debug_compose_mode3_pixel_metadata_and_shade(
         &self,
         lcdc: u8,
         bg_color_id: u8,
@@ -1741,7 +1746,7 @@ impl Bus {
     }
 
     #[cfg(test)]
-    pub(super) fn debug_compose_mode3_pixel_cgb_scaffold_and_shade(
+    pub(in crate::memory) fn debug_compose_mode3_pixel_cgb_scaffold_and_shade(
         &self,
         lcdc: u8,
         bg_color_id: u8,
@@ -1776,7 +1781,7 @@ impl Bus {
     }
 
     #[cfg(test)]
-    pub(super) fn debug_mode3_bg_tile_attrs_scaffold_for_screen_x(
+    pub(in crate::memory) fn debug_mode3_bg_tile_attrs_scaffold_for_screen_x(
         &self,
         lcdc: u8,
         y: usize,
@@ -1794,12 +1799,12 @@ impl Bus {
     }
 
     #[cfg(test)]
-    pub(super) fn debug_force_enable_ppu_cgb_scaffold_runtime(&mut self, enabled: bool) {
+    pub(in crate::memory) fn debug_force_enable_ppu_cgb_scaffold_runtime(&mut self, enabled: bool) {
         self.ppu.cgb_scaffold_runtime_enabled = enabled;
     }
 
     #[cfg(test)]
-    pub(super) fn debug_ppu_cgb_scaffold_runtime_enabled(&self) -> bool {
+    pub(in crate::memory) fn debug_ppu_cgb_scaffold_runtime_enabled(&self) -> bool {
         self.ppu.cgb_scaffold_runtime_enabled
     }
 }
