@@ -1,7 +1,7 @@
-use crate::memory::{cgb_mmio::cgb_mmio_register, dma::cgb_dma_mmio_register};
+use crate::memory::{dma::cgb_dma_mmio_register, mmio::cgb::cgb_mmio_register};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::memory::io_router) enum IoRegisterRoute {
+pub(in crate::memory::mmio::router) enum IoRegisterRoute {
     CgbDmaScaffold,
     CgbMmioScaffold,
     ReservedUnmapped,
@@ -22,7 +22,7 @@ pub(in crate::memory::io_router) enum IoRegisterRoute {
 }
 
 #[inline]
-pub(in crate::memory::io_router) fn decode_io_register(addr: u16) -> IoRegisterRoute {
+pub(in crate::memory::mmio::router) fn decode_io_register(addr: u16) -> IoRegisterRoute {
     if cgb_dma_mmio_register(addr).is_some() {
         return IoRegisterRoute::CgbDmaScaffold;
     }

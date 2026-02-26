@@ -1,14 +1,14 @@
-use super::Bus;
+use super::super::Bus;
 
 #[derive(Default)]
-pub(super) struct SerialState {
-    pub(super) output: String,
+pub(in crate::memory) struct SerialState {
+    pub(in crate::memory) output: String,
     pub(super) bits_remaining: u8,
     pub(super) tx_byte: u8,
 }
 
 impl SerialState {
-    pub(super) fn write_control(bus: &mut Bus, value: u8) {
+    pub(in crate::memory) fn write_control(bus: &mut Bus, value: u8) {
         // On DMG/MGB/SGB, only bit7 (transfer start) and bit0 (clock source)
         // are writable/meaningful.
         bus.io[0x02] = value & 0x81;
@@ -23,7 +23,7 @@ impl SerialState {
         }
     }
 
-    pub(super) fn step(bus: &mut Bus, old_div: u16, new_div: u16) {
+    pub(in crate::memory) fn step(bus: &mut Bus, old_div: u16, new_div: u16) {
         if bus.serial.bits_remaining == 0 {
             return;
         }
@@ -59,11 +59,11 @@ impl SerialState {
 }
 
 impl Bus {
-    pub(super) fn write_sc(&mut self, value: u8) {
+    pub(in crate::memory) fn write_sc(&mut self, value: u8) {
         SerialState::write_control(self, value);
     }
 
-    pub(super) fn step_serial(&mut self, old_div: u16, new_div: u16) {
+    pub(in crate::memory) fn step_serial(&mut self, old_div: u16, new_div: u16) {
         SerialState::step(self, old_div, new_div);
     }
 }

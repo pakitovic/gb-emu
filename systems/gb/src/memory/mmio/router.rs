@@ -1,11 +1,12 @@
-use super::{Bus, io_map::io_unused_bits_mask};
+use super::super::Bus;
+use super::map::io_unused_bits_mask;
 
 mod decode;
 
 use self::decode::{IoRegisterRoute, decode_io_register};
 
 impl Bus {
-    pub(super) fn write_io_register(&mut self, addr: u16, value: u8) {
+    pub(in crate::memory) fn write_io_register(&mut self, addr: u16, value: u8) {
         match decode_io_register(addr) {
             IoRegisterRoute::CgbDmaScaffold => {
                 debug_assert!(self.write_cgb_dma_mmio_scaffold(addr, value));
@@ -31,7 +32,7 @@ impl Bus {
         }
     }
 
-    pub(super) fn read_io_register(&self, addr: u16) -> u8 {
+    pub(in crate::memory) fn read_io_register(&self, addr: u16) -> u8 {
         let value = match decode_io_register(addr) {
             IoRegisterRoute::CgbDmaScaffold => self
                 .read_cgb_dma_mmio_scaffold(addr)

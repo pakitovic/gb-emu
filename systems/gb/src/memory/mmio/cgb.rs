@@ -1,4 +1,4 @@
-use super::Bus;
+use super::super::Bus;
 
 const REG_KEY1: u16 = 0xFF4D;
 const REG_VBK: u16 = 0xFF4F;
@@ -22,7 +22,7 @@ pub(in crate::memory) enum CgbMmioRegister {
     Svbk,
 }
 
-pub(super) struct CgbMmioState {
+pub(in crate::memory) struct CgbMmioState {
     key1_shadow: u8,
     vbk_shadow: u8,
     bgpi_shadow: u8,
@@ -123,7 +123,7 @@ impl Bus {
     }
 
     #[cfg(test)]
-    pub(super) fn debug_cgb_mmio_shadows(&self) -> (u8, u8, u8) {
+    pub(in crate::memory) fn debug_cgb_mmio_shadows(&self) -> (u8, u8, u8) {
         (
             self.cgb_mmio.key1_shadow,
             self.cgb_mmio.vbk_shadow,
@@ -132,12 +132,12 @@ impl Bus {
     }
 
     #[cfg(test)]
-    pub(super) fn debug_cgb_palette_index_shadows(&self) -> (u8, u8) {
+    pub(in crate::memory) fn debug_cgb_palette_index_shadows(&self) -> (u8, u8) {
         (self.cgb_mmio.bgpi_shadow, self.cgb_mmio.obpi_shadow)
     }
 
     #[cfg(test)]
-    pub(super) fn debug_cgb_palette_shadow_byte(&self, is_obj: bool, index: u8) -> u8 {
+    pub(in crate::memory) fn debug_cgb_palette_shadow_byte(&self, is_obj: bool, index: u8) -> u8 {
         let index = (index & CGB_PALETTE_INDEX_MASK) as usize;
         if is_obj {
             self.cgb_mmio.obj_palette_shadow[index]
@@ -147,7 +147,7 @@ impl Bus {
     }
 
     #[cfg(test)]
-    pub(super) fn debug_cgb_effective_bank_selection(&self) -> (u8, u8) {
+    pub(in crate::memory) fn debug_cgb_effective_bank_selection(&self) -> (u8, u8) {
         (
             self.cgb_mmio.dmg_effective_vram_bank(),
             self.cgb_mmio.dmg_effective_wram_bank_slot(),
