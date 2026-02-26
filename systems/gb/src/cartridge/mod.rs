@@ -1,8 +1,10 @@
 use std::fmt::{Display, Formatter};
 
+mod capabilities;
 mod clock;
 mod persistence;
 
+pub(crate) use self::capabilities::CartridgeCapabilities;
 use self::clock::{FixedRtcClock, RtcClock, SystemRtcClock};
 
 const HEADER_MIN_LEN: usize = 0x150;
@@ -766,10 +768,11 @@ impl Cartridge {
     }
 
     pub fn metadata(&self) -> CartridgeMetadata {
+        let capabilities = self.capabilities();
         CartridgeMetadata {
             title: self.title.clone(),
             cart_type_code: self.cart_type_code,
-            mapper: public_mapper(self.mapper),
+            mapper: capabilities.mapper,
             rom_size_code: self.rom_size_code,
             ram_size_code: self.ram_size_code,
             rom_size_bytes: self.rom.len(),
@@ -777,11 +780,11 @@ impl Cartridge {
             declared_ram_size_bytes: self.declared_ram_size_bytes,
             effective_ram_size_bytes: self.ram.len(),
             ram_bank_count: self.ram_bank_count,
-            compatibility_ram_mode: self.compatibility_ram_mode,
-            has_battery: self.has_battery,
-            has_timer: self.has_timer,
-            has_rumble: self.has_rumble(),
-            has_battery_save: self.has_battery_save(),
+            compatibility_ram_mode: capabilities.compatibility_ram_mode,
+            has_battery: capabilities.has_battery,
+            has_timer: capabilities.has_timer,
+            has_rumble: capabilities.has_rumble,
+            has_battery_save: capabilities.has_battery_save,
             rumble_active: self.rumble_active(),
             header_warnings: self.header_warnings.clone(),
         }
@@ -1544,6 +1547,70 @@ mod tests {
         assert!(!metadata.has_rumble);
         assert!(!metadata.has_battery_save);
         assert!(!metadata.rumble_active);
+    }
+
+    #[test]
+    fn capabilities_report_mapper_flags_and_cgb_header_support() {
+        let mut rom = make_rom(64 * 1024, MBC3_TIMER_RAM_BATTERY, 0x01, 0x03);
+        rom[0x0143] = 0x80; // CGB-compatible flag (non-CGB behavior still unchanged in current scope)
+        let cart = Cartridge::from_bytes(rom).expect("valid MBC3 timer+RAM ROM should load");
+        let capabilities = cart.capabilities();
+
+        assert_eq!(capabilities.mapper, CartridgeMapper::Mbc3);
+        assert!(capabilities.has_declared_ram);
+        assert!(capabilities.has_effective_ram);
+        assert!(!capabilities.compatibility_ram_mode);
+        assert!(capabilities.has_battery);
+        assert!(capabilities.has_timer);
+        assert!(!capabilities.has_rumble);
+        assert!(capabilities.has_battery_save);
+        assert_eq!(capabilities.cgb_header_flag_raw, 0x80);
+        assert_eq!(
+            capabilities.cgb_support,
+            capabilities::CartridgeCgbSupport::Supported
+        );
+        assert!(capabilities.supports_cgb);
+        assert!(!capabilities.cgb_only);
+    }
+
+    #[test]
+    fn capabilities_distinguish_declared_vs_effective_ram_and_cgb_only_header() {
+        let mut rom = make_rom(32 * 1024, ROM_ONLY, 0x00, 0x00);
+        rom[0x0143] = 0xC0; // CGB-only flag (still DMG-loadable in current scope)
+        let cart = Cartridge::from_bytes(rom).expect("valid ROM-only ROM should load");
+        let capabilities = cart.capabilities();
+
+        assert_eq!(capabilities.mapper, CartridgeMapper::RomOnly);
+        assert!(!capabilities.has_declared_ram);
+        assert!(capabilities.has_effective_ram);
+        assert!(capabilities.compatibility_ram_mode);
+        assert!(!capabilities.has_battery);
+        assert!(!capabilities.has_timer);
+        assert!(!capabilities.has_rumble);
+        assert!(!capabilities.has_battery_save);
+        assert_eq!(capabilities.cgb_header_flag_raw, 0xC0);
+        assert_eq!(
+            capabilities.cgb_support,
+            capabilities::CartridgeCgbSupport::Required
+        );
+        assert!(capabilities.supports_cgb);
+        assert!(capabilities.cgb_only);
+    }
+
+    #[test]
+    fn capabilities_treat_unknown_cgb_header_flags_as_none() {
+        let mut rom = make_rom(32 * 1024, ROM_ONLY, 0x00, 0x00);
+        rom[0x0143] = 0x42;
+        let cart = Cartridge::from_bytes(rom).expect("valid ROM-only ROM should load");
+        let capabilities = cart.capabilities();
+
+        assert_eq!(capabilities.cgb_header_flag_raw, 0x42);
+        assert_eq!(
+            capabilities.cgb_support,
+            capabilities::CartridgeCgbSupport::None
+        );
+        assert!(!capabilities.supports_cgb);
+        assert!(!capabilities.cgb_only);
     }
 
     #[test]

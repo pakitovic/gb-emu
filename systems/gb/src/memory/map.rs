@@ -1,5 +1,5 @@
 use super::Bus;
-use crate::cartridge::CartridgeMetadata;
+use crate::cartridge::{CartridgeCapabilities, CartridgeMetadata};
 
 impl Bus {
     pub fn rom_title(&self) -> &str {
@@ -50,8 +50,12 @@ impl Bus {
         self.cartridge.metadata()
     }
 
+    pub(crate) fn cartridge_capabilities(&self) -> CartridgeCapabilities {
+        self.cartridge.capabilities()
+    }
+
     pub fn cartridge_has_rumble(&self) -> bool {
-        self.cartridge.has_rumble()
+        self.cartridge_capabilities().has_rumble
     }
 
     pub fn rumble_active(&self) -> bool {
