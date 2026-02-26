@@ -1,4 +1,5 @@
 use super::Bus;
+use crate::hardware::HardwareModel;
 
 const STAT_MODE_HBLANK: u8 = 0;
 const STAT_MODE_VBLANK: u8 = 1;
@@ -395,6 +396,7 @@ pub(super) struct PpuState {
     window_triggered_this_line: bool,
     window_trigger_pending: bool,
     mode3_dots_latched: u16,
+    cgb_scaffold_runtime_enabled: bool,
     mode3_fifo: Mode3FifoState,
     bg_color_ids_line: [u8; super::LCD_WIDTH],
 }
@@ -415,6 +417,7 @@ impl Default for PpuState {
             window_triggered_this_line: false,
             window_trigger_pending: false,
             mode3_dots_latched: 0,
+            cgb_scaffold_runtime_enabled: false,
             mode3_fifo: Mode3FifoState::default(),
             bg_color_ids_line: [0; super::LCD_WIDTH],
         }
@@ -422,6 +425,10 @@ impl Default for PpuState {
 }
 
 impl PpuState {
+    pub(super) fn configure_model_gates(bus: &mut Bus, model: HardwareModel) {
+        bus.ppu.cgb_scaffold_runtime_enabled = Self::model_supports_cgb_scaffold(model);
+    }
+
     pub(super) fn write_lcdc(bus: &mut Bus, value: u8) {
         let was_enabled = Self::lcd_enabled(bus);
         let now_enabled = (value & 0x80) != 0;
@@ -608,14 +615,14 @@ impl PpuState {
     }
 
     pub(super) fn ppu_blocks_oam_read(bus: &Bus) -> bool {
-        bus.dma.active
+        bus.dma_blocks_oam_cpu_read()
             || Self::ppu_startup_mode0_slice_active(bus)
             || (Self::lcd_enabled(bus)
                 && matches!(Self::ppu_mode(bus), STAT_MODE_OAM | STAT_MODE_TRANSFER))
     }
 
     pub(super) fn ppu_blocks_oam_write(bus: &Bus) -> bool {
-        bus.dma.active || !Self::ppu_allows_oam_access(bus)
+        bus.dma_blocks_oam_cpu_write() || !Self::ppu_allows_oam_access(bus)
     }
 
     pub(super) fn ppu_blocks_vram_read(bus: &Bus) -> bool {
@@ -1061,6 +1068,12 @@ impl PpuState {
         screen_x: i16,
     ) -> BgFifoPixel {
         let color_id = Self::mode3_bg_color_id_for_screen_x(bus, lcdc, y, screen_x);
+        if !bus.ppu.cgb_scaffold_runtime_enabled {
+            return BgFifoPixel {
+                color_id,
+                cgb_bg_attrs: CgbBgTileAttrsScaffold::default(),
+            };
+        }
         let cgb_bg_attrs = Self::mode3_bg_tile_attrs_for_screen_x_scaffold(bus, lcdc, y, screen_x);
         BgFifoPixel {
             color_id,
@@ -1074,6 +1087,7 @@ impl PpuState {
         y: usize,
         screen_x: i16,
     ) -> (u8, CgbBgTileAttrsScaffold, usize) {
+        let cgb_scaffold_enabled = bus.ppu.cgb_scaffold_runtime_enabled;
         if bus.ppu.mode3_fifo.window_active {
             let window_map_base = if (lcdc & 0x40) != 0 {
                 0x1C00usize
@@ -1084,9 +1098,13 @@ impl PpuState {
             let window_y = bus.ppu.window_line_counter as usize;
             let tile_map_index = (window_y / 8) * 32 + (window_x / 8);
             let tile_index = bus.read_vram_index_internal(window_map_base + tile_map_index);
-            let cgb_bg_attrs = Self::decode_cgb_bg_tile_attrs_scaffold(
-                bus.read_vram_bank_index_internal(1, window_map_base + tile_map_index),
-            );
+            let cgb_bg_attrs = if cgb_scaffold_enabled {
+                Self::decode_cgb_bg_tile_attrs_scaffold(
+                    bus.read_vram_bank_index_internal(1, window_map_base + tile_map_index),
+                )
+            } else {
+                CgbBgTileAttrsScaffold::default()
+            };
             let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, window_y & 0x07);
             return (tile_index, cgb_bg_attrs, tile_line_addr);
         }
@@ -1104,9 +1122,13 @@ impl PpuState {
         let tile_row = (bg_y / 8) as usize;
         let tile_map_index = tile_row * 32 + tile_col;
         let tile_index = bus.read_vram_index_internal(bg_map_base + tile_map_index);
-        let cgb_bg_attrs = Self::decode_cgb_bg_tile_attrs_scaffold(
-            bus.read_vram_bank_index_internal(1, bg_map_base + tile_map_index),
-        );
+        let cgb_bg_attrs = if cgb_scaffold_enabled {
+            Self::decode_cgb_bg_tile_attrs_scaffold(
+                bus.read_vram_bank_index_internal(1, bg_map_base + tile_map_index),
+            )
+        } else {
+            CgbBgTileAttrsScaffold::default()
+        };
         let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, (bg_y & 0x07) as usize);
         (tile_index, cgb_bg_attrs, tile_line_addr)
     }
@@ -1355,10 +1377,15 @@ impl PpuState {
             }
 
             let rel = rel_offset as usize + (x_in_sprite - lane_start);
+            let cgb_obj_attrs = if bus.ppu.cgb_scaffold_runtime_enabled {
+                Self::decode_cgb_obj_attrs_scaffold(sprite.attr)
+            } else {
+                CgbObjAttrsScaffold::default()
+            };
             let pixel = ObjFifoPixel {
                 color_id,
                 attr: sprite.attr,
-                cgb_obj_attrs: Self::decode_cgb_obj_attrs_scaffold(sprite.attr),
+                cgb_obj_attrs,
             };
             bus.ppu.mode3_fifo.obj_set_if_transparent(rel, pixel);
         }
@@ -1379,6 +1406,11 @@ impl PpuState {
             palette_index: attr & 0x07,
             vram_bank: (attr >> 3) & 0x01,
         }
+    }
+
+    fn model_supports_cgb_scaffold(_model: HardwareModel) -> bool {
+        // Current project scope exposes only DMG-family models.
+        false
     }
 
     fn compose_mode3_pixel_meta(
@@ -1527,6 +1559,10 @@ impl PpuState {
 }
 
 impl Bus {
+    pub(super) fn configure_ppu_model_gates(&mut self, model: HardwareModel) {
+        PpuState::configure_model_gates(self, model);
+    }
+
     pub(super) fn sync_ppu_mode_from_stat_register(&mut self) {
         PpuState::force_ppu_mode(self, PpuMode::from_stat_mode_bits(self.io[0x41]));
     }
@@ -1755,5 +1791,15 @@ impl Bus {
             attrs.y_flip,
             attrs.bg_priority,
         )
+    }
+
+    #[cfg(test)]
+    pub(super) fn debug_force_enable_ppu_cgb_scaffold_runtime(&mut self, enabled: bool) {
+        self.ppu.cgb_scaffold_runtime_enabled = enabled;
+    }
+
+    #[cfg(test)]
+    pub(super) fn debug_ppu_cgb_scaffold_runtime_enabled(&self) -> bool {
+        self.ppu.cgb_scaffold_runtime_enabled
     }
 }

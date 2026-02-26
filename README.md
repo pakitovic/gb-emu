@@ -11,6 +11,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - CPU timing plumbing now derives control/jump/ALU/load/CB instruction return timings from the clock-ratio policy (`mcycles -> tcycles`), and non-instruction CPU timing paths (HALT idle step + interrupt service dispatch) also use explicit policy-derived timing returns, while keeping behavior unchanged in current DMG scope.
 - Bus/memory access now routes VRAM/WRAM/OAM through internal segment helpers (CPU-visible vs hardware-internal access modes) with centralized VRAM/OAM blocking rules, reducing future CGB banking (`VBK`/`SVBK`) refactor scope.
 - MMIO decode now includes DMG-noop scaffolding for CGB-only registers (`KEY1`, `VBK`, `SVBK`) with internal shadowed fields, and VRAM/WRAM bus helpers now resolve through DMG-fixed bank-selection scaffolding hooks backed by real multi-bank storage (CGB-sized VRAM/WRAM backing kept DMG-fixed by effective bank policy) so future CGB banking wiring can stay localized to the bus/MMIO layer.
+- DMA is now modeled as a scheduler-style state machine with incremental `tick(tcycles)` advancement, formal mode/edge state, centralized DMA CPU access-block policy hooks (currently only DMG OAM DMA behavior is active), and DMG-noop scaffolding for future CGB DMA control registers (`HDMA1..HDMA5`) plus model-gated `GDMA/HDMA` scheduler paths (transfer-state/request wiring and HBlank-edge hook integration, inactive for current DMG-family models) to reduce future HDMA/GDMA integration refactor scope.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
 
@@ -30,7 +31,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Mode 3 OBJ/window arbitration now uses the same OBJ fetch-start lookahead as the OBJ fetcher path (including `Push` boundary handling), reducing window/OBJ overlap corruption seen in commercial scenes (e.g. mid-line window restarts around active sprites).
 - Mode 3 pixel composition now carries intermediate DMG pixel metadata (`source`, `color_id`, priority flags, palette selector) and applies DMG grayscale mapping in a final color step, reducing future CGB BG/OBJ palette/priority integration refactor scope.
 - PPU now keeps an explicit formal mode state plus one-tick mode-entry edge events (`entered OAM/Transfer/HBlank/VBlank`) synchronized with STAT mode bits and used internally for mode-sensitive interrupt timing hooks (including VBlank entry), reducing future HBlank-DMA/HDMA integration refactor scope.
-- PPU Mode 3 metadata scaffolding now also decodes/carries CGB-oriented BG tile attrs and OBJ palette/bank metadata placeholders (including tilemap attr reads from VRAM bank 1 backing) while keeping current DMG color output behavior unchanged.
+- PPU Mode 3 metadata scaffolding now also defines CGB-oriented BG tile attrs and OBJ palette/bank metadata placeholders, with runtime wiring model-gated off for current DMG-family models (test/debug paths can still exercise the scaffold) while current DMG color output behavior remains unchanged.
 - Mode 3 window restarts now clear any remaining BG fine-scroll discard (`SCX & 7`) so WX-aligned HUD/window lines stay fixed instead of inheriting BG scroll jitter (e.g. Kirby's Dream Land HUD).
 - Mode 3 line-start BG fine-scroll discard now advances the OBJ FIFO in lockstep with discarded BG pixels, fixing left-edge sprite column misalignment when `SCX` uses sub-tile offsets (e.g. Super Mario Land at the camera left boundary).
 - Mode 3 line duration now grows from runtime OBJ fetch contention (including mid-line OBJ enable/disable effects), reducing reliance on static per-line penalty estimates.
@@ -225,6 +226,7 @@ Supported models for `--model`:
 - CPU timing plumbing is mostly policy-derived in current DMG scope, but some CPU timing work remains outside this migration (for example future CGB-specific timing behavior/policies and additional non-instruction edge cases not yet explicitly characterized).
 - The bus/memory segment helper layer is currently DMG single-bank only; future CGB VRAM/WRAM bank selection (`VBK`/`SVBK`) and CGB-specific bus access rules are not implemented yet.
 - `KEY1`/`VBK`/`SVBK` MMIO scaffolding is still DMG-noop in current scope: reads behave as unmapped (`0xFF`), writes do not alter emulation behavior, and VRAM/WRAM bank-selection hooks remain pinned to DMG-fixed effective banks (despite real multi-bank backing being allocated) while only internal placeholder shadows are recorded for future CGB wiring.
+- DMA scheduling remains DMG-only in public behavior and implements only OAM DMA transfer rules for current models; `HDMA1..HDMA5` writes are DMG-visible no-ops, and while model-gated `GDMA/HDMA` transfer-state/HBlank-hook scaffolding now exists internally for future CGB wiring, CGB DMA enablement, timing accuracy, and CGB-specific DMA bus restrictions are not implemented yet.
 - `GameBoy`/`Bus` currently expose a small set of persistence-byte bridge helpers for `gb_runtime::cartridge_persistence`; tightening or reshaping that host-facing boundary is deferred unless the core API surface grows significantly.
 
 ### Runtime / Host Utility Maintainability
@@ -234,7 +236,7 @@ Supported models for `--model`:
 ### PPU / Rendering / Timing Fidelity
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
 - Dot-stepped OBJ fetch contention now extends Mode 3 at runtime and takeover boundaries include FIFO-stall arbitration; some DMG fetcher bus-phase details (for example full hardware sleep/push micro-ops) are still approximated.
-- The Mode 3 pixel pipeline now carries DMG-oriented intermediate metadata plus CGB attr/palette scaffolding fields, but CGB BG tile attributes / OBJ palette metadata are not yet used to change rendering rules or final color output (current behavior remains DMG-only).
+- The Mode 3 pixel pipeline now carries DMG-oriented intermediate metadata plus CGB attr/palette scaffolding fields, but CGB BG tile attributes / OBJ palette metadata are not yet used to change rendering rules or final color output (current behavior remains DMG-only, and runtime scaffold wiring is model-gated off for current DMG-family models).
 - Formal PPU mode-entry edge hooks now exist for future HBlank-DMA/HDMA wiring, but no HDMA/HBlank DMA behavior is implemented in current DMG scope.
 - Recent Mode 3 BG `Push` fetcher work refines the internal state-machine (explicit latched `RecoverySleep` substate) and improves regression observability for the `stall/recovery` path, but it does not yet introduce additional hardware-visible micro-ops outside that `stall -> recovery sleep -> push-ready` flow.
 - Remaining high-impact PPU fidelity work is concentrated in timing-sensitive Mode 3 corner cases (finer fetcher micro-ops / bus-phase modeling and additional DMA/STAT contention edge cases beyond the currently covered regressions).
@@ -311,6 +313,8 @@ scripts/blargg/fetch_blargg_roms.sh
 scripts/blargg/run_cpu_instrs_guard.sh
 # Targeted audio/realtime mixer guard (local/dev, timeout-based):
 scripts/dev/run_audio_guard.sh
+# Targeted DMA scheduler debug guard (local/dev and CI, timeout-based):
+scripts/dev/run_dma_guard.sh
 # Runs all configured DMG Blargg ROMs:
 scripts/blargg/run_blargg.sh
 
@@ -334,6 +338,7 @@ Useful environment overrides for scripts:
 - `MAX_STEPS` and `TIMEOUT_SECS` to tune execution limits.
 - `GEKKIO_VERSION` to fetch a specific Mooneye bundle version.
 - `TEST_NAME` to override the integration test executed by `scripts/dev/run_audio_guard.sh`.
+- `TEST_NAME` to override the unit test executed by `scripts/dev/run_dma_guard.sh`.
 
 ## Frontend Bootstrap (SDL2 + Web)
 

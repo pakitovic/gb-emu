@@ -14,7 +14,7 @@ impl HardwareScheduler {
         // TIMA reload -> PPU -> OAM DMA -> DIV edge/serial/TIMA edge -> reload block.
         bus.step_tima_reload();
         bus.step_ppu();
-        bus.step_oam_dma();
+        bus.tick_dma_scheduler_tcycle();
 
         let divider_step = bus.step_timer_divider();
         bus.step_apu_frame_sequencer_from_divider(divider_step.old_div, divider_step.new_div);
