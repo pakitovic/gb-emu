@@ -104,19 +104,46 @@ impl ObjCandidate {
 #[derive(Clone, Copy, Default)]
 struct BgFifoPixel {
     color_id: u8,
+    cgb_bg_attrs: CgbBgTileAttrsScaffold,
 }
 
 #[derive(Clone, Copy, Default)]
 struct ObjFifoPixel {
     color_id: u8,
     attr: u8,
+    cgb_obj_attrs: CgbObjAttrsScaffold,
 }
 
 impl ObjFifoPixel {
     const TRANSPARENT: Self = Self {
         color_id: 0,
         attr: 0,
+        cgb_obj_attrs: CgbObjAttrsScaffold {
+            palette_index: 0,
+            vram_bank: 0,
+        },
     };
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct CgbBgTileAttrsScaffold {
+    palette_index: u8,
+    vram_bank: u8,
+    x_flip: bool,
+    y_flip: bool,
+    bg_priority: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct CgbObjAttrsScaffold {
+    palette_index: u8,
+    vram_bank: u8,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Mode3CgbPixelMetaScaffold {
+    bg_attrs: CgbBgTileAttrsScaffold,
+    obj_attrs: CgbObjAttrsScaffold,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -145,6 +172,7 @@ struct Mode3PixelMeta {
     source: Mode3PixelSource,
     priority_flags: Mode3PixelPriorityFlags,
     dmg_palette: DmgPaletteSelector,
+    cgb_scaffold: Mode3CgbPixelMetaScaffold,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -186,6 +214,7 @@ struct Mode3FifoState {
     bg_fetch_tile_line_addr: usize,
     bg_fetch_low: u8,
     bg_fetch_high: u8,
+    bg_fetch_cgb_attrs: CgbBgTileAttrsScaffold,
     bg_push_substate: BgPushSubstate,
     obj_head: usize,
     obj_len: usize,
@@ -215,6 +244,7 @@ impl Mode3FifoState {
         self.bg_fetch_tile_line_addr = 0;
         self.bg_fetch_low = 0;
         self.bg_fetch_high = 0;
+        self.bg_fetch_cgb_attrs = CgbBgTileAttrsScaffold::default();
         self.bg_push_substate = BgPushSubstate::ReadyNormal;
         self.obj_head = 0;
         self.obj_len = 0;
@@ -243,6 +273,7 @@ impl Mode3FifoState {
         self.bg_fetch_tile_line_addr = 0;
         self.bg_fetch_low = 0;
         self.bg_fetch_high = 0;
+        self.bg_fetch_cgb_attrs = CgbBgTileAttrsScaffold::default();
         self.bg_push_substate = BgPushSubstate::ReadyNormal;
         self.obj_head = 0;
         self.obj_len = 0;
@@ -275,6 +306,7 @@ impl Mode3FifoState {
         self.bg_fetch_tile_line_addr = 0;
         self.bg_fetch_low = 0;
         self.bg_fetch_high = 0;
+        self.bg_fetch_cgb_attrs = CgbBgTileAttrsScaffold::default();
         self.bg_push_substate = BgPushSubstate::ReadyNormal;
     }
 
@@ -906,7 +938,7 @@ impl PpuState {
 
                 match bus.ppu.mode3_fifo.bg_fetch_phase {
                     BgFetchPhase::TileIndex => {
-                        let (tile_index, tile_line_addr) =
+                        let (tile_index, cgb_bg_attrs, tile_line_addr) =
                             Self::mode3_fetch_tile_index_and_line_addr(
                                 bus,
                                 lcdc,
@@ -914,6 +946,7 @@ impl PpuState {
                                 bus.ppu.mode3_fifo.fetch_screen_x,
                             );
                         bus.ppu.mode3_fifo.bg_fetch_tile_index = tile_index;
+                        bus.ppu.mode3_fifo.bg_fetch_cgb_attrs = cgb_bg_attrs;
                         bus.ppu.mode3_fifo.bg_fetch_tile_line_addr = tile_line_addr;
                         bus.ppu.mode3_fifo.bg_fetch_phase = BgFetchPhase::TileDataLow;
                         bus.ppu.mode3_fifo.bg_fetch_dots_remaining = BG_FETCH_PHASE_DOTS;
@@ -966,19 +999,20 @@ impl PpuState {
                 let bit = 7u8.wrapping_sub(lane);
                 let color_id = (((bus.ppu.mode3_fifo.bg_fetch_high >> bit) & 1) << 1)
                     | ((bus.ppu.mode3_fifo.bg_fetch_low >> bit) & 1);
-                bus.ppu.mode3_fifo.push(BgFifoPixel { color_id });
+                bus.ppu.mode3_fifo.push(BgFifoPixel {
+                    color_id,
+                    cgb_bg_attrs: bus.ppu.mode3_fifo.bg_fetch_cgb_attrs,
+                });
             }
         } else {
             let mut fetched_pixels = [BgFifoPixel::default(); 8];
             for (lane, pixel) in fetched_pixels.iter_mut().enumerate() {
-                *pixel = BgFifoPixel {
-                    color_id: Self::mode3_bg_color_id_for_screen_x(
-                        bus,
-                        lcdc,
-                        y,
-                        fetch_screen_x + lane as i16,
-                    ),
-                };
+                *pixel = Self::mode3_bg_pixel_for_screen_x_scaffold(
+                    bus,
+                    lcdc,
+                    y,
+                    fetch_screen_x + lane as i16,
+                );
             }
             for pixel in fetched_pixels {
                 bus.ppu.mode3_fifo.push(pixel);
@@ -1020,12 +1054,26 @@ impl PpuState {
         Self::background_color_id_for_screen_x(bus, lcdc, y, screen_x)
     }
 
+    fn mode3_bg_pixel_for_screen_x_scaffold(
+        bus: &Bus,
+        lcdc: u8,
+        y: usize,
+        screen_x: i16,
+    ) -> BgFifoPixel {
+        let color_id = Self::mode3_bg_color_id_for_screen_x(bus, lcdc, y, screen_x);
+        let cgb_bg_attrs = Self::mode3_bg_tile_attrs_for_screen_x_scaffold(bus, lcdc, y, screen_x);
+        BgFifoPixel {
+            color_id,
+            cgb_bg_attrs,
+        }
+    }
+
     fn mode3_fetch_tile_index_and_line_addr(
         bus: &Bus,
         lcdc: u8,
         y: usize,
         screen_x: i16,
-    ) -> (u8, usize) {
+    ) -> (u8, CgbBgTileAttrsScaffold, usize) {
         if bus.ppu.mode3_fifo.window_active {
             let window_map_base = if (lcdc & 0x40) != 0 {
                 0x1C00usize
@@ -1036,8 +1084,11 @@ impl PpuState {
             let window_y = bus.ppu.window_line_counter as usize;
             let tile_map_index = (window_y / 8) * 32 + (window_x / 8);
             let tile_index = bus.read_vram_index_internal(window_map_base + tile_map_index);
+            let cgb_bg_attrs = Self::decode_cgb_bg_tile_attrs_scaffold(
+                bus.read_vram_bank_index_internal(1, window_map_base + tile_map_index),
+            );
             let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, window_y & 0x07);
-            return (tile_index, tile_line_addr);
+            return (tile_index, cgb_bg_attrs, tile_line_addr);
         }
 
         let scx = bus.io[0x43];
@@ -1053,8 +1104,22 @@ impl PpuState {
         let tile_row = (bg_y / 8) as usize;
         let tile_map_index = tile_row * 32 + tile_col;
         let tile_index = bus.read_vram_index_internal(bg_map_base + tile_map_index);
+        let cgb_bg_attrs = Self::decode_cgb_bg_tile_attrs_scaffold(
+            bus.read_vram_bank_index_internal(1, bg_map_base + tile_map_index),
+        );
         let tile_line_addr = Self::bg_tile_line_addr(lcdc, tile_index, (bg_y & 0x07) as usize);
-        (tile_index, tile_line_addr)
+        (tile_index, cgb_bg_attrs, tile_line_addr)
+    }
+
+    fn mode3_bg_tile_attrs_for_screen_x_scaffold(
+        bus: &Bus,
+        lcdc: u8,
+        y: usize,
+        screen_x: i16,
+    ) -> CgbBgTileAttrsScaffold {
+        let (_tile_index, attrs, _tile_line_addr) =
+            Self::mode3_fetch_tile_index_and_line_addr(bus, lcdc, y, screen_x);
+        attrs
     }
 
     fn mode3_fetch_bit_x_start(bus: &Bus, screen_x: i16) -> u8 {
@@ -1293,8 +1358,26 @@ impl PpuState {
             let pixel = ObjFifoPixel {
                 color_id,
                 attr: sprite.attr,
+                cgb_obj_attrs: Self::decode_cgb_obj_attrs_scaffold(sprite.attr),
             };
             bus.ppu.mode3_fifo.obj_set_if_transparent(rel, pixel);
+        }
+    }
+
+    fn decode_cgb_bg_tile_attrs_scaffold(attr: u8) -> CgbBgTileAttrsScaffold {
+        CgbBgTileAttrsScaffold {
+            palette_index: attr & 0x07,
+            vram_bank: (attr >> 3) & 0x01,
+            x_flip: (attr & 0x20) != 0,
+            y_flip: (attr & 0x40) != 0,
+            bg_priority: (attr & 0x80) != 0,
+        }
+    }
+
+    fn decode_cgb_obj_attrs_scaffold(attr: u8) -> CgbObjAttrsScaffold {
+        CgbObjAttrsScaffold {
+            palette_index: attr & 0x07,
+            vram_bank: (attr >> 3) & 0x01,
         }
     }
 
@@ -1322,6 +1405,10 @@ impl PpuState {
                 } else {
                     DmgPaletteSelector::ForcedWhite
                 },
+                cgb_scaffold: Mode3CgbPixelMetaScaffold {
+                    bg_attrs: bg_pixel.cgb_bg_attrs,
+                    obj_attrs: obj_pixel.cgb_obj_attrs,
+                },
             };
         }
 
@@ -1333,6 +1420,10 @@ impl PpuState {
                 DmgPaletteSelector::Obj1
             } else {
                 DmgPaletteSelector::Obj0
+            },
+            cgb_scaffold: Mode3CgbPixelMetaScaffold {
+                bg_attrs: bg_pixel.cgb_bg_attrs,
+                obj_attrs: obj_pixel.cgb_obj_attrs,
             },
         }
     }
@@ -1584,10 +1675,12 @@ impl Bus {
             lcdc,
             BgFifoPixel {
                 color_id: bg_color_id,
+                cgb_bg_attrs: CgbBgTileAttrsScaffold::default(),
             },
             ObjFifoPixel {
                 color_id: obj_color_id,
                 attr: obj_attr,
+                cgb_obj_attrs: PpuState::decode_cgb_obj_attrs_scaffold(obj_attr),
             },
         );
         let palette_code = match pixel.dmg_palette {
@@ -1608,6 +1701,59 @@ impl Bus {
             pixel.priority_flags.obj_behind_bg,
             pixel.priority_flags.bg_color_nonzero,
             shade_id,
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn debug_compose_mode3_pixel_cgb_scaffold_and_shade(
+        &self,
+        lcdc: u8,
+        bg_color_id: u8,
+        bg_attr_byte: u8,
+        obj_color_id: u8,
+        obj_attr: u8,
+    ) -> (u8, u8, bool, bool, u8, u8, u8) {
+        let bg_attrs = PpuState::decode_cgb_bg_tile_attrs_scaffold(bg_attr_byte);
+        let obj_attrs = PpuState::decode_cgb_obj_attrs_scaffold(obj_attr);
+        let pixel = PpuState::compose_mode3_pixel_meta(
+            lcdc,
+            BgFifoPixel {
+                color_id: bg_color_id,
+                cgb_bg_attrs: bg_attrs,
+            },
+            ObjFifoPixel {
+                color_id: obj_color_id,
+                attr: obj_attr,
+                cgb_obj_attrs: obj_attrs,
+            },
+        );
+        let shade_id = PpuState::map_mode3_dmg_shade_id(self, pixel);
+        (
+            pixel.cgb_scaffold.bg_attrs.palette_index,
+            pixel.cgb_scaffold.bg_attrs.vram_bank,
+            pixel.cgb_scaffold.bg_attrs.x_flip,
+            pixel.cgb_scaffold.bg_attrs.bg_priority,
+            pixel.cgb_scaffold.obj_attrs.palette_index,
+            pixel.cgb_scaffold.obj_attrs.vram_bank,
+            shade_id,
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn debug_mode3_bg_tile_attrs_scaffold_for_screen_x(
+        &self,
+        lcdc: u8,
+        y: usize,
+        screen_x: i16,
+    ) -> (u8, u8, bool, bool, bool) {
+        let (_tile_index, attrs, _tile_line_addr) =
+            PpuState::mode3_fetch_tile_index_and_line_addr(self, lcdc, y, screen_x);
+        (
+            attrs.palette_index,
+            attrs.vram_bank,
+            attrs.x_flip,
+            attrs.y_flip,
+            attrs.bg_priority,
         )
     }
 }

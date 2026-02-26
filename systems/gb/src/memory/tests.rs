@@ -270,6 +270,37 @@ fn cgb_mmio_bank_selection_scaffold_is_connected_but_dmg_fixed() {
 }
 
 #[test]
+fn cgb_mmio_bank_selection_scaffold_uses_real_multibank_backing_storage() {
+    let mut bus = make_test_bus();
+
+    assert_eq!(
+        bus.debug_storage_bank_backing_lengths(),
+        (0x4000, 0x8000),
+        "CGB-ready scaffold should allocate full VRAM/WRAM backing even in DMG mode"
+    );
+
+    bus.write_vram_bank_index_internal(0, 0x0123, 0x11);
+    bus.write_vram_bank_index_internal(1, 0x0123, 0x22);
+    assert_eq!(bus.read_vram_bank_index_internal(0, 0x0123), 0x11);
+    assert_eq!(bus.read_vram_bank_index_internal(1, 0x0123), 0x22);
+    assert_eq!(
+        bus.read_vram(0x8123, SegmentAccess::Hardware),
+        0x11,
+        "DMG effective VRAM bank should still resolve to bank 0"
+    );
+
+    bus.write_wram_bank_index_internal(1, 0x0042, 0x33);
+    bus.write_wram_bank_index_internal(2, 0x0042, 0x44);
+    assert_eq!(bus.read_wram_bank_index_internal(1, 0x0042), 0x33);
+    assert_eq!(bus.read_wram_bank_index_internal(2, 0x0042), 0x44);
+    assert_eq!(
+        bus.read_wram(0xD042),
+        0x33,
+        "DMG effective switchable WRAM slot should stay pinned to slot 1"
+    );
+}
+
+#[test]
 fn wram_segment_helpers_mirror_main_and_echo_regions() {
     let mut bus = make_test_bus();
 
@@ -386,6 +417,71 @@ fn mode3_pixel_metadata_forces_white_backdrop_when_bg_is_disabled() {
     assert_eq!(
         shade_id, 0,
         "BG-disabled backdrop should remain white regardless of BGP"
+    );
+}
+
+#[test]
+fn mode3_bg_tile_attr_scaffold_reads_vram_bank1_tilemap_metadata_without_changing_dmg_path() {
+    let mut bus = make_test_bus();
+    let lcdc = 0x91; // BG on, BG map 0x9800
+
+    // BG tilemap entry for screen (0,0) lives at VRAM map offset 0x1800.
+    bus.write_vram_bank_index_internal(0, 0x1800, 0x2A);
+    bus.write_vram_bank_index_internal(1, 0x1800, 0b1110_1010);
+
+    let (palette_index, vram_bank, x_flip, y_flip, bg_priority) =
+        bus.debug_mode3_bg_tile_attrs_scaffold_for_screen_x(lcdc, 0, 0);
+    assert_eq!(palette_index, 0b010);
+    assert_eq!(vram_bank, 1);
+    assert!(x_flip);
+    assert!(y_flip);
+    assert!(bg_priority);
+
+    // DMG fetch path still uses bank 0 tile index and DMG color rules.
+    let (palette_index, vram_bank, x_flip, bg_priority, obj_palette, obj_vram_bank, shade_id) =
+        bus.debug_compose_mode3_pixel_cgb_scaffold_and_shade(lcdc, 1, 0b1110_1010, 0, 0);
+    assert_eq!(palette_index, 0b010);
+    assert_eq!(vram_bank, 1);
+    assert!(x_flip);
+    assert!(bg_priority);
+    assert_eq!(obj_palette, 0);
+    assert_eq!(obj_vram_bank, 0);
+    assert_eq!(
+        shade_id, 3,
+        "DMG final shade should still come from BGP mapping only"
+    );
+}
+
+#[test]
+fn mode3_pixel_metadata_carries_cgb_obj_palette_scaffold_without_affecting_dmg_obj_palette_choice()
+{
+    let mut bus = make_test_bus();
+    bus.write_byte(0xFF48, 0b00_11_10_01); // OBP0
+    let lcdc = 0x93;
+
+    let (
+        bg_palette_index,
+        bg_vram_bank,
+        _x_flip,
+        _bg_priority,
+        obj_palette,
+        obj_vram_bank,
+        shade_id,
+    ) = bus.debug_compose_mode3_pixel_cgb_scaffold_and_shade(
+        lcdc,
+        2,
+        0b1000_0101, // BG attrs scaffold only
+        1,
+        0b0000_1011, // OBJ attrs: cgb palette=3, vram_bank=1, DMG OBP0
+    );
+
+    assert_eq!(bg_palette_index, 0b101);
+    assert_eq!(bg_vram_bank, 0);
+    assert_eq!(obj_palette, 0b011);
+    assert_eq!(obj_vram_bank, 1);
+    assert_eq!(
+        shade_id, 2,
+        "DMG final shade must remain driven by OBP0/OBP1 selection, not CGB scaffold palette bits"
     );
 }
 

@@ -19,6 +19,7 @@ mod timer;
 use crate::apu::ApuState;
 use crate::cartridge::Cartridge;
 use crate::timing::ClockRatios;
+use bus_access::{VRAM_STORAGE_BYTES, WRAM_STORAGE_BYTES};
 use cgb_mmio::CgbMmioState;
 use dma::DmaState;
 use joypad::JoypadState;
@@ -32,8 +33,8 @@ pub const LCD_FRAME_PIXELS: usize = LCD_WIDTH * LCD_HEIGHT;
 
 pub struct Bus {
     cartridge: Cartridge,
-    vram: [u8; 0x2000],
-    wram: [u8; 0x2000],
+    vram: [u8; VRAM_STORAGE_BYTES],
+    wram: [u8; WRAM_STORAGE_BYTES],
     oam: [u8; 0x00A0],
     io: [u8; 0x0080],
     hram: [u8; 0x007F],

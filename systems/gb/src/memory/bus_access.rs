@@ -1,7 +1,11 @@
 use super::Bus;
 
-const VRAM_BANK_SIZE: usize = 0x2000;
-const WRAM_BANK_SIZE: usize = 0x1000;
+pub(super) const CGB_VRAM_BANK_COUNT_SCAFFOLD: usize = 2;
+pub(super) const CGB_WRAM_BANK_COUNT_SCAFFOLD: usize = 8;
+pub(super) const VRAM_BANK_SIZE: usize = 0x2000;
+pub(super) const WRAM_BANK_SIZE: usize = 0x1000;
+pub(super) const VRAM_STORAGE_BYTES: usize = CGB_VRAM_BANK_COUNT_SCAFFOLD * VRAM_BANK_SIZE;
+pub(super) const WRAM_STORAGE_BYTES: usize = CGB_WRAM_BANK_COUNT_SCAFFOLD * WRAM_BANK_SIZE;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::memory) enum AddressSegment {
@@ -46,11 +50,8 @@ impl Bus {
 
     fn vram_linear_index(&self, bank: u8, bank_offset: usize) -> usize {
         debug_assert!(bank_offset < VRAM_BANK_SIZE);
-        debug_assert_eq!(
-            bank, 0,
-            "DMG VRAM banking scaffold should still resolve to bank 0"
-        );
-        bank_offset
+        debug_assert!((bank as usize) < CGB_VRAM_BANK_COUNT_SCAFFOLD);
+        (bank as usize) * VRAM_BANK_SIZE + bank_offset
     }
 
     fn selected_vram_bank_for_bus_access(&self) -> u8 {
@@ -85,16 +86,8 @@ impl Bus {
 
     fn wram_linear_index(&self, bank_slot: u8, bank_offset: usize) -> usize {
         debug_assert!(bank_offset < WRAM_BANK_SIZE);
-        debug_assert!(
-            bank_slot <= 1,
-            "DMG WRAM banking scaffold should only resolve to slots 0/1"
-        );
+        debug_assert!((bank_slot as usize) < CGB_WRAM_BANK_COUNT_SCAFFOLD);
         (bank_slot as usize) * WRAM_BANK_SIZE + bank_offset
-    }
-
-    fn wram_linear_index_for_addr(&self, addr: u16) -> usize {
-        let (bank_slot, bank_offset) = self.wram_bank_slot_and_offset(addr);
-        self.wram_linear_index(bank_slot, bank_offset)
     }
 
     fn oam_offset(addr: u16) -> usize {
@@ -117,11 +110,13 @@ impl Bus {
     }
 
     pub(in crate::memory) fn read_wram(&self, addr: u16) -> u8 {
-        self.read_wram_index_internal(self.wram_linear_index_for_addr(addr))
+        let (bank_slot, bank_offset) = self.wram_bank_slot_and_offset(addr);
+        self.read_wram_bank_index_internal(bank_slot, bank_offset)
     }
 
     pub(in crate::memory) fn write_wram(&mut self, addr: u16, value: u8) {
-        self.write_wram_index_internal(self.wram_linear_index_for_addr(addr), value);
+        let (bank_slot, bank_offset) = self.wram_bank_slot_and_offset(addr);
+        self.write_wram_bank_index_internal(bank_slot, bank_offset, value);
     }
 
     pub(in crate::memory) fn read_oam(&self, addr: u16, access: SegmentAccess) -> u8 {
@@ -139,19 +134,60 @@ impl Bus {
     }
 
     pub(in crate::memory) fn read_vram_index_internal(&self, index: usize) -> u8 {
-        self.vram[index]
+        self.read_vram_bank_index_internal(0, index)
     }
 
     pub(in crate::memory) fn write_vram_index_internal(&mut self, index: usize, value: u8) {
-        self.vram[index] = value;
+        self.write_vram_bank_index_internal(0, index, value);
     }
 
     pub(in crate::memory) fn read_wram_index_internal(&self, index: usize) -> u8 {
+        debug_assert!(index < WRAM_STORAGE_BYTES);
         self.wram[index]
     }
 
     pub(in crate::memory) fn write_wram_index_internal(&mut self, index: usize, value: u8) {
+        debug_assert!(index < WRAM_STORAGE_BYTES);
         self.wram[index] = value;
+    }
+
+    pub(in crate::memory) fn read_vram_bank_index_internal(&self, bank: u8, index: usize) -> u8 {
+        debug_assert!(index < VRAM_BANK_SIZE);
+        let linear = self.vram_linear_index(bank, index);
+        self.vram[linear]
+    }
+
+    pub(in crate::memory) fn write_vram_bank_index_internal(
+        &mut self,
+        bank: u8,
+        index: usize,
+        value: u8,
+    ) {
+        debug_assert!(index < VRAM_BANK_SIZE);
+        let linear = self.vram_linear_index(bank, index);
+        self.vram[linear] = value;
+    }
+
+    pub(in crate::memory) fn read_wram_bank_index_internal(&self, bank: u8, index: usize) -> u8 {
+        debug_assert!(index < WRAM_BANK_SIZE);
+        let linear = self.wram_linear_index(bank, index);
+        self.read_wram_index_internal(linear)
+    }
+
+    pub(in crate::memory) fn write_wram_bank_index_internal(
+        &mut self,
+        bank: u8,
+        index: usize,
+        value: u8,
+    ) {
+        debug_assert!(index < WRAM_BANK_SIZE);
+        let linear = self.wram_linear_index(bank, index);
+        self.write_wram_index_internal(linear, value);
+    }
+
+    #[cfg(test)]
+    pub(super) fn debug_storage_bank_backing_lengths(&self) -> (usize, usize) {
+        (self.vram.len(), self.wram.len())
     }
 
     pub(in crate::memory) fn read_oam_index_internal(&self, index: usize) -> u8 {
