@@ -107,12 +107,6 @@ impl DmaState {
         Self::request_oam_transfer(bus, source_high);
     }
 
-    pub(super) fn tick(bus: &mut Bus, tcycles: u8) {
-        for _ in 0..tcycles {
-            Self::tick_once(bus);
-        }
-    }
-
     pub(in crate::memory) fn cpu_access_decision_for_segment(
         bus: &Bus,
         segment: AddressSegment,
@@ -160,6 +154,16 @@ impl DmaState {
 
     fn tick_once(bus: &mut Bus) {
         Self::reset_mode_edge_events(bus);
+
+        // Fast path for the overwhelmingly common DMG case in debug builds:
+        // no OAM DMA active/pending and no CGB DMA scaffold runtime enabled.
+        if matches!(bus.dma.mode, DmaSchedulerMode::Idle)
+            && bus.dma.oam.start_delay_tcycles == 0
+            && bus.dma.oam.pending_source.is_none()
+            && !bus.dma.cgb_scaffold.runtime_enabled
+        {
+            return;
+        }
 
         let start_oam_now = Self::step_oam_start_delay(bus);
         Self::step_active_transfer_tcycle(bus);
@@ -447,8 +451,8 @@ impl Bus {
         DmaState::write_register(self, source_high);
     }
 
-    pub(super) fn tick_dma_scheduler(&mut self, tcycles: u8) {
-        DmaState::tick(self, tcycles);
+    pub(super) fn tick_dma_scheduler_tcycle(&mut self) {
+        DmaState::tick_once(self);
     }
 
     pub(super) fn configure_dma_model_gates(&mut self, model: HardwareModel) {
