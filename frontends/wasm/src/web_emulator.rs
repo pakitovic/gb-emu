@@ -1,3 +1,4 @@
+use gb_runtime::audio_queue::AudioQueueController;
 use gb_runtime::session::RuntimeSession;
 use wasm_bindgen::prelude::*;
 
@@ -13,6 +14,8 @@ const FRAME_STEP_LIMIT: usize = 250_000;
 #[wasm_bindgen]
 pub struct WebEmulator {
     session: RuntimeSession,
+    audio_queue_controller: AudioQueueController,
+    audio_queue_clock_ms: u64,
 }
 
 impl WebEmulator {

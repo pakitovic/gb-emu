@@ -58,9 +58,10 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 ### Audio Output Pipeline / Frontend Audio Integration
 - Shared `runtime/` host utilities for frontend frame pacing, realtime audio queueing, adaptive buffering, t-cycle-to-PCM mixer bridging (SDL2/Web), and file-backed cartridge persistence adapters.
 - Shared `gb_runtime::session::RuntimeSession` now centralizes frontend wiring of `GameBoy + FramePacer + AudioMixer` (used by SDL2 and wasm adapters) so core-clock/audio capture plumbing does not need to be reimplemented per frontend.
+- Shared `gb_runtime::audio_queue::AudioQueueController` now centralizes adaptive queue-targeting and underrun-estimation policy used by SDL2 and the wasm/web queue refill path.
 - Shared runtime audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
 - Realtime audio block API for fixed-size callback backends, with silence padding when emulated audio budget is short.
-- SDL2 frontend adaptive audio queue targeting with underrun estimation from queue depth and host time.
+- Queue-based frontends (SDL2/WebAudio queue feeder) now use the same runtime adaptive queue policy and enqueue only currently available emulated audio samples.
 - Browser demo (`web/`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
 - Minimal browser demo audio telemetry plus adaptive queue targeting for underrun recovery and latency tuning.
 
@@ -105,6 +106,7 @@ runtime/
   Cargo.toml
   src/
     audio.rs
+    audio_queue.rs
     session.rs
     timing.rs
     lib.rs
@@ -244,7 +246,7 @@ Supported models for `--model`:
 
 ### Runtime / Host Utility Maintainability
 - `runtime/src/audio.rs` is intentionally kept as a single module for now, but if runtime audio helpers continue to grow it should be split into `runtime/src/audio.rs` + `runtime/src/audio/*` submodules (for example `mixer`, `adaptive_queue`, `resampler`) as a maintenance refactor without behavioral changes.
-- `web/audio-adaptive.mjs` and `gb_runtime` adaptive queue policy are intentionally separate today (browser demo tuning vs shared runtime helper tuning); if they continue to evolve, align tuning rules/tests or consolidate shared policy logic to avoid silent drift.
+- Queue-targeting policy is now runtime-owned via `gb_runtime::audio_queue`; browser host code should treat it as the source of truth to avoid SDL2/web drift.
 
 ### PPU / Rendering / Timing Fidelity
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
@@ -314,7 +316,7 @@ cargo test --locked -p gb-runtime
 Optional web frontend unit test:
 
 ```bash
-node --test web/audio-adaptive.test.mjs
+node --test web/save-persistence.test.mjs
 ```
 
 ROM test suites:
@@ -416,6 +418,8 @@ Notes:
   - `run_for_elapsed_micros(elapsed_micros)` to step as many emulated frames as host time allows.
   - `audio_clock_tcycles()` / `drain_audio_tcycles()` for raw emulated audio clock access.
   - `set_audio_sample_rate(rate_hz)` (preserves queued Core APU audio when reconfiguring WebAudio rate) and `drain_audio_samples(max_samples)` for queue-based WebAudio feeding (`Vec<f32>` stereo interleaved: `L,R,L,R,...`).
+  - `observe_audio_queue_target(now_ms, queued_samples)`, `audio_queue_clear_required()`, and `commit_audio_queue_refill(now_ms, queued_samples_after_refill)` to drive queue-based host refill using shared runtime policy.
+  - `audio_queue_refill_block_samples()` / `audio_queue_max_refill_blocks()` to read runtime-owned queue refill limits from wasm/web hosts.
   - `set_audio_resampler_quality("linear" | "cubic")` and `audio_resampler_quality()` to compare interpolation quality/CPU tradeoffs from frontends.
   - `drain_audio_samples_realtime(block_samples)` for callback-style fixed-size backends (`block_samples` = frames, returned buffer is stereo interleaved and zero-padded when short).
   - `set_audio_test_tone_enabled(enabled)` for pipeline/debug validation.

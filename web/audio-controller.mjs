@@ -1,16 +1,5 @@
-import {
-  createAdaptiveQueueState,
-  DEFAULT_ADAPTIVE_QUEUE_OPTIONS,
-  updateAdaptiveQueueTarget,
-} from "./audio-adaptive.mjs";
-
-const AUDIO_BLOCK_SAMPLES = 512;
 const AUDIO_CHANNELS = 2;
-const AUDIO_QUEUE_TARGET_INITIAL_SAMPLES = 4096;
 const AUDIO_REFILL_INTERVAL_MS = 8;
-const AUDIO_ADAPTIVE_QUEUE_OPTIONS = {
-  ...DEFAULT_ADAPTIVE_QUEUE_OPTIONS,
-};
 
 export function createWebAudioController({
   getEmulator,
@@ -26,15 +15,15 @@ export function createWebAudioController({
   let audioWorkletLoaded = false;
   let audioConsumedSamplesTotal = 0;
   let audioUnderrunSamplesTotal = 0;
-  let audioQueueTargetSamples = AUDIO_QUEUE_TARGET_INITIAL_SAMPLES;
-  let audioAdaptiveQueueState = createAdaptiveQueueState();
+  let audioQueueTargetSamples = 0;
+  let audioRefillBlockSamples = 512;
+  let audioMaxRefillBlocks = 16;
 
   function resetAudioTelemetryState() {
     queuedAudioSamples = 0;
     audioConsumedSamplesTotal = 0;
     audioUnderrunSamplesTotal = 0;
-    audioQueueTargetSamples = AUDIO_QUEUE_TARGET_INITIAL_SAMPLES;
-    audioAdaptiveQueueState = createAdaptiveQueueState(performance.now(), 0);
+    audioQueueTargetSamples = 0;
   }
 
   function updateTelemetry() {
@@ -84,17 +73,14 @@ export function createWebAudioController({
     emulator.set_audio_test_tone_enabled(Boolean(getTestToneEnabled?.()));
   }
 
-  function maybeAdjustAudioQueueTarget(nowMs) {
-    const result = updateAdaptiveQueueTarget({
-      state: audioAdaptiveQueueState,
-      nowMs,
-      queuedSamples: queuedAudioSamples,
-      targetSamples: audioQueueTargetSamples,
-      totalUnderrunSamples: audioUnderrunSamplesTotal,
-      blockSamples: AUDIO_BLOCK_SAMPLES,
-      options: AUDIO_ADAPTIVE_QUEUE_OPTIONS,
-    });
-    audioQueueTargetSamples = result.targetSamples;
+  function refreshRefillConfigFromEmulator(emulator) {
+    if (!emulator) {
+      audioRefillBlockSamples = 512;
+      audioMaxRefillBlocks = 16;
+      return;
+    }
+    audioRefillBlockSamples = Math.max(1, emulator.audio_queue_refill_block_samples() | 0);
+    audioMaxRefillBlocks = Math.max(1, emulator.audio_queue_max_refill_blocks() | 0);
   }
 
   function refillAudioQueue() {
@@ -103,11 +89,23 @@ export function createWebAudioController({
       return;
     }
 
-    maybeAdjustAudioQueueTarget(performance.now());
+    const nowMs = performance.now();
+    audioQueueTargetSamples = Math.max(
+      0,
+      emulator.observe_audio_queue_target(nowMs, queuedAudioSamples) | 0
+    );
+    if (emulator.audio_queue_clear_required()) {
+      audioNode.port.postMessage({ type: "reset" });
+      queuedAudioSamples = 0;
+    }
 
     let guard = 0;
-    while (queuedAudioSamples < audioQueueTargetSamples && guard < 16) {
-      const samples = emulator.drain_audio_samples(AUDIO_BLOCK_SAMPLES);
+    while (queuedAudioSamples < audioQueueTargetSamples && guard < audioMaxRefillBlocks) {
+      const wanted = Math.min(
+        audioRefillBlockSamples,
+        Math.max(0, audioQueueTargetSamples - queuedAudioSamples)
+      );
+      const samples = emulator.drain_audio_samples(wanted);
       if (!samples || samples.length === 0) {
         break;
       }
@@ -116,6 +114,7 @@ export function createWebAudioController({
       queuedAudioSamples += enqueuedFrames;
       guard += 1;
     }
+    emulator.commit_audio_queue_refill(nowMs, queuedAudioSamples);
   }
 
   function disconnectAudioBackend() {
@@ -165,6 +164,7 @@ export function createWebAudioController({
         throw new Error("AudioWorklet is not available in this browser");
       }
       emulator.set_audio_sample_rate(ac.sampleRate);
+      refreshRefillConfigFromEmulator(emulator);
       applyResamplerQuality();
       applyTestToneState();
 
@@ -202,7 +202,9 @@ export function createWebAudioController({
         refillAudioQueue();
       }, AUDIO_REFILL_INTERVAL_MS);
 
-      setStatus?.(`AudioWorklet enabled (${ac.sampleRate} Hz, block ${AUDIO_BLOCK_SAMPLES}).`);
+      setStatus?.(
+        `AudioWorklet enabled (${ac.sampleRate} Hz, block ${audioRefillBlockSamples}).`
+      );
       updateTelemetry();
     } catch (error) {
       console.error(error);
@@ -257,6 +259,7 @@ export function createWebAudioController({
     if (audioContext) {
       emulator.set_audio_sample_rate(audioContext.sampleRate);
     }
+    refreshRefillConfigFromEmulator(emulator);
     if (audioNode) {
       audioNode.port.postMessage({ type: "reset" });
       resetAudioTelemetryState();

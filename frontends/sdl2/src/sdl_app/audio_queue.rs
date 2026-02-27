@@ -3,8 +3,9 @@ use super::{
     AUDIO_QUEUE_TARGET_MAX_SAMPLES, AUDIO_QUEUE_TARGET_MIN_SAMPLES, AUDIO_REFILL_BLOCK_SAMPLES,
     AUDIO_REFILL_MAX_BLOCKS,
 };
-use gb_runtime::audio::{
-    AdaptiveQueueController, AdaptiveQueueOptions, estimate_playback_underrun_samples,
+use gb_runtime::audio::AdaptiveQueueOptions;
+use gb_runtime::audio_queue::{
+    AudioQueueController, AudioQueueObservation, AudioQueueRefillConfig,
 };
 use gb_runtime::session::RuntimeSession;
 use std::time::Instant;
@@ -16,21 +17,24 @@ pub(super) fn refill_audio_queue(
     now: Instant,
 ) {
     let channel_count = usize::from(audio_queue.spec().channels.max(1));
-
-    let mut queued_samples = queued_audio_samples(audio_queue);
-
-    if queued_samples > AUDIO_QUEUE_HARD_MAX_SAMPLES {
+    let now_ms = queue_state.now_ms(now);
+    let queued_samples_before_refill = queued_audio_samples(audio_queue);
+    let AudioQueueObservation {
+        target_samples,
+        normalized_queued_samples,
+        queue_cleared,
+        ..
+    } = queue_state.observe_and_update_target(now_ms, queued_samples_before_refill);
+    let mut queued_samples = normalized_queued_samples;
+    if queue_cleared {
         audio_queue.clear();
-        queued_samples = 0;
     }
 
-    let target_samples = queue_state.observe_and_update_target(now, queued_samples);
-
     let mut guard = 0;
-    while queued_samples < target_samples && guard < AUDIO_REFILL_MAX_BLOCKS {
+    while queued_samples < target_samples && guard < queue_state.max_refill_blocks() {
         let wanted = target_samples
             .saturating_sub(queued_samples)
-            .min(AUDIO_REFILL_BLOCK_SAMPLES);
+            .min(queue_state.refill_block_samples());
         let samples = drain_refill_samples(session, wanted);
         if samples.is_empty() {
             break;
@@ -43,7 +47,7 @@ pub(super) fn refill_audio_queue(
         guard += 1;
     }
 
-    queue_state.commit_refill(now, queued_samples);
+    queue_state.commit_refill(now_ms, queued_samples);
 }
 
 fn drain_refill_samples(session: &mut RuntimeSession, wanted_samples: usize) -> Vec<f32> {
@@ -59,62 +63,61 @@ fn queued_audio_samples(audio_queue: &sdl2::audio::AudioQueue<f32>) -> usize {
 }
 
 pub(super) struct SdlAudioQueueState {
-    sample_rate_hz: u32,
     start_instant: Instant,
-    last_refill_instant: Instant,
-    last_queue_after_refill_samples: usize,
-    total_underrun_samples: u64,
-    adaptive_target: AdaptiveQueueController,
+    controller: AudioQueueController,
 }
 
 impl SdlAudioQueueState {
     pub(super) fn new(sample_rate_hz: u32, now: Instant) -> Self {
-        let options = AdaptiveQueueOptions {
+        let adaptive_options = AdaptiveQueueOptions {
             min_target_samples: AUDIO_QUEUE_TARGET_MIN_SAMPLES,
             max_target_samples: AUDIO_QUEUE_TARGET_MAX_SAMPLES,
             ..AdaptiveQueueOptions::default()
         };
-        let adaptive_target =
-            AdaptiveQueueController::new(AUDIO_QUEUE_TARGET_INITIAL_SAMPLES, 0, 0, options);
+        let config = AudioQueueRefillConfig {
+            initial_target_samples: AUDIO_QUEUE_TARGET_INITIAL_SAMPLES,
+            min_target_samples: AUDIO_QUEUE_TARGET_MIN_SAMPLES,
+            max_target_samples: AUDIO_QUEUE_TARGET_MAX_SAMPLES,
+            hard_max_samples: AUDIO_QUEUE_HARD_MAX_SAMPLES,
+            refill_block_samples: AUDIO_REFILL_BLOCK_SAMPLES,
+            max_refill_blocks: AUDIO_REFILL_MAX_BLOCKS,
+            adaptive_options,
+        };
+        let controller = AudioQueueController::new(sample_rate_hz, 0, config);
         Self {
-            sample_rate_hz: sample_rate_hz.max(1),
             start_instant: now,
-            last_refill_instant: now,
-            last_queue_after_refill_samples: 0,
-            total_underrun_samples: 0,
-            adaptive_target,
+            controller,
         }
+    }
+
+    fn now_ms(&self, now: Instant) -> u64 {
+        u64::try_from(
+            now.saturating_duration_since(self.start_instant)
+                .as_millis(),
+        )
+        .unwrap_or(u64::MAX)
     }
 
     fn observe_and_update_target(
         &mut self,
-        now: Instant,
+        now_ms: u64,
         queued_samples_before_refill: usize,
-    ) -> usize {
-        let elapsed = now.saturating_duration_since(self.last_refill_instant);
-        let underrun_delta = estimate_playback_underrun_samples(
-            self.last_queue_after_refill_samples,
-            elapsed,
-            self.sample_rate_hz,
-        );
-        self.total_underrun_samples = self.total_underrun_samples.saturating_add(underrun_delta);
-        let now_ms = u64::try_from(
-            now.saturating_duration_since(self.start_instant)
-                .as_millis(),
-        )
-        .unwrap_or(u64::MAX);
-        let update = self.adaptive_target.update(
-            now_ms,
-            queued_samples_before_refill,
-            self.total_underrun_samples,
-            AUDIO_REFILL_BLOCK_SAMPLES,
-        );
-        update.target_samples
+    ) -> AudioQueueObservation {
+        self.controller
+            .observe_and_update_target(now_ms, queued_samples_before_refill)
     }
 
-    fn commit_refill(&mut self, now: Instant, queued_samples_after_refill: usize) {
-        self.last_refill_instant = now;
-        self.last_queue_after_refill_samples = queued_samples_after_refill;
+    fn commit_refill(&mut self, now_ms: u64, queued_samples_after_refill: usize) {
+        self.controller
+            .commit_refill(now_ms, queued_samples_after_refill);
+    }
+
+    fn refill_block_samples(&self) -> usize {
+        self.controller.refill_block_samples()
+    }
+
+    fn max_refill_blocks(&self) -> usize {
+        self.controller.max_refill_blocks()
     }
 }
 

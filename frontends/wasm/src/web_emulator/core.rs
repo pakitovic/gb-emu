@@ -1,6 +1,7 @@
 use super::WebEmulator;
 use gb_emu::cartridge::Cartridge;
 use gb_emu::hardware::HardwareModel;
+use gb_runtime::audio_queue::AudioQueueRefillConfig;
 use gb_runtime::session::RuntimeSession;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
@@ -25,8 +26,17 @@ impl WebEmulator {
         let mut gb = gb_emu::gameboy::GameBoy::new_with_model(cartridge, model);
         gb.set_cartridge_host_rtc_epoch_secs(Some(initial_rtc_epoch_secs));
         let session = RuntimeSession::new(gb, 48_000);
+        let audio_queue_controller = gb_runtime::audio_queue::AudioQueueController::new(
+            48_000,
+            0,
+            AudioQueueRefillConfig::default(),
+        );
 
-        Ok(Self { session })
+        Ok(Self {
+            session,
+            audio_queue_controller,
+            audio_queue_clock_ms: 0,
+        })
     }
 }
 

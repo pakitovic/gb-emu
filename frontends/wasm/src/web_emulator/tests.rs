@@ -75,6 +75,26 @@ fn drain_audio_samples_queue_mode_does_not_pad_short_core_budget() {
 }
 
 #[test]
+fn shared_runtime_queue_controller_is_exposed_for_web_refill_policy() {
+    let rom = make_rom_32kb();
+    let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
+
+    assert_eq!(web.audio_queue_refill_block_samples(), 512);
+    assert_eq!(web.audio_queue_max_refill_blocks(), 32);
+    assert!(!web.audio_queue_clear_required());
+
+    let target = web.observe_audio_queue_target(1.0, 0);
+    assert!(target >= 2_048);
+    assert!(!web.audio_queue_clear_required());
+    web.commit_audio_queue_refill(1.0, 0);
+
+    let _target = web.observe_audio_queue_target(2.0, 65_000);
+    assert!(web.audio_queue_clear_required());
+    web.commit_audio_queue_refill(2.0, 0);
+    assert!(!web.audio_queue_clear_required());
+}
+
+#[test]
 fn drain_audio_samples_realtime_can_emit_core_apu_signal() {
     let rom = make_rom_32kb();
     let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
