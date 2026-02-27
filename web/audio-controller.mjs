@@ -107,7 +107,7 @@ export function createWebAudioController({
 
     let guard = 0;
     while (queuedAudioSamples < audioQueueTargetSamples && guard < 16) {
-      const samples = emulator.drain_audio_samples_realtime(AUDIO_BLOCK_SAMPLES);
+      const samples = emulator.drain_audio_samples(AUDIO_BLOCK_SAMPLES);
       if (!samples || samples.length === 0) {
         break;
       }

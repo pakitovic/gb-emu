@@ -31,7 +31,7 @@ pub(super) fn refill_audio_queue(
         let wanted = target_samples
             .saturating_sub(queued_samples)
             .min(AUDIO_REFILL_BLOCK_SAMPLES);
-        let samples = session.drain_audio_realtime_block(wanted);
+        let samples = drain_refill_samples(session, wanted);
         if samples.is_empty() {
             break;
         }
@@ -44,6 +44,12 @@ pub(super) fn refill_audio_queue(
     }
 
     queue_state.commit_refill(now, queued_samples);
+}
+
+fn drain_refill_samples(session: &mut RuntimeSession, wanted_samples: usize) -> Vec<f32> {
+    // Queue-based backends should enqueue only currently available emulated audio.
+    // Padding with synthetic silence here causes audible discontinuities under load.
+    session.drain_audio_samples(wanted_samples)
 }
 
 fn queued_audio_samples(audio_queue: &sdl2::audio::AudioQueue<f32>) -> usize {
@@ -109,5 +115,40 @@ impl SdlAudioQueueState {
     fn commit_refill(&mut self, now: Instant, queued_samples_after_refill: usize) {
         self.last_refill_instant = now;
         self.last_queue_after_refill_samples = queued_samples_after_refill;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::drain_refill_samples;
+    use gb_emu::cartridge::Cartridge;
+    use gb_emu::gameboy::GameBoy;
+    use gb_emu::timing::DMG_T_CYCLES_PER_SECOND;
+    use gb_runtime::audio::MixerSource;
+    use gb_runtime::session::RuntimeSession;
+
+    fn make_rom_32kb() -> Vec<u8> {
+        let mut rom = vec![0; 32 * 1024];
+        rom[0x0147] = 0x00;
+        rom[0x0148] = 0x00;
+        rom
+    }
+
+    #[test]
+    fn drain_refill_samples_does_not_pad_with_synthetic_silence() {
+        let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("valid ROM should load");
+        let gb = GameBoy::new(cartridge);
+        let mut session = RuntimeSession::new(gb, 48_000);
+        session.set_audio_source(MixerSource::TestTone);
+        session.consume_emulated_cycles(DMG_T_CYCLES_PER_SECOND / 100);
+
+        let first = drain_refill_samples(&mut session, 600);
+        assert!(!first.is_empty());
+        assert_eq!(first.len() % 2, 0);
+        assert!(first.len() < 600 * 2);
+        assert!(first.iter().any(|sample| *sample != 0.0));
+
+        let second = drain_refill_samples(&mut session, 600);
+        assert!(second.is_empty());
     }
 }

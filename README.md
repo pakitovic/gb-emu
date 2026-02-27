@@ -59,7 +59,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Shared `runtime/` host utilities for frontend frame pacing, realtime audio queueing, adaptive buffering, t-cycle-to-PCM mixer bridging (SDL2/Web), and file-backed cartridge persistence adapters.
 - Shared `gb_runtime::session::RuntimeSession` now centralizes frontend wiring of `GameBoy + FramePacer + AudioMixer` (used by SDL2 and wasm adapters) so core-clock/audio capture plumbing does not need to be reimplemented per frontend.
 - Shared runtime audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
-- Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
+- Realtime audio block API for fixed-size callback backends, with silence padding when emulated audio budget is short.
 - SDL2 frontend adaptive audio queue targeting with underrun estimation from queue depth and host time.
 - Browser demo (`web/`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
 - Minimal browser demo audio telemetry plus adaptive queue targeting for underrun recovery and latency tuning.
@@ -402,7 +402,7 @@ Notes:
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
 - SDL2/Web runtime wiring now uses `gb_runtime::session::RuntimeSession` (shared `GameBoy + FramePacer + AudioMixer` orchestration) to reduce frontend-specific timing/audio drift.
 - SDL2 audio uses the core mixer clock bridge and queues stereo interleaved PCM in real time (now from the `frontends/sdl2` workspace package).
-- SDL2 queue refill is driven by emulated audio t-cycles; underruns are padded with silence (no synthetic emulated cycles).
+- SDL2 queue refill is driven by emulated audio t-cycles and enqueues only available core samples (no synthetic silence padding in refill blocks).
 - SDL2 queue target is auto-tuned over time windows (same policy as web) using estimated underruns from elapsed playback vs queued samples.
 - `scripts/dev/run_sdl2_frontend.sh` is the recommended local command for SDL2 builds/runs (including a `--release` mode for performance) and consistent macOS/Homebrew linker env setup.
 - SDL2 renderer uses accelerated rendering with `present_vsync()` by default to reduce visible tearing during scroll/camera movement; override with `GB_SDL2_VSYNC=0` for diagnostics/perf comparisons.
@@ -415,9 +415,9 @@ Notes:
 - Web helpers:
   - `run_for_elapsed_micros(elapsed_micros)` to step as many emulated frames as host time allows.
   - `audio_clock_tcycles()` / `drain_audio_tcycles()` for raw emulated audio clock access.
-  - `set_audio_sample_rate(rate_hz)` (preserves queued Core APU audio when reconfiguring WebAudio rate) and `drain_audio_samples(max_samples)` for WebAudio feeding (`Vec<f32>` stereo interleaved: `L,R,L,R,...`).
+  - `set_audio_sample_rate(rate_hz)` (preserves queued Core APU audio when reconfiguring WebAudio rate) and `drain_audio_samples(max_samples)` for queue-based WebAudio feeding (`Vec<f32>` stereo interleaved: `L,R,L,R,...`).
   - `set_audio_resampler_quality("linear" | "cubic")` and `audio_resampler_quality()` to compare interpolation quality/CPU tradeoffs from frontends.
-  - `drain_audio_samples_realtime(block_samples)` for callback-style fixed-size WebAudio blocks (`block_samples` = frames, returned buffer is stereo interleaved).
+  - `drain_audio_samples_realtime(block_samples)` for callback-style fixed-size backends (`block_samples` = frames, returned buffer is stereo interleaved and zero-padded when short).
   - `set_audio_test_tone_enabled(enabled)` for pipeline/debug validation.
   - `cartridge_debug_report()` and `cartridge_warning_count()` for frontend cartridge diagnostics panels.
 - `web/` is intentionally small and uses `AudioWorkletNode` for lower-latency callback-style audio.

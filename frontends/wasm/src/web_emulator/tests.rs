@@ -58,6 +58,23 @@ fn drain_audio_samples_realtime_returns_fixed_block_len() {
 }
 
 #[test]
+fn drain_audio_samples_queue_mode_does_not_pad_short_core_budget() {
+    let rom = make_rom_32kb();
+    let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
+    setup_ch1_routed_output(&mut web);
+    web.run_frame().expect("a frame should be produced");
+
+    let first = web.drain_audio_samples(1024);
+    assert!(!first.is_empty());
+    assert_eq!(first.len() % 2, 0);
+    assert!(first.len() < 2 * 1024);
+    assert!(first.iter().any(|sample| sample.abs() > 0.0));
+
+    let second = web.drain_audio_samples(1024);
+    assert!(second.is_empty());
+}
+
+#[test]
 fn drain_audio_samples_realtime_can_emit_core_apu_signal() {
     let rom = make_rom_32kb();
     let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
