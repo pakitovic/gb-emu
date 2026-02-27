@@ -18,12 +18,12 @@ pub struct AudioQueueRefillConfig {
 impl Default for AudioQueueRefillConfig {
     fn default() -> Self {
         Self {
-            initial_target_samples: 768,
-            min_target_samples: 384,
-            max_target_samples: 1_536,
-            hard_max_samples: 3_072,
-            refill_block_samples: 128,
-            max_refill_blocks: 24,
+            initial_target_samples: 4_096,
+            min_target_samples: 2_048,
+            max_target_samples: 16_384,
+            hard_max_samples: 32_768,
+            refill_block_samples: 512,
+            max_refill_blocks: 32,
             adaptive_options: AdaptiveQueueOptions::default(),
         }
     }
@@ -126,13 +126,6 @@ impl AudioQueueController {
         );
         self.total_underrun_samples = self.total_underrun_samples.saturating_add(underrun_delta);
 
-        if self.clear_required {
-            self.adaptive_target
-                .set_target_samples(self.config.min_target_samples);
-            self.adaptive_target
-                .reset(now_ms, self.total_underrun_samples);
-        }
-
         let update: AdaptiveQueueUpdate = self.adaptive_target.update(
             now_ms,
             normalized_queued_samples,
@@ -175,11 +168,6 @@ mod tests {
 
         assert!(observation.queue_cleared);
         assert_eq!(observation.normalized_queued_samples, 0);
-        assert_eq!(
-            observation.target_samples,
-            controller.config().min_target_samples
-        );
-        assert_eq!(observation.window_underrun_samples, 0);
         assert!(controller.clear_required());
     }
 

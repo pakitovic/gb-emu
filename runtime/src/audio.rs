@@ -54,13 +54,13 @@ pub struct AdaptiveQueueOptions {
 impl Default for AdaptiveQueueOptions {
     fn default() -> Self {
         Self {
-            window_ms: 120,
-            min_target_samples: 384,
-            max_target_samples: 1_536,
-            increase_step_samples: 128,
-            decrease_step_samples: 128,
-            decrease_stable_windows: 1,
-            decrease_queue_headroom_samples: 64,
+            window_ms: 500,
+            min_target_samples: 2_048,
+            max_target_samples: 16_384,
+            increase_step_samples: 1_024,
+            decrease_step_samples: 512,
+            decrease_stable_windows: 6,
+            decrease_queue_headroom_samples: 1_024,
         }
     }
 }
@@ -107,11 +107,6 @@ impl AdaptiveQueueController {
         self.target_samples
     }
 
-    pub fn set_target_samples(&mut self, target_samples: usize) {
-        self.target_samples = clamp_target_samples(target_samples, &self.options);
-        self.stable_window_count = 0;
-    }
-
     pub fn reset(&mut self, now_ms: u64, total_underrun_samples: u64) {
         self.last_window_ms = now_ms;
         self.last_underrun_samples = total_underrun_samples;
@@ -151,8 +146,8 @@ impl AdaptiveQueueController {
                 clamp_target_samples(current_target.saturating_add(increase_step), &self.options);
             self.stable_window_count = 0;
         } else {
-            let queue_floor_samples = self.options.decrease_queue_headroom_samples;
-            if queued_samples >= queue_floor_samples {
+            let queue_headroom_samples = queued_samples.saturating_sub(current_target);
+            if queue_headroom_samples >= self.options.decrease_queue_headroom_samples {
                 self.stable_window_count = self.stable_window_count.saturating_add(1);
             } else {
                 self.stable_window_count = 0;
@@ -732,22 +727,22 @@ mod tests {
     #[test]
     fn adaptive_queue_increases_target_when_underruns_appear() {
         let mut controller =
-            AdaptiveQueueController::new(768, 0, 0, AdaptiveQueueOptions::default());
-        let update = controller.update(120, 700, 10, 256);
+            AdaptiveQueueController::new(4_096, 0, 0, AdaptiveQueueOptions::default());
+        let update = controller.update(500, 2_000, 10, 512);
 
         assert!(update.changed);
-        assert_eq!(update.target_samples, 896);
+        assert_eq!(update.target_samples, 5_120);
         assert_eq!(update.window_underrun_samples, 10);
     }
 
     #[test]
     fn adaptive_queue_severe_underrun_uses_larger_increase_step() {
         let mut controller =
-            AdaptiveQueueController::new(768, 0, 0, AdaptiveQueueOptions::default());
-        let update = controller.update(120, 400, 800, 256);
+            AdaptiveQueueController::new(4_096, 0, 0, AdaptiveQueueOptions::default());
+        let update = controller.update(500, 1_000, 800, 512);
 
         assert!(update.changed);
-        assert_eq!(update.target_samples, 1_024);
+        assert_eq!(update.target_samples, 6_144);
         assert_eq!(update.window_underrun_samples, 800);
     }
 
@@ -779,28 +774,6 @@ mod tests {
         let fourth = controller.update(400, 4_400, 0, 512);
         assert!(fourth.changed);
         assert_eq!(fourth.target_samples, 3_840);
-    }
-
-    #[test]
-    fn adaptive_queue_can_downshift_when_queue_is_below_target() {
-        let options = AdaptiveQueueOptions {
-            window_ms: 100,
-            min_target_samples: 512,
-            max_target_samples: 2_048,
-            increase_step_samples: 128,
-            decrease_step_samples: 128,
-            decrease_stable_windows: 1,
-            decrease_queue_headroom_samples: 64,
-        };
-        let mut controller = AdaptiveQueueController::new(1_024, 0, 0, options);
-
-        let first = controller.update(100, 700, 0, 256);
-        assert!(first.changed);
-        assert_eq!(first.target_samples, 896);
-
-        let second = controller.update(200, 500, 0, 256);
-        assert!(second.changed);
-        assert_eq!(second.target_samples, 768);
     }
 
     #[test]
