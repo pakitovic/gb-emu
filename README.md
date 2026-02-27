@@ -62,8 +62,8 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - Shared runtime audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
 - Realtime audio block API for fixed-size callback backends, with silence padding when emulated audio budget is short.
 - Queue-based frontends (SDL2/WebAudio queue feeder) now use the same runtime adaptive queue policy and enqueue only currently available emulated audio samples.
-- Runtime queue defaults are tuned for lower latency (`initial/min/max = 768/384/1536`, `refill_block = 128`) with faster adaptive up/down steps, and hard-max queue clears now reset the adaptive target to minimum for faster post-stall resync.
-- SDL2 now uses runtime queue defaults directly (no frontend-specific queue constants), requests a smaller host audio buffer (`AudioSpecDesired.samples = 512`), and the web demo refills queue audio at a tighter `4ms` cadence.
+- Runtime queue defaults prioritize stable playback under host jitter (`initial/min/max = 4096/2048/16384`, `refill_block = 512`) while adaptive queueing remains shared across SDL2 and wasm/web frontends.
+- SDL2 now uses runtime queue defaults directly (no frontend-specific queue constants), keeps a conservative host audio buffer request (`AudioSpecDesired.samples = 1024`), and the web demo uses an `8ms` queue-refill cadence.
 - Browser demo (`web/`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
 - Minimal browser demo audio telemetry plus adaptive queue targeting for underrun recovery and latency tuning.
 

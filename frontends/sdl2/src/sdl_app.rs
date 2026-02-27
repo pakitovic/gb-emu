@@ -82,7 +82,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let desired_audio = AudioSpecDesired {
         freq: Some(48_000),
         channels: Some(AUDIO_CHANNELS as u8),
-        samples: Some(512),
+        samples: Some(1024),
     };
     let audio_queue = audio
         .open_queue::<f32, _>(None, &desired_audio)
