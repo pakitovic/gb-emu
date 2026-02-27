@@ -3,10 +3,11 @@ use gb_emu::gameboy::GameBoy;
 use gb_emu::timing::DMG_T_CYCLES_PER_SECOND;
 use gb_runtime::audio::{AudioMixer, MixerSource};
 use gb_runtime::cartridge_persistence::load_cartridge_from_file;
+use gb_runtime::session::RuntimeSession;
 use gb_runtime::timing::FramePacer;
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn make_rom_32kb() -> Vec<u8> {
     let mut rom = vec![0; 32 * 1024];
@@ -113,6 +114,41 @@ fn audio_realtime_core_apu_guard_stays_finite_and_stereo_aligned_under_stress() 
         "expected non-silent realtime mixer output"
     );
     assert!(total_output_scalars >= 96 * 512);
+}
+
+#[test]
+fn runtime_session_unifies_frame_budget_and_core_audio_capture() {
+    let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("valid ROM should load");
+    let gb = GameBoy::new(cartridge);
+    let mut session = RuntimeSession::new(gb, 48_000);
+
+    {
+        let gb = session.gameboy_mut();
+        gb.bus.write_byte(0xFF26, 0x00);
+        gb.bus.write_byte(0xFF26, 0x80);
+        gb.bus.write_byte(0xFF24, 0x77);
+        gb.bus.write_byte(0xFF25, 0x11);
+        gb.bus.write_byte(0xFF11, 0x80);
+        gb.bus.write_byte(0xFF12, 0xF0);
+        gb.bus.write_byte(0xFF13, 0xFC);
+        gb.bus.write_byte(0xFF14, 0x87);
+    }
+
+    session.push_host_time(Duration::from_millis(17));
+    let mut frames = 0u32;
+    while session.has_frame_budget() {
+        let cycles = session
+            .run_frame_with_limit(250_000)
+            .expect("frame should be produced within budget");
+        assert!(cycles > 0);
+        frames = frames.saturating_add(1);
+    }
+    assert!(frames > 0);
+
+    let block = session.drain_audio_realtime_block(256);
+    assert_eq!(block.len(), 512);
+    assert!(block.iter().all(|sample| sample.is_finite()));
+    assert!(block.iter().any(|sample| sample.abs() > 0.0));
 }
 
 #[test]

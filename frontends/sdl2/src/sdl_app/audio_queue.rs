@@ -1,38 +1,35 @@
-use super::{
-    AUDIO_QUEUE_HARD_MAX_SAMPLES, AUDIO_QUEUE_TARGET_INITIAL_SAMPLES,
-    AUDIO_QUEUE_TARGET_MAX_SAMPLES, AUDIO_QUEUE_TARGET_MIN_SAMPLES, AUDIO_REFILL_BLOCK_SAMPLES,
-    AUDIO_REFILL_MAX_BLOCKS,
+use gb_runtime::audio_queue::{
+    AudioQueueController, AudioQueueObservation, AudioQueueRefillConfig,
 };
-use gb_runtime::audio::{
-    AdaptiveQueueController, AdaptiveQueueOptions, AudioMixer, estimate_playback_underrun_samples,
-};
+use gb_runtime::session::RuntimeSession;
 use std::time::Instant;
 
 pub(super) fn refill_audio_queue(
     audio_queue: &sdl2::audio::AudioQueue<f32>,
-    mixer: &mut AudioMixer,
+    session: &mut RuntimeSession,
     queue_state: &mut SdlAudioQueueState,
-    pending_tcycles: u64,
     now: Instant,
 ) {
-    mixer.push_tcycles(pending_tcycles);
     let channel_count = usize::from(audio_queue.spec().channels.max(1));
-
-    let mut queued_samples = queued_audio_samples(audio_queue);
-
-    if queued_samples > AUDIO_QUEUE_HARD_MAX_SAMPLES {
+    let now_ms = queue_state.now_ms(now);
+    let queued_samples_before_refill = queued_audio_samples(audio_queue);
+    let AudioQueueObservation {
+        target_samples,
+        normalized_queued_samples,
+        queue_cleared,
+        ..
+    } = queue_state.observe_and_update_target(now_ms, queued_samples_before_refill);
+    let mut queued_samples = normalized_queued_samples;
+    if queue_cleared {
         audio_queue.clear();
-        queued_samples = 0;
     }
 
-    let target_samples = queue_state.observe_and_update_target(now, queued_samples);
-
     let mut guard = 0;
-    while queued_samples < target_samples && guard < AUDIO_REFILL_MAX_BLOCKS {
+    while queued_samples < target_samples && guard < queue_state.max_refill_blocks() {
         let wanted = target_samples
             .saturating_sub(queued_samples)
-            .min(AUDIO_REFILL_BLOCK_SAMPLES);
-        let samples = mixer.drain_realtime_block(0, wanted);
+            .min(queue_state.refill_block_samples());
+        let samples = drain_refill_samples(session, wanted);
         if samples.is_empty() {
             break;
         }
@@ -44,7 +41,13 @@ pub(super) fn refill_audio_queue(
         guard += 1;
     }
 
-    queue_state.commit_refill(now, queued_samples);
+    queue_state.commit_refill(now_ms, queued_samples);
+}
+
+fn drain_refill_samples(session: &mut RuntimeSession, wanted_samples: usize) -> Vec<f32> {
+    // Queue-based backends should enqueue only currently available emulated audio.
+    // Padding with synthetic silence here causes audible discontinuities under load.
+    session.drain_audio_samples(wanted_samples)
 }
 
 fn queued_audio_samples(audio_queue: &sdl2::audio::AudioQueue<f32>) -> usize {
@@ -54,61 +57,82 @@ fn queued_audio_samples(audio_queue: &sdl2::audio::AudioQueue<f32>) -> usize {
 }
 
 pub(super) struct SdlAudioQueueState {
-    sample_rate_hz: u32,
     start_instant: Instant,
-    last_refill_instant: Instant,
-    last_queue_after_refill_samples: usize,
-    total_underrun_samples: u64,
-    adaptive_target: AdaptiveQueueController,
+    controller: AudioQueueController,
 }
 
 impl SdlAudioQueueState {
     pub(super) fn new(sample_rate_hz: u32, now: Instant) -> Self {
-        let options = AdaptiveQueueOptions {
-            min_target_samples: AUDIO_QUEUE_TARGET_MIN_SAMPLES,
-            max_target_samples: AUDIO_QUEUE_TARGET_MAX_SAMPLES,
-            ..AdaptiveQueueOptions::default()
-        };
-        let adaptive_target =
-            AdaptiveQueueController::new(AUDIO_QUEUE_TARGET_INITIAL_SAMPLES, 0, 0, options);
+        let config = AudioQueueRefillConfig::default();
+        let controller = AudioQueueController::new(sample_rate_hz, 0, config);
         Self {
-            sample_rate_hz: sample_rate_hz.max(1),
             start_instant: now,
-            last_refill_instant: now,
-            last_queue_after_refill_samples: 0,
-            total_underrun_samples: 0,
-            adaptive_target,
+            controller,
         }
+    }
+
+    fn now_ms(&self, now: Instant) -> u64 {
+        u64::try_from(
+            now.saturating_duration_since(self.start_instant)
+                .as_millis(),
+        )
+        .unwrap_or(u64::MAX)
     }
 
     fn observe_and_update_target(
         &mut self,
-        now: Instant,
+        now_ms: u64,
         queued_samples_before_refill: usize,
-    ) -> usize {
-        let elapsed = now.saturating_duration_since(self.last_refill_instant);
-        let underrun_delta = estimate_playback_underrun_samples(
-            self.last_queue_after_refill_samples,
-            elapsed,
-            self.sample_rate_hz,
-        );
-        self.total_underrun_samples = self.total_underrun_samples.saturating_add(underrun_delta);
-        let now_ms = u64::try_from(
-            now.saturating_duration_since(self.start_instant)
-                .as_millis(),
-        )
-        .unwrap_or(u64::MAX);
-        let update = self.adaptive_target.update(
-            now_ms,
-            queued_samples_before_refill,
-            self.total_underrun_samples,
-            AUDIO_REFILL_BLOCK_SAMPLES,
-        );
-        update.target_samples
+    ) -> AudioQueueObservation {
+        self.controller
+            .observe_and_update_target(now_ms, queued_samples_before_refill)
     }
 
-    fn commit_refill(&mut self, now: Instant, queued_samples_after_refill: usize) {
-        self.last_refill_instant = now;
-        self.last_queue_after_refill_samples = queued_samples_after_refill;
+    fn commit_refill(&mut self, now_ms: u64, queued_samples_after_refill: usize) {
+        self.controller
+            .commit_refill(now_ms, queued_samples_after_refill);
+    }
+
+    fn refill_block_samples(&self) -> usize {
+        self.controller.refill_block_samples()
+    }
+
+    fn max_refill_blocks(&self) -> usize {
+        self.controller.max_refill_blocks()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::drain_refill_samples;
+    use gb_emu::cartridge::Cartridge;
+    use gb_emu::gameboy::GameBoy;
+    use gb_emu::timing::DMG_T_CYCLES_PER_SECOND;
+    use gb_runtime::audio::MixerSource;
+    use gb_runtime::session::RuntimeSession;
+
+    fn make_rom_32kb() -> Vec<u8> {
+        let mut rom = vec![0; 32 * 1024];
+        rom[0x0147] = 0x00;
+        rom[0x0148] = 0x00;
+        rom
+    }
+
+    #[test]
+    fn drain_refill_samples_does_not_pad_with_synthetic_silence() {
+        let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("valid ROM should load");
+        let gb = GameBoy::new(cartridge);
+        let mut session = RuntimeSession::new(gb, 48_000);
+        session.set_audio_source(MixerSource::TestTone);
+        session.consume_emulated_cycles(DMG_T_CYCLES_PER_SECOND / 100);
+
+        let first = drain_refill_samples(&mut session, 600);
+        assert!(!first.is_empty());
+        assert_eq!(first.len() % 2, 0);
+        assert!(first.len() < 600 * 2);
+        assert!(first.iter().any(|sample| *sample != 0.0));
+
+        let second = drain_refill_samples(&mut session, 600);
+        assert!(second.is_empty());
     }
 }

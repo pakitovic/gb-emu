@@ -13,6 +13,6 @@ impl WebEmulator {
     }
 
     pub fn grayscale_frame(&self) -> Vec<u8> {
-        self.gb.framebuffer().to_vec()
+        self.session.gameboy().framebuffer().to_vec()
     }
 }

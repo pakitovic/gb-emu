@@ -1,7 +1,8 @@
 use super::WebEmulator;
 use gb_emu::cartridge::Cartridge;
 use gb_emu::hardware::HardwareModel;
-use gb_runtime::audio::{AudioMixer, MixerSource};
+use gb_runtime::audio_queue::AudioQueueRefillConfig;
+use gb_runtime::session::RuntimeSession;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
 
@@ -24,15 +25,17 @@ impl WebEmulator {
 
         let mut gb = gb_emu::gameboy::GameBoy::new_with_model(cartridge, model);
         gb.set_cartridge_host_rtc_epoch_secs(Some(initial_rtc_epoch_secs));
-        gb.set_audio_tcycle_stream_enabled(true);
-
-        let mut audio_mixer = AudioMixer::new(48_000);
-        audio_mixer.set_source(MixerSource::CoreApu);
+        let session = RuntimeSession::new(gb, 48_000);
+        let audio_queue_controller = gb_runtime::audio_queue::AudioQueueController::new(
+            48_000,
+            0,
+            AudioQueueRefillConfig::default(),
+        );
 
         Ok(Self {
-            gb,
-            pacer: gb_runtime::timing::FramePacer::default(),
-            audio_mixer,
+            session,
+            audio_queue_controller,
+            audio_queue_clock_ms: 0,
         })
     }
 }
@@ -66,7 +69,7 @@ impl WebEmulator {
     }
 
     pub fn frame_counter(&self) -> u64 {
-        self.gb.frame_counter()
+        self.session.gameboy().frame_counter()
     }
 
     pub fn run_frame(&mut self) -> Result<u64, JsValue> {
@@ -74,11 +77,11 @@ impl WebEmulator {
     }
 
     pub fn run_for_elapsed_micros(&mut self, elapsed_micros: u32) -> Result<u32, JsValue> {
-        self.pacer
+        self.session
             .push_host_time(Duration::from_micros(elapsed_micros as u64));
 
         let mut ran_frames = 0u32;
-        while self.pacer.has_frame_budget() {
+        while self.session.has_frame_budget() {
             self.run_frame_and_capture_audio()?;
             ran_frames = ran_frames.saturating_add(1);
         }
@@ -87,22 +90,23 @@ impl WebEmulator {
     }
 
     pub fn pending_frame_budget(&self) -> u32 {
-        self.pacer.frame_budget_count()
+        self.session.frame_budget_count()
     }
 
     pub fn audio_clock_tcycles(&self) -> u64 {
-        self.pacer.audio_clock_tcycles()
+        self.session.audio_clock_tcycles()
     }
 
     pub fn drain_audio_tcycles(&mut self) -> u64 {
-        self.pacer.drain_audio_tcycles()
+        self.session.drain_audio_tcycles()
     }
 
     pub fn set_host_rtc_epoch_secs(&mut self, epoch_secs: f64) {
         if !epoch_secs.is_finite() || epoch_secs.is_sign_negative() {
             return;
         }
-        self.gb
+        self.session
+            .gameboy_mut()
             .set_cartridge_host_rtc_epoch_secs(Some(epoch_secs.floor() as u64));
     }
 }

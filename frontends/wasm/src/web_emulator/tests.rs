@@ -16,6 +16,18 @@ fn make_mbc1_battery_ram_rom_32kb() -> Vec<u8> {
     rom
 }
 
+fn setup_ch1_routed_output(web: &mut WebEmulator) {
+    let gb = web.session.gameboy_mut();
+    gb.bus.write_byte(0xFF26, 0x00);
+    gb.bus.write_byte(0xFF26, 0x80);
+    gb.bus.write_byte(0xFF24, 0x77);
+    gb.bus.write_byte(0xFF25, 0x11);
+    gb.bus.write_byte(0xFF11, 0x80);
+    gb.bus.write_byte(0xFF12, 0xF0);
+    gb.bus.write_byte(0xFF13, 0xFC);
+    gb.bus.write_byte(0xFF14, 0x87);
+}
+
 #[test]
 fn constructor_rejects_invalid_model_string() {
     let rom = make_rom_32kb();
@@ -46,18 +58,48 @@ fn drain_audio_samples_realtime_returns_fixed_block_len() {
 }
 
 #[test]
+fn drain_audio_samples_queue_mode_does_not_pad_short_core_budget() {
+    let rom = make_rom_32kb();
+    let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
+    setup_ch1_routed_output(&mut web);
+    web.run_frame().expect("a frame should be produced");
+
+    let first = web.drain_audio_samples(1024);
+    assert!(!first.is_empty());
+    assert_eq!(first.len() % 2, 0);
+    assert!(first.len() < 2 * 1024);
+    assert!(first.iter().any(|sample| sample.abs() > 0.0));
+
+    let second = web.drain_audio_samples(1024);
+    assert!(second.is_empty());
+}
+
+#[test]
+fn shared_runtime_queue_controller_is_exposed_for_web_refill_policy() {
+    let rom = make_rom_32kb();
+    let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
+
+    assert_eq!(web.audio_queue_refill_block_samples(), 128);
+    assert_eq!(web.audio_queue_max_refill_blocks(), 24);
+    assert!(!web.audio_queue_clear_required());
+
+    let target = web.observe_audio_queue_target(1.0, 0);
+    assert!(target >= 384);
+    assert!(!web.audio_queue_clear_required());
+    web.commit_audio_queue_refill(1.0, 0);
+
+    let _target = web.observe_audio_queue_target(2.0, 65_000);
+    assert!(web.audio_queue_clear_required());
+    web.commit_audio_queue_refill(2.0, 0);
+    assert!(!web.audio_queue_clear_required());
+}
+
+#[test]
 fn drain_audio_samples_realtime_can_emit_core_apu_signal() {
     let rom = make_rom_32kb();
     let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
 
-    web.gb.bus.write_byte(0xFF26, 0x00);
-    web.gb.bus.write_byte(0xFF26, 0x80);
-    web.gb.bus.write_byte(0xFF24, 0x77);
-    web.gb.bus.write_byte(0xFF25, 0x11);
-    web.gb.bus.write_byte(0xFF11, 0x80);
-    web.gb.bus.write_byte(0xFF12, 0xF0);
-    web.gb.bus.write_byte(0xFF13, 0xFC);
-    web.gb.bus.write_byte(0xFF14, 0x87);
+    setup_ch1_routed_output(&mut web);
 
     web.run_frame().expect("a frame should be produced");
     let samples = web.drain_audio_samples_realtime(512);
@@ -70,14 +112,7 @@ fn set_audio_sample_rate_preserves_pending_core_apu_queue() {
     let rom = make_rom_32kb();
     let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
 
-    web.gb.bus.write_byte(0xFF26, 0x00);
-    web.gb.bus.write_byte(0xFF26, 0x80);
-    web.gb.bus.write_byte(0xFF24, 0x77);
-    web.gb.bus.write_byte(0xFF25, 0x11);
-    web.gb.bus.write_byte(0xFF11, 0x80);
-    web.gb.bus.write_byte(0xFF12, 0xF0);
-    web.gb.bus.write_byte(0xFF13, 0xFC);
-    web.gb.bus.write_byte(0xFF14, 0x87);
+    setup_ch1_routed_output(&mut web);
 
     web.run_frame().expect("a frame should be produced");
 
@@ -153,8 +188,11 @@ fn persistence_api_exposes_save_ram_roundtrip_and_dirty_flag() {
         8 * 1024
     );
 
-    web.gb.bus.write_byte(0x0000, 0x0A); // RAM enable (MBC1)
-    web.gb.bus.write_byte(0xA000, 0x5A);
+    {
+        let gb = web.session.gameboy_mut();
+        gb.bus.write_byte(0x0000, 0x0A); // RAM enable (MBC1)
+        gb.bus.write_byte(0xA000, 0x5A);
+    }
     assert!(web.cartridge_battery_save_dirty());
 
     let save = web

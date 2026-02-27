@@ -186,7 +186,9 @@ Before considering a task complete, all of the following must hold:
 - If a tradeoff is necessary (readability vs speed, fidelity vs complexity), document why and what was validated.
 
 ## Git and PR Conventions
-- Use small, focused commits with imperative commit messages.
+- Use small, focused commits.
+- Commit subjects are mandatory Conventional Commits in English: `type(scope): imperative summary` (example: `fix(runtime): reduce audio queue underrun pops`).
+- Allowed commit `type` values: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `ci`, `perf`, `build`, `revert`.
 - Keep PRs narrowly scoped and reviewable.
 - If creating branches, use the `codex/` prefix.
 - Never implement changes directly on `main`; create a dedicated branch per logical change/feature.
@@ -200,6 +202,7 @@ Before considering a task complete, all of the following must hold:
 - PR title must match the latest/main commit subject of the branch.
 - For PR creation/update, use `scripts/dev/create_pr.sh` (default base: `main`), which pushes the branch and creates or updates the PR automatically.
 - If the latest commit has no body, PR description should be initialized from `.github/pull_request_template.md`.
+- Treat the PR template as scaffolding only: always replace template placeholders/default text with concrete English content describing the actual changes in the branch before finalizing PR creation/update.
 - PR descriptions should include:
   - Problem statement.
   - Behavioral change summary.

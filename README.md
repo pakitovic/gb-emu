@@ -57,9 +57,13 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 
 ### Audio Output Pipeline / Frontend Audio Integration
 - Shared `runtime/` host utilities for frontend frame pacing, realtime audio queueing, adaptive buffering, t-cycle-to-PCM mixer bridging (SDL2/Web), and file-backed cartridge persistence adapters.
+- Shared `gb_runtime::session::RuntimeSession` now centralizes frontend wiring of `GameBoy + FramePacer + AudioMixer` (used by SDL2 and wasm adapters) so core-clock/audio capture plumbing does not need to be reimplemented per frontend.
+- Shared `gb_runtime::audio_queue::AudioQueueController` now centralizes adaptive queue-targeting and underrun-estimation policy used by SDL2 and the wasm/web queue refill path.
 - Shared runtime audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
-- Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
-- SDL2 frontend adaptive audio queue targeting with underrun estimation from queue depth and host time.
+- Realtime audio block API for fixed-size callback backends, with silence padding when emulated audio budget is short.
+- Queue-based frontends (SDL2/WebAudio queue feeder) now use the same runtime adaptive queue policy and enqueue only currently available emulated audio samples.
+- Runtime queue defaults are tuned for lower latency (`initial/min/max = 768/384/1536`, `refill_block = 128`) with faster adaptive up/down steps, and hard-max queue clears now reset the adaptive target to minimum for faster post-stall resync.
+- SDL2 now uses runtime queue defaults directly (no frontend-specific queue constants), requests a smaller host audio buffer (`AudioSpecDesired.samples = 512`), and the web demo refills queue audio at a tighter `4ms` cadence.
 - Browser demo (`web/`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
 - Minimal browser demo audio telemetry plus adaptive queue targeting for underrun recovery and latency tuning.
 
@@ -104,6 +108,8 @@ runtime/
   Cargo.toml
   src/
     audio.rs
+    audio_queue.rs
+    session.rs
     timing.rs
     lib.rs
   tests/
@@ -153,7 +159,7 @@ web/
   Current `systems/gb` owns CPU/APU/PPU/timer/interrupts/MMIO/DMA, cartridge/mappers and persistence-byte semantics (battery save RAM / MBC3 RTC import-export APIs), framebuffer generation, and emulated audio sample stream generation.
   It must not contain SDL2 backends, `wasm-bindgen` exports, browser DOM/JS integration, or libretro bindings.
 - `runtime/`: frontend-shared host/runtime helpers that are not hardware semantics.
-  Current `runtime` owns host-time frame pacing (`FramePacer`), frontend audio queue/adaptive buffering helpers, the frontend-facing t-cycle-to-PCM mixer bridge, and file-backed cartridge persistence adapters (`.sav` / `.rtc`).
+  Current `runtime` owns host-time frame pacing (`FramePacer`), a shared frontend runtime session (`RuntimeSession`: `GameBoy + FramePacer + AudioMixer` wiring), frontend audio queue/adaptive buffering helpers, the frontend-facing t-cycle-to-PCM mixer bridge, and file-backed cartridge persistence adapters (`.sav` / `.rtc`).
 - `frontends/*`: host adapters/UI entrypoints that depend on `systems/gb` and optionally `runtime`.
   - `frontends/cli`: CLI argument parsing, headless modes (`blargg`, `mooneye`, `cart-info`), CLI error formatting/wiring.
   - `frontends/sdl2`: SDL2 window/rendering, event loop, keyboard mapping, SDL2 audio queue/device integration.
@@ -242,7 +248,7 @@ Supported models for `--model`:
 
 ### Runtime / Host Utility Maintainability
 - `runtime/src/audio.rs` is intentionally kept as a single module for now, but if runtime audio helpers continue to grow it should be split into `runtime/src/audio.rs` + `runtime/src/audio/*` submodules (for example `mixer`, `adaptive_queue`, `resampler`) as a maintenance refactor without behavioral changes.
-- `web/audio-adaptive.mjs` and `gb_runtime` adaptive queue policy are intentionally separate today (browser demo tuning vs shared runtime helper tuning); if they continue to evolve, align tuning rules/tests or consolidate shared policy logic to avoid silent drift.
+- Queue-targeting policy is now runtime-owned via `gb_runtime::audio_queue`; browser host code should treat it as the source of truth to avoid SDL2/web drift.
 
 ### PPU / Rendering / Timing Fidelity
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
@@ -312,7 +318,7 @@ cargo test --locked -p gb-runtime
 Optional web frontend unit test:
 
 ```bash
-node --test web/audio-adaptive.test.mjs
+node --test web/save-persistence.test.mjs
 ```
 
 ROM test suites:
@@ -398,9 +404,9 @@ Notes:
 - Web demo groups controls into `ROM / Save` and `Audio` sections, exposes separate ROM/SAV/RTC controls (`Load ROM`, `Import/Export SAV`, `Import/Export RTC`), adds a `Close ROM` action for reset/swap workflows, shows a persistence capability/status line (`battery-save`, `rtc`) for manual testing/debugging, and disables SAV/RTC import/export controls until a compatible ROM is loaded.
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
-- SDL2/Web pacing uses `gb_runtime::timing::FramePacer` (shared host/runtime pacing helper) to avoid frontend-specific timing drift.
+- SDL2/Web runtime wiring now uses `gb_runtime::session::RuntimeSession` (shared `GameBoy + FramePacer + AudioMixer` orchestration) to reduce frontend-specific timing/audio drift.
 - SDL2 audio uses the core mixer clock bridge and queues stereo interleaved PCM in real time (now from the `frontends/sdl2` workspace package).
-- SDL2 queue refill is driven by emulated audio t-cycles; underruns are padded with silence (no synthetic emulated cycles).
+- SDL2 queue refill is driven by emulated audio t-cycles and enqueues only available core samples (no synthetic silence padding in refill blocks).
 - SDL2 queue target is auto-tuned over time windows (same policy as web) using estimated underruns from elapsed playback vs queued samples.
 - `scripts/dev/run_sdl2_frontend.sh` is the recommended local command for SDL2 builds/runs (including a `--release` mode for performance) and consistent macOS/Homebrew linker env setup.
 - SDL2 renderer uses accelerated rendering with `present_vsync()` by default to reduce visible tearing during scroll/camera movement; override with `GB_SDL2_VSYNC=0` for diagnostics/perf comparisons.
@@ -413,9 +419,11 @@ Notes:
 - Web helpers:
   - `run_for_elapsed_micros(elapsed_micros)` to step as many emulated frames as host time allows.
   - `audio_clock_tcycles()` / `drain_audio_tcycles()` for raw emulated audio clock access.
-  - `set_audio_sample_rate(rate_hz)` (preserves queued Core APU audio when reconfiguring WebAudio rate) and `drain_audio_samples(max_samples)` for WebAudio feeding (`Vec<f32>` stereo interleaved: `L,R,L,R,...`).
+  - `set_audio_sample_rate(rate_hz)` (preserves queued Core APU audio when reconfiguring WebAudio rate) and `drain_audio_samples(max_samples)` for queue-based WebAudio feeding (`Vec<f32>` stereo interleaved: `L,R,L,R,...`).
+  - `observe_audio_queue_target(now_ms, queued_samples)`, `audio_queue_clear_required()`, and `commit_audio_queue_refill(now_ms, queued_samples_after_refill)` to drive queue-based host refill using shared runtime policy.
+  - `audio_queue_refill_block_samples()` / `audio_queue_max_refill_blocks()` to read runtime-owned queue refill limits from wasm/web hosts.
   - `set_audio_resampler_quality("linear" | "cubic")` and `audio_resampler_quality()` to compare interpolation quality/CPU tradeoffs from frontends.
-  - `drain_audio_samples_realtime(block_samples)` for callback-style fixed-size WebAudio blocks (`block_samples` = frames, returned buffer is stereo interleaved).
+  - `drain_audio_samples_realtime(block_samples)` for callback-style fixed-size backends (`block_samples` = frames, returned buffer is stereo interleaved and zero-padded when short).
   - `set_audio_test_tone_enabled(enabled)` for pipeline/debug validation.
   - `cartridge_debug_report()` and `cartridge_warning_count()` for frontend cartridge diagnostics panels.
 - `web/` is intentionally small and uses `AudioWorkletNode` for lower-latency callback-style audio.
