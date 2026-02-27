@@ -3,8 +3,8 @@ const KEY_TO_BUTTON = {
   ArrowLeft: 1,
   ArrowUp: 2,
   ArrowDown: 3,
-  KeyZ: 4,
-  KeyX: 5,
+  KeyZ: 5,
+  KeyX: 4,
   Backspace: 6,
   Enter: 7,
 };

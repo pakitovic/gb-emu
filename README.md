@@ -318,7 +318,7 @@ cargo test --locked -p gb-runtime
 Optional web frontend unit test:
 
 ```bash
-node --test web/save-persistence.test.mjs
+node --test web/save-persistence.test.mjs web/input.test.mjs
 ```
 
 ROM test suites:
@@ -402,7 +402,7 @@ Notes:
 - `web/` contains browser host assets only; the Rust/WASM adapter crate lives in `frontends/wasm/`.
 - Web builds inject host wall-clock epoch time (`Date.now()`) into the core RTC path for MBC3 RTC state, avoiding browser target traps from direct wall-clock queries inside the core.
 - Web demo groups controls into `ROM / Save` and `Audio` sections, exposes separate ROM/SAV/RTC controls (`Load ROM`, `Import/Export SAV`, `Import/Export RTC`), adds a `Close ROM` action for reset/swap workflows, shows a persistence capability/status line (`battery-save`, `rtc`) for manual testing/debugging, and disables SAV/RTC import/export controls until a compatible ROM is loaded.
-- SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
+- SDL2 key mapping: arrows=`D-Pad`, `Z`=`B`, `X`=`A`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
 - SDL2/Web runtime wiring now uses `gb_runtime::session::RuntimeSession` (shared `GameBoy + FramePacer + AudioMixer` orchestration) to reduce frontend-specific timing/audio drift.
 - SDL2 audio uses the core mixer clock bridge and queues stereo interleaved PCM in real time (now from the `frontends/sdl2` workspace package).

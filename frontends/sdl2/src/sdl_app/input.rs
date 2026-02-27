@@ -56,8 +56,8 @@ fn map_key_to_button(code: Keycode) -> Option<Button> {
         Keycode::Left => Some(Button::Left),
         Keycode::Up => Some(Button::Up),
         Keycode::Down => Some(Button::Down),
-        Keycode::Z => Some(Button::A),
-        Keycode::X => Some(Button::B),
+        Keycode::Z => Some(Button::B),
+        Keycode::X => Some(Button::A),
         Keycode::Backspace => Some(Button::Select),
         Keycode::Return => Some(Button::Start),
         _ => None,
@@ -80,7 +80,8 @@ mod tests {
     #[test]
     fn map_key_to_button_maps_expected_keys() {
         assert_eq!(map_key_to_button(Keycode::Right), Some(Button::Right));
-        assert_eq!(map_key_to_button(Keycode::Z), Some(Button::A));
+        assert_eq!(map_key_to_button(Keycode::Z), Some(Button::B));
+        assert_eq!(map_key_to_button(Keycode::X), Some(Button::A));
         assert_eq!(map_key_to_button(Keycode::Return), Some(Button::Start));
         assert_eq!(map_key_to_button(Keycode::Space), None);
     }
