@@ -4,18 +4,17 @@ use super::{
     AUDIO_REFILL_MAX_BLOCKS,
 };
 use gb_runtime::audio::{
-    AdaptiveQueueController, AdaptiveQueueOptions, AudioMixer, estimate_playback_underrun_samples,
+    AdaptiveQueueController, AdaptiveQueueOptions, estimate_playback_underrun_samples,
 };
+use gb_runtime::session::RuntimeSession;
 use std::time::Instant;
 
 pub(super) fn refill_audio_queue(
     audio_queue: &sdl2::audio::AudioQueue<f32>,
-    mixer: &mut AudioMixer,
+    session: &mut RuntimeSession,
     queue_state: &mut SdlAudioQueueState,
-    pending_tcycles: u64,
     now: Instant,
 ) {
-    mixer.push_tcycles(pending_tcycles);
     let channel_count = usize::from(audio_queue.spec().channels.max(1));
 
     let mut queued_samples = queued_audio_samples(audio_queue);
@@ -32,7 +31,7 @@ pub(super) fn refill_audio_queue(
         let wanted = target_samples
             .saturating_sub(queued_samples)
             .min(AUDIO_REFILL_BLOCK_SAMPLES);
-        let samples = mixer.drain_realtime_block(0, wanted);
+        let samples = session.drain_audio_realtime_block(wanted);
         if samples.is_empty() {
             break;
         }

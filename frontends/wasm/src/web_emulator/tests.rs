@@ -16,6 +16,18 @@ fn make_mbc1_battery_ram_rom_32kb() -> Vec<u8> {
     rom
 }
 
+fn setup_ch1_routed_output(web: &mut WebEmulator) {
+    let gb = web.session.gameboy_mut();
+    gb.bus.write_byte(0xFF26, 0x00);
+    gb.bus.write_byte(0xFF26, 0x80);
+    gb.bus.write_byte(0xFF24, 0x77);
+    gb.bus.write_byte(0xFF25, 0x11);
+    gb.bus.write_byte(0xFF11, 0x80);
+    gb.bus.write_byte(0xFF12, 0xF0);
+    gb.bus.write_byte(0xFF13, 0xFC);
+    gb.bus.write_byte(0xFF14, 0x87);
+}
+
 #[test]
 fn constructor_rejects_invalid_model_string() {
     let rom = make_rom_32kb();
@@ -50,14 +62,7 @@ fn drain_audio_samples_realtime_can_emit_core_apu_signal() {
     let rom = make_rom_32kb();
     let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
 
-    web.gb.bus.write_byte(0xFF26, 0x00);
-    web.gb.bus.write_byte(0xFF26, 0x80);
-    web.gb.bus.write_byte(0xFF24, 0x77);
-    web.gb.bus.write_byte(0xFF25, 0x11);
-    web.gb.bus.write_byte(0xFF11, 0x80);
-    web.gb.bus.write_byte(0xFF12, 0xF0);
-    web.gb.bus.write_byte(0xFF13, 0xFC);
-    web.gb.bus.write_byte(0xFF14, 0x87);
+    setup_ch1_routed_output(&mut web);
 
     web.run_frame().expect("a frame should be produced");
     let samples = web.drain_audio_samples_realtime(512);
@@ -70,14 +75,7 @@ fn set_audio_sample_rate_preserves_pending_core_apu_queue() {
     let rom = make_rom_32kb();
     let mut web = WebEmulator::new(&rom, None).expect("web emulator should initialize");
 
-    web.gb.bus.write_byte(0xFF26, 0x00);
-    web.gb.bus.write_byte(0xFF26, 0x80);
-    web.gb.bus.write_byte(0xFF24, 0x77);
-    web.gb.bus.write_byte(0xFF25, 0x11);
-    web.gb.bus.write_byte(0xFF11, 0x80);
-    web.gb.bus.write_byte(0xFF12, 0xF0);
-    web.gb.bus.write_byte(0xFF13, 0xFC);
-    web.gb.bus.write_byte(0xFF14, 0x87);
+    setup_ch1_routed_output(&mut web);
 
     web.run_frame().expect("a frame should be produced");
 
@@ -153,8 +151,11 @@ fn persistence_api_exposes_save_ram_roundtrip_and_dirty_flag() {
         8 * 1024
     );
 
-    web.gb.bus.write_byte(0x0000, 0x0A); // RAM enable (MBC1)
-    web.gb.bus.write_byte(0xA000, 0x5A);
+    {
+        let gb = web.session.gameboy_mut();
+        gb.bus.write_byte(0x0000, 0x0A); // RAM enable (MBC1)
+        gb.bus.write_byte(0xA000, 0x5A);
+    }
     assert!(web.cartridge_battery_save_dirty());
 
     let save = web

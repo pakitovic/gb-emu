@@ -13,11 +13,11 @@ pub(super) fn parse_audio_resampler_quality(quality: &str) -> Option<AudioResamp
 #[wasm_bindgen]
 impl WebEmulator {
     pub fn set_audio_sample_rate(&mut self, sample_rate_hz: u32) {
-        self.audio_mixer.set_sample_rate_hz(sample_rate_hz.max(1));
+        self.session.set_audio_sample_rate_hz(sample_rate_hz.max(1));
     }
 
     pub fn audio_resampler_quality(&self) -> String {
-        match self.audio_mixer.core_resampler_quality() {
+        match self.session.audio_resampler_quality() {
             AudioResamplerQuality::Linear => "linear",
             AudioResamplerQuality::Cubic => "cubic",
         }
@@ -30,12 +30,12 @@ impl WebEmulator {
                 "Invalid audio resampler quality (expected 'linear' or 'cubic')",
             ));
         };
-        self.audio_mixer.set_core_resampler_quality(quality);
+        self.session.set_audio_resampler_quality(quality);
         Ok(())
     }
 
     pub fn set_audio_test_tone_enabled(&mut self, enabled: bool) {
-        self.audio_mixer.set_source(if enabled {
+        self.session.set_audio_source(if enabled {
             MixerSource::TestTone
         } else {
             MixerSource::CoreApu
@@ -43,14 +43,11 @@ impl WebEmulator {
     }
 
     pub fn drain_audio_samples(&mut self, max_samples: u32) -> Vec<f32> {
-        let pending_tcycles = self.pacer.drain_audio_tcycles();
-        self.audio_mixer
-            .drain_synced_samples(pending_tcycles, max_samples as usize)
+        self.session.drain_audio_samples(max_samples as usize)
     }
 
     pub fn drain_audio_samples_realtime(&mut self, block_samples: u32) -> Vec<f32> {
-        let pending_tcycles = self.pacer.drain_audio_tcycles();
-        self.audio_mixer
-            .drain_realtime_block(pending_tcycles, block_samples as usize)
+        self.session
+            .drain_audio_realtime_block(block_samples as usize)
     }
 }

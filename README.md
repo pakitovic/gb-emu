@@ -57,6 +57,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 
 ### Audio Output Pipeline / Frontend Audio Integration
 - Shared `runtime/` host utilities for frontend frame pacing, realtime audio queueing, adaptive buffering, t-cycle-to-PCM mixer bridging (SDL2/Web), and file-backed cartridge persistence adapters.
+- Shared `gb_runtime::session::RuntimeSession` now centralizes frontend wiring of `GameBoy + FramePacer + AudioMixer` (used by SDL2 and wasm adapters) so core-clock/audio capture plumbing does not need to be reimplemented per frontend.
 - Shared runtime audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
 - Realtime audio block API for backend callbacks (SDL queue/WebAudio) with silence padding when emulated audio budget is short.
 - SDL2 frontend adaptive audio queue targeting with underrun estimation from queue depth and host time.
@@ -104,6 +105,7 @@ runtime/
   Cargo.toml
   src/
     audio.rs
+    session.rs
     timing.rs
     lib.rs
   tests/
@@ -153,7 +155,7 @@ web/
   Current `systems/gb` owns CPU/APU/PPU/timer/interrupts/MMIO/DMA, cartridge/mappers and persistence-byte semantics (battery save RAM / MBC3 RTC import-export APIs), framebuffer generation, and emulated audio sample stream generation.
   It must not contain SDL2 backends, `wasm-bindgen` exports, browser DOM/JS integration, or libretro bindings.
 - `runtime/`: frontend-shared host/runtime helpers that are not hardware semantics.
-  Current `runtime` owns host-time frame pacing (`FramePacer`), frontend audio queue/adaptive buffering helpers, the frontend-facing t-cycle-to-PCM mixer bridge, and file-backed cartridge persistence adapters (`.sav` / `.rtc`).
+  Current `runtime` owns host-time frame pacing (`FramePacer`), a shared frontend runtime session (`RuntimeSession`: `GameBoy + FramePacer + AudioMixer` wiring), frontend audio queue/adaptive buffering helpers, the frontend-facing t-cycle-to-PCM mixer bridge, and file-backed cartridge persistence adapters (`.sav` / `.rtc`).
 - `frontends/*`: host adapters/UI entrypoints that depend on `systems/gb` and optionally `runtime`.
   - `frontends/cli`: CLI argument parsing, headless modes (`blargg`, `mooneye`, `cart-info`), CLI error formatting/wiring.
   - `frontends/sdl2`: SDL2 window/rendering, event loop, keyboard mapping, SDL2 audio queue/device integration.
@@ -398,7 +400,7 @@ Notes:
 - Web demo groups controls into `ROM / Save` and `Audio` sections, exposes separate ROM/SAV/RTC controls (`Load ROM`, `Import/Export SAV`, `Import/Export RTC`), adds a `Close ROM` action for reset/swap workflows, shows a persistence capability/status line (`battery-save`, `rtc`) for manual testing/debugging, and disables SAV/RTC import/export controls until a compatible ROM is loaded.
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`A`, `X`=`B`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
-- SDL2/Web pacing uses `gb_runtime::timing::FramePacer` (shared host/runtime pacing helper) to avoid frontend-specific timing drift.
+- SDL2/Web runtime wiring now uses `gb_runtime::session::RuntimeSession` (shared `GameBoy + FramePacer + AudioMixer` orchestration) to reduce frontend-specific timing/audio drift.
 - SDL2 audio uses the core mixer clock bridge and queues stereo interleaved PCM in real time (now from the `frontends/sdl2` workspace package).
 - SDL2 queue refill is driven by emulated audio t-cycles; underruns are padded with silence (no synthetic emulated cycles).
 - SDL2 queue target is auto-tuned over time windows (same policy as web) using estimated underruns from elapsed playback vs queued samples.
