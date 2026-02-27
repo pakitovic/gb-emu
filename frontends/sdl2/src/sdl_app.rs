@@ -27,12 +27,6 @@ use ui::{build_window_title, render_grayscale_frame, show_cartridge_info_dialog}
 
 const SCALE: u32 = 4;
 const FRAME_STEP_LIMIT: usize = 250_000;
-const AUDIO_QUEUE_TARGET_INITIAL_SAMPLES: usize = 4_096;
-const AUDIO_QUEUE_TARGET_MIN_SAMPLES: usize = 2_048;
-const AUDIO_QUEUE_TARGET_MAX_SAMPLES: usize = 16_384;
-const AUDIO_QUEUE_HARD_MAX_SAMPLES: usize = 32_768;
-const AUDIO_REFILL_BLOCK_SAMPLES: usize = 512;
-const AUDIO_REFILL_MAX_BLOCKS: usize = 32;
 const AUDIO_CHANNELS: usize = 2;
 const SAVE_AUTOSAVE_DEBOUNCE: Duration = Duration::from_secs(2);
 
@@ -88,7 +82,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let desired_audio = AudioSpecDesired {
         freq: Some(48_000),
         channels: Some(AUDIO_CHANNELS as u8),
-        samples: Some(1024),
+        samples: Some(512),
     };
     let audio_queue = audio
         .open_queue::<f32, _>(None, &desired_audio)

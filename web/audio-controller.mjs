@@ -1,5 +1,5 @@
 const AUDIO_CHANNELS = 2;
-const AUDIO_REFILL_INTERVAL_MS = 8;
+const AUDIO_REFILL_INTERVAL_MS = 4;
 
 export function createWebAudioController({
   getEmulator,

@@ -1,9 +1,3 @@
-use super::{
-    AUDIO_QUEUE_HARD_MAX_SAMPLES, AUDIO_QUEUE_TARGET_INITIAL_SAMPLES,
-    AUDIO_QUEUE_TARGET_MAX_SAMPLES, AUDIO_QUEUE_TARGET_MIN_SAMPLES, AUDIO_REFILL_BLOCK_SAMPLES,
-    AUDIO_REFILL_MAX_BLOCKS,
-};
-use gb_runtime::audio::AdaptiveQueueOptions;
 use gb_runtime::audio_queue::{
     AudioQueueController, AudioQueueObservation, AudioQueueRefillConfig,
 };
@@ -69,20 +63,7 @@ pub(super) struct SdlAudioQueueState {
 
 impl SdlAudioQueueState {
     pub(super) fn new(sample_rate_hz: u32, now: Instant) -> Self {
-        let adaptive_options = AdaptiveQueueOptions {
-            min_target_samples: AUDIO_QUEUE_TARGET_MIN_SAMPLES,
-            max_target_samples: AUDIO_QUEUE_TARGET_MAX_SAMPLES,
-            ..AdaptiveQueueOptions::default()
-        };
-        let config = AudioQueueRefillConfig {
-            initial_target_samples: AUDIO_QUEUE_TARGET_INITIAL_SAMPLES,
-            min_target_samples: AUDIO_QUEUE_TARGET_MIN_SAMPLES,
-            max_target_samples: AUDIO_QUEUE_TARGET_MAX_SAMPLES,
-            hard_max_samples: AUDIO_QUEUE_HARD_MAX_SAMPLES,
-            refill_block_samples: AUDIO_REFILL_BLOCK_SAMPLES,
-            max_refill_blocks: AUDIO_REFILL_MAX_BLOCKS,
-            adaptive_options,
-        };
+        let config = AudioQueueRefillConfig::default();
         let controller = AudioQueueController::new(sample_rate_hz, 0, config);
         Self {
             start_instant: now,
