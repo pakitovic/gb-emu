@@ -11,6 +11,7 @@ mod ppu;
 mod scheduler;
 
 use crate::apu::ApuState;
+use crate::bootrom::BootRomData;
 use crate::cartridge::Cartridge;
 use crate::hardware::HardwareModel;
 use crate::timing::ClockRatios;
@@ -42,6 +43,8 @@ pub struct Bus {
     clock_ratios: ClockRatios,
     hardware_model: HardwareModel,
     cgb_mmio: CgbMmioState,
+    boot_rom: BootRomData,
+    boot_rom_active: bool,
 }
 
 #[cfg(test)]

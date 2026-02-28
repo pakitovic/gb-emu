@@ -1,20 +1,29 @@
-import initWasm, { WebEmulator } from "./pkg/gb_emu.js";
+import initWasm, * as wasmBindings from "./pkg/gb_emu.js";
 import { createWebAudioController } from "./audio-controller.mjs";
+import {
+  classifyBootRomForWebHardware,
+  isValidStoredBootRomForModel,
+} from "./bootrom-normalizer.mjs";
+import { createWebBootRomPersistence } from "./bootrom-persistence.mjs";
 import { bindKeyboardInput } from "./input.mjs";
 import {
   buildRomLoadedStatusMessage,
+  createWebEmulatorFromRomBytes,
   createWebEmulatorFromRomFile,
 } from "./rom-loading.mjs";
 import { createWebSavePersistence } from "./save-persistence.mjs";
 import { createUi } from "./ui.mjs";
 
 const ui = createUi();
+const WebEmulator = wasmBindings.WebEmulator;
+const classifyBootRomFileName = wasmBindings.classifyBootRomFileName;
 
 let wasmReady = false;
 let emulator = null;
 let rafId = 0;
 let lastFrameTimeMs = 0;
 let loadedRomState = null;
+let isRunning = false;
 
 const audioController = createWebAudioController({
   getEmulator: () => emulator,
@@ -24,6 +33,11 @@ const audioController = createWebAudioController({
   setAudioTelemetryText: (message) => ui.setAudioTelemetryText(message),
 });
 const savePersistence = createWebSavePersistence({ debounceMs: 2000 });
+const bootRomPersistence = createWebBootRomPersistence();
+
+function selectedModel() {
+  return ui.refs.modelSelect?.value || "dmg";
+}
 
 function refreshAudioButtonLabel() {
   if (!ui.refs.audioEnableButton) {
@@ -34,10 +48,102 @@ function refreshAudioButtonLabel() {
     : "Enable audio";
 }
 
+function refreshRomControls() {
+  ui.setRomControlsEnabled({ hasRom: Boolean(emulator), isRunning });
+}
+
+function getBootRomValidationState(model, { removeInvalid } = { removeInvalid: true }) {
+  const bootRomBytes = bootRomPersistence.loadBootRomBytesForModel(model);
+  if (!(bootRomBytes instanceof Uint8Array) || bootRomBytes.length < 0x100) {
+    return {
+      bytes: null,
+      isValid: false,
+      hadStored: false,
+      removedInvalid: false,
+    };
+  }
+
+  if (!wasmReady || typeof classifyBootRomFileName !== "function") {
+    return {
+      bytes: bootRomBytes,
+      isValid: false,
+      hadStored: true,
+      removedInvalid: false,
+    };
+  }
+
+  const isValid = isValidStoredBootRomForModel({
+    model,
+    bootRomBytes,
+    classifyBootRomFileName,
+  });
+  if (isValid) {
+    return {
+      bytes: bootRomBytes,
+      isValid: true,
+      hadStored: true,
+      removedInvalid: false,
+    };
+  }
+
+  if (removeInvalid) {
+    bootRomPersistence.removeBootRomForModel(model);
+    return {
+      bytes: null,
+      isValid: false,
+      hadStored: true,
+      removedInvalid: true,
+    };
+  }
+
+  return {
+    bytes: null,
+    isValid: false,
+    hadStored: true,
+    removedInvalid: false,
+  };
+}
+
+function refreshBootRomInfo() {
+  const model = selectedModel();
+  if (!wasmReady || typeof classifyBootRomFileName !== "function") {
+    ui.setBootRomModelCheck(false);
+    ui.setBootRomInfoText(`Boot ROM (${model}): waiting for WASM classifier.`);
+    return;
+  }
+
+  const state = getBootRomValidationState(model, { removeInvalid: true });
+  ui.setBootRomModelCheck(state.isValid);
+
+  if (state.isValid) {
+    ui.setBootRomInfoText(`Boot ROM (${model}): configured and validated.`);
+    return;
+  }
+
+  if (state.hadStored && state.removedInvalid) {
+    ui.setBootRomInfoText(`Boot ROM (${model}): invalid entry removed from storage.`);
+    return;
+  }
+
+  ui.setBootRomInfoText(`Boot ROM (${model}): not configured.`);
+}
+
+function loadBootRomBytesForModel(model) {
+  const state = getBootRomValidationState(model, { removeInvalid: true });
+  return state.isValid ? state.bytes : null;
+}
+
 function stepFrame(nowMs) {
   if (!emulator) {
     ui.setCartridgeInfoFromEmulator(emulator);
     ui.setPersistenceInfoFromEmulator(emulator);
+    audioController.updateTelemetry();
+    rafId = requestAnimationFrame(stepFrame);
+    return;
+  }
+
+  if (!isRunning) {
+    lastFrameTimeMs = 0;
     audioController.updateTelemetry();
     rafId = requestAnimationFrame(stepFrame);
     return;
@@ -55,6 +161,8 @@ function stepFrame(nowMs) {
     savePersistence.tick();
   } catch (error) {
     console.error(error);
+    isRunning = false;
+    refreshRomControls();
     ui.setStatus(`Runtime error: ${error}`);
   }
 
@@ -71,13 +179,15 @@ async function loadRom(file) {
     return;
   }
 
-  const model = ui.refs.modelSelect?.value || undefined;
+  const model = selectedModel();
+  const bootRomBytes = loadBootRomBytesForModel(model);
   await closeRom({ keepStatus: true, keepAudio: true });
 
   const loaded = await createWebEmulatorFromRomFile({
     file,
     WebEmulator,
     model,
+    bootRomBytes,
   });
   if (!loaded) {
     return;
@@ -87,6 +197,7 @@ async function loadRom(file) {
     romBytes: loaded.romBytes,
     fileName: file.name,
     model,
+    bootRomBytes,
     resetSerialOutput: true,
     statusMessage: null,
   });
@@ -97,6 +208,7 @@ async function closeRom({ keepStatus = false, keepAudio = false } = {}) {
   savePersistence.detachRom();
   emulator = null;
   loadedRomState = null;
+  isRunning = false;
   lastFrameTimeMs = 0;
 
   if (!keepAudio && audioController.isEnabled()) {
@@ -108,10 +220,26 @@ async function closeRom({ keepStatus = false, keepAudio = false } = {}) {
   ui.clearScreen();
   ui.setCartridgeInfoFromEmulator(emulator);
   ui.setPersistenceInfoFromEmulator(emulator);
+  refreshRomControls();
 
   if (!keepStatus) {
-    ui.setStatus("ROM closed. Load a ROM to start emulation.");
+    ui.setStatus("ROM closed. Load a ROM, then press Start.");
   }
+}
+
+function startRom() {
+  if (!emulator) {
+    ui.setStatus("Load a ROM before starting.");
+    return;
+  }
+  if (isRunning) {
+    return;
+  }
+
+  isRunning = true;
+  lastFrameTimeMs = 0;
+  refreshRomControls();
+  ui.setStatus(`Running ${loadedRomState?.fileName ?? "ROM"}.`);
 }
 
 async function resetRom() {
@@ -120,17 +248,102 @@ async function resetRom() {
     return;
   }
 
-  const { fileName, model, romBytes } = loadedRomState;
+  const { fileName, model, romBytes, bootRomBytes } = loadedRomState;
   await closeRom({ keepStatus: true, keepAudio: true });
-  const nextEmulator = new WebEmulator(romBytes, model || undefined);
+  const nextEmulator = createWebEmulatorFromRomBytes({
+    romBytes,
+    WebEmulator,
+    model,
+    bootRomBytes,
+  });
   finishRomActivation({
     nextEmulator,
     romBytes,
     fileName,
     model,
+    bootRomBytes,
     resetSerialOutput: true,
-    statusMessage: `ROM reset: ${fileName}`,
+    statusMessage: `Reset loaded: ${fileName}. Press Start when ready.`,
   });
+}
+
+async function importBootRoms(files) {
+  if (!wasmReady || typeof classifyBootRomFileName !== "function") {
+    ui.setStatus("WASM classifier is still loading.");
+    return;
+  }
+
+  if (!Array.isArray(files) || files.length === 0) {
+    return;
+  }
+
+  const storedModels = new Set();
+  const invalidFiles = [];
+  const unsupportedFiles = [];
+  const storageErrors = [];
+
+  for (const file of files) {
+    const bootRomBytes = new Uint8Array(await file.arrayBuffer());
+    const classification = classifyBootRomForWebHardware(
+      bootRomBytes,
+      classifyBootRomFileName
+    );
+
+    if (classification.kind === "invalid") {
+      invalidFiles.push(file.name);
+      continue;
+    }
+
+    if (classification.kind === "known_unsupported") {
+      unsupportedFiles.push(`${file.name} -> ${classification.canonicalFileName}`);
+      continue;
+    }
+
+    const persisted = bootRomPersistence.storeBootRomBytesForModel(
+      classification.model,
+      bootRomBytes
+    );
+    if (!persisted.ok) {
+      storageErrors.push(`${file.name} (${classification.model}): ${persisted.error}`);
+      continue;
+    }
+
+    storedModels.add(classification.model);
+  }
+
+  if (loadedRomState && storedModels.has(loadedRomState.model)) {
+    loadedRomState = {
+      ...loadedRomState,
+      bootRomBytes: loadBootRomBytesForModel(loadedRomState.model),
+    };
+  }
+
+  refreshBootRomInfo();
+
+  const parts = [];
+  if (storedModels.size > 0) {
+    parts.push(`stored for ${Array.from(storedModels).sort().join(", ")}`);
+  }
+  if (invalidFiles.length > 0) {
+    parts.push(`invalid=${invalidFiles.length}`);
+  }
+  if (unsupportedFiles.length > 0) {
+    parts.push(`known-but-unsupported=${unsupportedFiles.length}`);
+  }
+  if (storageErrors.length > 0) {
+    parts.push(`storage-errors=${storageErrors.length}`);
+  }
+
+  if (parts.length === 0) {
+    ui.setStatus("Boot ROM import finished: no valid web-compatible boot ROM was found.");
+    return;
+  }
+
+  let message = `Boot ROM import finished (${files.length} file(s)): ${parts.join(" | ")}.`;
+  if (loadedRomState && storedModels.has(loadedRomState.model)) {
+    message += " Use Reset to apply it to the loaded ROM.";
+  }
+  ui.setStatus(message);
 }
 
 async function importSav(file) {
@@ -150,7 +363,7 @@ async function importSav(file) {
   }
 
   ui.setStatus(
-    `Imported SAV from ${file.name} (${saveBytes.length} bytes). Use Reset ROM to reload the game state if it is already running.`
+    `Imported SAV from ${file.name} (${saveBytes.length} bytes). Use Reset to reload game state if needed.`
   );
 }
 
@@ -171,7 +384,7 @@ async function importRtc(file) {
   }
 
   ui.setStatus(
-    `Imported RTC from ${file.name} (${rtcBytes.length} bytes). Use Reset ROM to reload the game state if it is already running.`
+    `Imported RTC from ${file.name} (${rtcBytes.length} bytes). Use Reset to reload RTC state if needed.`
   );
 }
 
@@ -236,6 +449,18 @@ function bindDomEvents() {
     }
   });
 
+  ui.refs.bootRomFileInput?.addEventListener("change", async (event) => {
+    const files = Array.from(event.target.files ?? []);
+    try {
+      await importBootRoms(files);
+    } catch (error) {
+      console.error(error);
+      ui.setStatus(`Boot ROM import error: ${error}`);
+    } finally {
+      event.target.value = "";
+    }
+  });
+
   ui.refs.savFileInput?.addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
     try {
@@ -260,6 +485,10 @@ function bindDomEvents() {
     }
   });
 
+  ui.refs.modelSelect?.addEventListener("change", () => {
+    refreshBootRomInfo();
+  });
+
   ui.refs.testToneCheckbox?.addEventListener("change", () => {
     audioController.handleTestToneChanged();
   });
@@ -272,6 +501,7 @@ function bindDomEvents() {
     await audioController.toggle();
     refreshAudioButtonLabel();
   });
+  ui.refs.romStartButton?.addEventListener("click", startRom);
   ui.refs.romResetButton?.addEventListener("click", async () => {
     try {
       await resetRom();
@@ -312,7 +542,9 @@ async function bootstrap() {
   await initWasm();
   wasmReady = true;
   refreshAudioButtonLabel();
-  ui.setStatus("WASM ready. Load a ROM to start.");
+  refreshBootRomInfo();
+  refreshRomControls();
+  ui.setStatus("WASM ready. Load a ROM, then press Start.");
   ui.clearScreen();
   ui.setCartridgeInfoFromEmulator(emulator);
   ui.setPersistenceInfoFromEmulator(emulator);
@@ -333,6 +565,7 @@ function finishRomActivation({
   romBytes,
   fileName,
   model,
+  bootRomBytes,
   resetSerialOutput,
   statusMessage,
 }) {
@@ -340,8 +573,11 @@ function finishRomActivation({
     fileName,
     model,
     romBytes,
+    bootRomBytes: bootRomBytes ? bootRomBytes.slice(0, 0x100) : null,
   };
   emulator = nextEmulator;
+  isRunning = false;
+  lastFrameTimeMs = 0;
   emulator.set_host_rtc_epoch_secs(Math.floor(Date.now() / 1000));
   savePersistence.attachRom({
     romBytes,
@@ -349,6 +585,7 @@ function finishRomActivation({
     nextEmulator: emulator,
   });
   ui.setPersistenceInfoFromEmulator(emulator);
+  refreshRomControls();
 
   audioController.onEmulatorLoaded();
 
@@ -358,13 +595,12 @@ function finishRomActivation({
   if (resetSerialOutput) {
     ui.clearSerialOutput();
   }
-  ui.setStatus(
-    statusMessage ??
-      buildRomLoadedStatusMessage({
-        fileName,
-        romTitle: emulator.rom_title(),
-        model,
-        warningCount,
-      })
-  );
+
+  const defaultMessage = `${buildRomLoadedStatusMessage({
+    fileName,
+    romTitle: emulator.rom_title(),
+    model,
+    warningCount,
+  })} ${bootRomBytes ? "Boot ROM active." : "No boot ROM configured for this hardware."} Press Start.`;
+  ui.setStatus(statusMessage ?? defaultMessage);
 }

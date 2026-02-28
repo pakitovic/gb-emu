@@ -14,6 +14,11 @@ impl Bus {
             IoRegisterRoute::CgbMmioScaffold => {
                 debug_assert!(self.write_cgb_mmio_scaffold(addr, value));
             }
+            IoRegisterRoute::BootRomDisable => {
+                if self.boot_rom_active && (value & 0x01) != 0 {
+                    self.boot_rom_active = false;
+                }
+            }
             IoRegisterRoute::ReservedUnmapped => {}
             IoRegisterRoute::P1 => self.write_p1(value),
             IoRegisterRoute::Sc => self.write_sc(value),
@@ -40,6 +45,7 @@ impl Bus {
             IoRegisterRoute::CgbMmioScaffold => self
                 .read_cgb_mmio_scaffold(addr)
                 .expect("CGB MMIO scaffold route must decode to a CGB scaffold register"),
+            IoRegisterRoute::BootRomDisable => 0xFF,
             IoRegisterRoute::ReservedUnmapped => 0xFF,
             IoRegisterRoute::P1 => self.read_p1(),
             IoRegisterRoute::Div => self.read_div(),

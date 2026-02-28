@@ -1,6 +1,7 @@
 use super::CliOptions;
 use gb_emu::hardware::HardwareModel;
 use std::io;
+use std::path::PathBuf;
 
 pub(super) fn parse_args<I>(args: I) -> Result<CliOptions, io::Error>
 where
@@ -13,6 +14,8 @@ where
     let mut cart_info = false;
     let mut model = HardwareModel::default();
     let mut max_steps: usize = 20_000_000;
+    let mut no_bootrom = false;
+    let mut bootrom_dir: Option<PathBuf> = None;
 
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -21,6 +24,16 @@ where
             "--blargg" => blargg = true,
             "--mooneye" => mooneye = true,
             "--cart-info" => cart_info = true,
+            "--no-bootrom" => no_bootrom = true,
+            "--bootrom-dir" => {
+                let Some(value) = args.next() else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "--bootrom-dir requires a directory path",
+                    ));
+                };
+                bootrom_dir = Some(PathBuf::from(value));
+            }
             "--model" => {
                 let Some(value) = args.next() else {
                     return Err(io::Error::new(
@@ -64,7 +77,7 @@ where
     let Some(rom_path) = rom_path else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "Usage: cargo run -p frontend-cli --bin gb-emu -- [--trace] [--blargg|--mooneye] [--cart-info] [--model dmg0|dmg|mgb|sgb|sgb2] [--max-steps N] <rom_file>",
+            "Usage: cargo run -p frontend-cli --bin gb-emu -- [--trace] [--blargg|--mooneye] [--cart-info] [--model dmg0|dmg|mgb|sgb|sgb2] [--no-bootrom] [--bootrom-dir <path>] [--max-steps N] <rom_file>",
         ));
     };
 
@@ -83,6 +96,8 @@ where
         cart_info,
         model,
         max_steps,
+        no_bootrom,
+        bootrom_dir,
     })
 }
 
@@ -117,6 +132,8 @@ mod tests {
                 cart_info: false,
                 model: HardwareModel::Mgb,
                 max_steps: 123,
+                no_bootrom: false,
+                bootrom_dir: None,
             }
         );
     }
@@ -134,6 +151,28 @@ mod tests {
                 cart_info: true,
                 model: HardwareModel::default(),
                 max_steps: 20_000_000,
+                no_bootrom: false,
+                bootrom_dir: None,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_boot_rom_options() {
+        let options = parse(&["--no-bootrom", "--bootrom-dir", "roms/bootrom", "test.gb"])
+            .expect("args should parse");
+        assert_eq!(
+            options,
+            CliOptions {
+                rom_path: "test.gb".to_string(),
+                trace: false,
+                blargg: false,
+                mooneye: false,
+                cart_info: false,
+                model: HardwareModel::default(),
+                max_steps: 20_000_000,
+                no_bootrom: true,
+                bootrom_dir: Some(PathBuf::from("roms/bootrom")),
             }
         );
     }

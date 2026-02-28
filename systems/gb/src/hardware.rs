@@ -22,6 +22,16 @@ impl HardwareModel {
         }
     }
 
+    pub fn boot_rom_file_name(self) -> &'static str {
+        match self {
+            Self::Dmg0 => "dmg0_boot.bin",
+            Self::Dmg => "dmg_boot.bin",
+            Self::Mgb => "mgb_boot.bin",
+            Self::Sgb => "sgb_boot.bin",
+            Self::Sgb2 => "sgb2_boot.bin",
+        }
+    }
+
     #[inline]
     pub fn supports_cgb_mode(self) -> bool {
         false
@@ -110,5 +120,14 @@ mod tests {
         assert!(!HardwareModel::Dmg.supports_sgb_features());
         assert!(HardwareModel::Sgb.supports_sgb_features());
         assert!(HardwareModel::Sgb2.supports_sgb_features());
+    }
+
+    #[test]
+    fn exposes_expected_boot_rom_file_names() {
+        assert_eq!(HardwareModel::Dmg0.boot_rom_file_name(), "dmg0_boot.bin");
+        assert_eq!(HardwareModel::Dmg.boot_rom_file_name(), "dmg_boot.bin");
+        assert_eq!(HardwareModel::Mgb.boot_rom_file_name(), "mgb_boot.bin");
+        assert_eq!(HardwareModel::Sgb.boot_rom_file_name(), "sgb_boot.bin");
+        assert_eq!(HardwareModel::Sgb2.boot_rom_file_name(), "sgb2_boot.bin");
     }
 }

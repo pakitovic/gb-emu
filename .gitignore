@@ -1,6 +1,9 @@
 /target
 /roms/*
 !/roms/.gitkeep
+!/roms/bootrom/
+/roms/bootrom/*
+!/roms/bootrom/.gitkeep
 web/pkg/
 
 **/.DS_Store

@@ -4,6 +4,7 @@ use crate::memory::{dma::cgb_dma_mmio_register, mmio::cgb::cgb_mmio_register};
 pub(in crate::memory::mmio::router) enum IoRegisterRoute {
     CgbDmaScaffold,
     CgbMmioScaffold,
+    BootRomDisable,
     ReservedUnmapped,
     P1,
     Sc,
@@ -46,6 +47,7 @@ pub(in crate::memory::mmio::router) fn decode_io_register(addr: u16) -> IoRegist
         0xFF44 => IoRegisterRoute::Ly,
         0xFF45 => IoRegisterRoute::Lyc,
         0xFF46 => IoRegisterRoute::Dma,
+        0xFF50 => IoRegisterRoute::BootRomDisable,
 
         // Reserved / currently unmapped in DMG-family scope.
         0xFF03 => IoRegisterRoute::ReservedUnmapped,
@@ -96,6 +98,7 @@ mod tests {
         assert_eq!(decode_io_register(0xFF40), IoRegisterRoute::Lcdc);
         assert_eq!(decode_io_register(0xFF41), IoRegisterRoute::Stat);
         assert_eq!(decode_io_register(0xFF46), IoRegisterRoute::Dma);
+        assert_eq!(decode_io_register(0xFF50), IoRegisterRoute::BootRomDisable);
         assert_eq!(decode_io_register(0xFF10), IoRegisterRoute::ApuWindow);
         assert_eq!(decode_io_register(0xFF3F), IoRegisterRoute::ApuWindow);
     }

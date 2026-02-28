@@ -1,3 +1,4 @@
+use crate::bootrom::BootRomData;
 use crate::cartridge::Cartridge;
 use crate::cpu::Cpu;
 use crate::hardware::HardwareModel;
@@ -22,9 +23,18 @@ impl GameBoy {
     }
 
     pub fn new_with_model(cartridge: Cartridge, model: HardwareModel) -> Self {
+        Self::new_with_model_and_boot_rom(cartridge, model, None)
+    }
+
+    pub fn new_with_model_and_boot_rom(
+        cartridge: Cartridge,
+        model: HardwareModel,
+        boot_rom: Option<BootRomData>,
+    ) -> Self {
+        let boot_rom_active = boot_rom.is_some();
         Self {
-            cpu: Cpu::new_with_model(model),
-            bus: Bus::new_with_model(cartridge, model),
+            cpu: Cpu::new_with_model_and_boot_rom(model, boot_rom_active),
+            bus: Bus::new_with_model_and_boot_rom(cartridge, model, boot_rom),
         }
     }
 }

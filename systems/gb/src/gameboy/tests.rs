@@ -1,5 +1,7 @@
 use super::GameBoy;
+use crate::bootrom::BOOT_ROM_WINDOW_SIZE;
 use crate::cartridge::Cartridge;
+use crate::hardware::HardwareModel;
 
 fn make_rom_32kb() -> Vec<u8> {
     let mut rom = vec![0; 32 * 1024];
@@ -32,4 +34,33 @@ fn run_frame_with_limit_advances_frame_counter() {
 
     assert!(cycles > 0);
     assert!(gb.frame_counter() > start);
+}
+
+#[test]
+fn boot_rom_executes_at_reset_and_hands_off_to_cartridge_after_ff50_disable() {
+    let mut rom = make_rom_32kb();
+    rom[0x0004] = 0x3E; // LD A, d8
+    rom[0x0005] = 0x77;
+    let cartridge = Cartridge::from_bytes(rom).expect("test ROM should load");
+
+    let mut boot_rom = [0x00; BOOT_ROM_WINDOW_SIZE];
+    boot_rom[0x0000] = 0x3E; // LD A, d8
+    boot_rom[0x0001] = 0x01;
+    boot_rom[0x0002] = 0xE0; // LDH (0xFF50), A
+    boot_rom[0x0003] = 0x50;
+
+    let mut gb =
+        GameBoy::new_with_model_and_boot_rom(cartridge, HardwareModel::Dmg, Some(boot_rom));
+    assert_eq!(gb.cpu().registers().pc, 0x0000);
+
+    gb.step();
+    assert_eq!(gb.cpu().registers().a, 0x01);
+    assert_eq!(gb.cpu().registers().pc, 0x0002);
+
+    gb.step();
+    assert_eq!(gb.cpu().registers().pc, 0x0004);
+
+    gb.step();
+    assert_eq!(gb.cpu().registers().a, 0x77);
+    assert_eq!(gb.cpu().registers().pc, 0x0006);
 }
