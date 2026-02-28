@@ -31,7 +31,7 @@ fn setup_ch1_routed_output(web: &mut WebEmulator) {
 #[test]
 fn constructor_rejects_invalid_model_string() {
     let rom = make_rom_32kb();
-    let err = match WebEmulator::new_internal(&rom, Some("cgb")) {
+    let err = match WebEmulator::new_internal(&rom, Some("cgb"), None) {
         Ok(_) => panic!("invalid model should be rejected"),
         Err(err) => err,
     };
@@ -40,11 +40,33 @@ fn constructor_rejects_invalid_model_string() {
 
 #[test]
 fn constructor_rejects_invalid_rom_bytes() {
-    let err = match WebEmulator::new_internal(&[0x00, 0x01, 0x02], None) {
+    let err = match WebEmulator::new_internal(&[0x00, 0x01, 0x02], None, None) {
         Ok(_) => panic!("invalid rom bytes should be rejected"),
         Err(err) => err,
     };
     assert!(!err.is_empty());
+}
+
+#[test]
+fn constructor_accepts_optional_boot_rom_payload() {
+    let rom = make_rom_32kb();
+    let boot_rom = vec![0x31; 0x200];
+
+    let web = WebEmulator::new_internal(&rom, Some("dmg"), Some(&boot_rom))
+        .expect("valid optional boot ROM should initialize");
+    assert_eq!(web.frame_counter(), 0);
+}
+
+#[test]
+fn constructor_rejects_short_boot_rom_payload() {
+    let rom = make_rom_32kb();
+    let short_boot_rom = vec![0x00; 0x80];
+
+    let err = match WebEmulator::new_internal(&rom, Some("dmg"), Some(&short_boot_rom)) {
+        Ok(_) => panic!("short boot ROM payload should be rejected"),
+        Err(err) => err,
+    };
+    assert!(err.contains("at least 256 bytes"));
 }
 
 #[test]

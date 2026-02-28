@@ -1,4 +1,5 @@
 use super::WebEmulator;
+use gb_emu::bootrom::parse_boot_rom_prefix;
 use gb_emu::cartridge::Cartridge;
 use gb_emu::hardware::HardwareModel;
 use gb_runtime::audio_queue::AudioQueueRefillConfig;
@@ -10,6 +11,7 @@ impl WebEmulator {
     pub(super) fn new_internal(
         rom_bytes: &[u8],
         model: Option<&str>,
+        boot_rom_bytes: Option<&[u8]>,
     ) -> Result<WebEmulator, String> {
         let model = match model {
             Some(value) => value.parse::<HardwareModel>()?,
@@ -23,7 +25,16 @@ impl WebEmulator {
         )
         .map_err(|err| err.to_string())?;
 
-        let mut gb = gb_emu::gameboy::GameBoy::new_with_model(cartridge, model);
+        let boot_rom = match boot_rom_bytes {
+            Some(bytes) => Some(
+                parse_boot_rom_prefix(bytes)
+                    .ok_or_else(|| "Boot ROM must contain at least 256 bytes".to_string())?,
+            ),
+            None => None,
+        };
+
+        let mut gb =
+            gb_emu::gameboy::GameBoy::new_with_model_and_boot_rom(cartridge, model, boot_rom);
         gb.set_cartridge_host_rtc_epoch_secs(Some(initial_rtc_epoch_secs));
         let session = RuntimeSession::new(gb, 48_000);
         let audio_queue_controller = gb_runtime::audio_queue::AudioQueueController::new(
@@ -64,7 +75,17 @@ fn host_wall_clock_epoch_secs() -> u64 {
 impl WebEmulator {
     #[wasm_bindgen(constructor)]
     pub fn new(rom_bytes: &[u8], model: Option<String>) -> Result<WebEmulator, JsValue> {
-        Self::new_internal(rom_bytes, model.as_deref())
+        Self::new_internal(rom_bytes, model.as_deref(), None)
+            .map_err(|message| JsValue::from_str(&message))
+    }
+
+    #[wasm_bindgen(js_name = newWithBootRom)]
+    pub fn new_with_boot_rom(
+        rom_bytes: &[u8],
+        model: Option<String>,
+        boot_rom_bytes: &[u8],
+    ) -> Result<WebEmulator, JsValue> {
+        Self::new_internal(rom_bytes, model.as_deref(), Some(boot_rom_bytes))
             .map_err(|message| JsValue::from_str(&message))
     }
 

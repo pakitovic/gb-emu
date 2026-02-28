@@ -43,3 +43,18 @@ fn new_with_model_sets_expected_boot_registers() {
         (0xFF, 0x00, 0x00, 0x14, 0x00, 0x00, 0xC0, 0x60),
     );
 }
+
+#[test]
+fn new_with_model_and_boot_rom_starts_from_reset_vector() {
+    let cpu = Cpu::new_with_model_and_boot_rom(HardwareModel::Dmg, true);
+    assert_eq!(cpu.registers.a, 0x00);
+    assert_eq!(cpu.registers.f, 0x00);
+    assert_eq!(cpu.registers.b, 0x00);
+    assert_eq!(cpu.registers.c, 0x00);
+    assert_eq!(cpu.registers.d, 0x00);
+    assert_eq!(cpu.registers.e, 0x00);
+    assert_eq!(cpu.registers.h, 0x00);
+    assert_eq!(cpu.registers.l, 0x00);
+    assert_eq!(cpu.registers.sp, 0x0000);
+    assert_eq!(cpu.registers.pc, 0x0000);
+}

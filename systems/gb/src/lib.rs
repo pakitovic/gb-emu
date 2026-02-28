@@ -1,5 +1,6 @@
 mod apu;
 pub mod audio;
+pub mod bootrom;
 pub mod bus;
 pub mod cartridge;
 pub mod cpu;

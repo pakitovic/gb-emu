@@ -1,9 +1,13 @@
 use super::super::Bus;
 use super::super::bus_access::{AddressSegment, SegmentAccess, address_segment};
+use crate::bootrom::BOOT_ROM_WINDOW_SIZE;
 
 impl Bus {
     pub(in crate::memory) fn read_byte_raw(&self, addr: u16) -> u8 {
         match address_segment(addr) {
+            AddressSegment::Rom if self.boot_rom_active && addr < (BOOT_ROM_WINDOW_SIZE as u16) => {
+                self.boot_rom[addr as usize]
+            }
             AddressSegment::Rom => self.cartridge.read_rom_byte(addr),
             AddressSegment::Vram => self.read_vram(addr, SegmentAccess::Hardware),
             AddressSegment::Eram => self.cartridge.read_ram_byte(addr),

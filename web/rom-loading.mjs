@@ -1,11 +1,42 @@
-export async function createWebEmulatorFromRomFile({ file, WebEmulator, model }) {
+export function createWebEmulatorFromRomBytes({
+  romBytes,
+  WebEmulator,
+  model,
+  bootRomBytes,
+}) {
+  if (!romBytes) {
+    return null;
+  }
+
+  const normalizedModel = model || undefined;
+  const normalizedBootRomBytes =
+    bootRomBytes instanceof Uint8Array && bootRomBytes.length > 0 ? bootRomBytes : null;
+
+  if (normalizedBootRomBytes && typeof WebEmulator.newWithBootRom === "function") {
+    return WebEmulator.newWithBootRom(romBytes, normalizedModel, normalizedBootRomBytes);
+  }
+
+  return new WebEmulator(romBytes, normalizedModel);
+}
+
+export async function createWebEmulatorFromRomFile({
+  file,
+  WebEmulator,
+  model,
+  bootRomBytes,
+}) {
   if (!file) {
     return null;
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
   return {
-    emulator: new WebEmulator(bytes, model || undefined),
+    emulator: createWebEmulatorFromRomBytes({
+      romBytes: bytes,
+      WebEmulator,
+      model,
+      bootRomBytes,
+    }),
     romBytes: bytes,
   };
 }

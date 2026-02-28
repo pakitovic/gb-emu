@@ -8,3 +8,4 @@ crate-type = ["rlib"]
 
 [dependencies]
 gb-emu = { path = "../systems/gb" }
+sha2 = "0.10"

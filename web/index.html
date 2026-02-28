@@ -65,7 +65,8 @@
       border-right: 1px solid var(--border);
     }
 
-    #persistence-info {
+    #persistence-info,
+    #bootrom-info {
       color: var(--muted);
       font-size: 13px;
       background: #0f171c;
@@ -135,6 +136,26 @@
       font-size: 13px;
     }
 
+    .bootrom-check {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      color: #8d9da8;
+      background: #0f171c;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .bootrom-check.is-valid {
+      border-color: #2ea772;
+      color: #2ea772;
+      background: #10261d;
+    }
+
     label {
       display: flex;
       align-items: center;
@@ -196,12 +217,15 @@
     <h1>gb-emu web demo</h1>
     <section class="controls">
       <div class="control-section" aria-label="ROM and persistence controls">
-        <span class="control-section-title">ROM / Save</span>
+        <span class="control-section-title">ROM</span>
         <div class="file-picker">
-          <span class="control-label">ROM</span>
-          <label class="file-button" for="rom-file">Load ROM</label>
+          <label class="file-button" for="rom-file">Load</label>
           <input id="rom-file" type="file" accept=".gb,.gbc,.bin" />
         </div>
+        <button id="rom-start" type="button">Start</button>
+        <button id="rom-reset" type="button">Reset</button>
+        <button id="rom-close" type="button">Close</button>
+        <span class="control-label">Hardware</span>
         <select id="model" aria-label="Hardware model">
           <option value="dmg" selected>dmg</option>
           <option value="dmg0">dmg0</option>
@@ -209,6 +233,12 @@
           <option value="sgb">sgb</option>
           <option value="sgb2">sgb2</option>
         </select>
+        <span id="bootrom-model-check" class="bootrom-check" aria-label="Boot ROM validity for selected hardware">✗</span>
+        <div class="file-picker">
+          <span class="control-label">Boot</span>
+          <label id="bootrom-file-button" class="file-button" for="bootrom-file">Load Boot</label>
+          <input id="bootrom-file" type="file" accept=".bin,.rom,.gb,.gbc" multiple />
+        </div>
         <div class="file-picker">
           <span class="control-label">Save</span>
           <label id="sav-file-button" class="file-button" for="sav-file">Import SAV</label>
@@ -226,8 +256,9 @@
         <div id="persistence-info" aria-live="polite">
           Persistence: no ROM loaded.
         </div>
-        <button id="rom-reset" type="button">Reset ROM</button>
-        <button id="rom-close" type="button">Close ROM</button>
+        <div id="bootrom-info" aria-live="polite">
+          Boot ROM: model dmg not configured.
+        </div>
       </div>
       <div class="control-section" aria-label="Audio controls">
         <span class="control-section-title">Audio</span>
@@ -246,7 +277,7 @@
       </div>
     </section>
     <canvas id="screen" width="160" height="144" aria-label="Game Boy screen"></canvas>
-    <div id="status">Load a ROM to start emulation.</div>
+    <div id="status">Load a ROM, then press Start.</div>
     <div id="audio-telemetry">Audio: disabled</div>
     <pre id="cart-info" aria-label="Cartridge metadata">Cartridge: not loaded.</pre>
     <pre id="serial" aria-label="Serial output"></pre>

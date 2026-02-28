@@ -8,67 +8,75 @@ impl Cpu {
     }
 
     pub fn new_with_model(model: HardwareModel) -> Self {
-        let registers = match model {
-            HardwareModel::Dmg0 => Registers {
-                a: 0x01,
-                f: 0x00,
-                b: 0xFF,
-                c: 0x13,
-                d: 0x00,
-                e: 0xC1,
-                h: 0x84,
-                l: 0x03,
-                sp: 0xFFFE,
-                pc: 0x0100,
-            },
-            HardwareModel::Dmg => Registers {
-                a: 0x01,
-                f: 0xB0,
-                b: 0x00,
-                c: 0x13,
-                d: 0x00,
-                e: 0xD8,
-                h: 0x01,
-                l: 0x4D,
-                sp: 0xFFFE,
-                pc: 0x0100,
-            },
-            HardwareModel::Mgb => Registers {
-                a: 0xFF,
-                f: 0xB0,
-                b: 0x00,
-                c: 0x13,
-                d: 0x00,
-                e: 0xD8,
-                h: 0x01,
-                l: 0x4D,
-                sp: 0xFFFE,
-                pc: 0x0100,
-            },
-            HardwareModel::Sgb => Registers {
-                a: 0x01,
-                f: 0x00,
-                b: 0x00,
-                c: 0x14,
-                d: 0x00,
-                e: 0x00,
-                h: 0xC0,
-                l: 0x60,
-                sp: 0xFFFE,
-                pc: 0x0100,
-            },
-            HardwareModel::Sgb2 => Registers {
-                a: 0xFF,
-                f: 0x00,
-                b: 0x00,
-                c: 0x14,
-                d: 0x00,
-                e: 0x00,
-                h: 0xC0,
-                l: 0x60,
-                sp: 0xFFFE,
-                pc: 0x0100,
-            },
+        Self::new_with_model_and_boot_rom(model, false)
+    }
+
+    pub fn new_with_model_and_boot_rom(model: HardwareModel, boot_rom_active: bool) -> Self {
+        let registers = if boot_rom_active {
+            Registers::default()
+        } else {
+            match model {
+                HardwareModel::Dmg0 => Registers {
+                    a: 0x01,
+                    f: 0x00,
+                    b: 0xFF,
+                    c: 0x13,
+                    d: 0x00,
+                    e: 0xC1,
+                    h: 0x84,
+                    l: 0x03,
+                    sp: 0xFFFE,
+                    pc: 0x0100,
+                },
+                HardwareModel::Dmg => Registers {
+                    a: 0x01,
+                    f: 0xB0,
+                    b: 0x00,
+                    c: 0x13,
+                    d: 0x00,
+                    e: 0xD8,
+                    h: 0x01,
+                    l: 0x4D,
+                    sp: 0xFFFE,
+                    pc: 0x0100,
+                },
+                HardwareModel::Mgb => Registers {
+                    a: 0xFF,
+                    f: 0xB0,
+                    b: 0x00,
+                    c: 0x13,
+                    d: 0x00,
+                    e: 0xD8,
+                    h: 0x01,
+                    l: 0x4D,
+                    sp: 0xFFFE,
+                    pc: 0x0100,
+                },
+                HardwareModel::Sgb => Registers {
+                    a: 0x01,
+                    f: 0x00,
+                    b: 0x00,
+                    c: 0x14,
+                    d: 0x00,
+                    e: 0x00,
+                    h: 0xC0,
+                    l: 0x60,
+                    sp: 0xFFFE,
+                    pc: 0x0100,
+                },
+                HardwareModel::Sgb2 => Registers {
+                    a: 0xFF,
+                    f: 0x00,
+                    b: 0x00,
+                    c: 0x14,
+                    d: 0x00,
+                    e: 0x00,
+                    h: 0xC0,
+                    l: 0x60,
+                    sp: 0xFFFE,
+                    pc: 0x0100,
+                },
+            }
         };
 
         Self {

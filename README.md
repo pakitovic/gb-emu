@@ -15,6 +15,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - DMA is now modeled as a scheduler-style state machine with incremental `tick(tcycles)` advancement, formal mode/edge state, centralized DMA CPU access-block policy hooks (currently only DMG OAM DMA behavior is active), and DMG-noop scaffolding for future CGB DMA control registers (`HDMA1..HDMA5`) plus model-gated `GDMA/HDMA` scheduler paths (transfer-state/request wiring and HBlank-edge hook integration, inactive for current DMG-family models) to reduce future HDMA/GDMA integration refactor scope.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
+- Optional boot ROM startup path in core (`PC=0x0000` + `0x0000..=0x00FF` boot-ROM mapping + `FF50` disable handling) with automatic fallback to existing post-boot defaults when no boot ROM is provided.
 - Public API now exposes a `gb_emu::bus` alias module (`Bus`, `LCD_WIDTH`, `LCD_HEIGHT`, `LCD_FRAME_PIXELS`) while keeping existing `gb_emu::memory::*` paths stable.
 
 ### PPU / Video (DMG)
@@ -109,6 +110,7 @@ runtime/
   src/
     audio.rs
     audio_queue.rs
+    bootrom.rs
     session.rs
     timing.rs
     lib.rs
@@ -159,7 +161,7 @@ web/
   Current `systems/gb` owns CPU/APU/PPU/timer/interrupts/MMIO/DMA, cartridge/mappers and persistence-byte semantics (battery save RAM / MBC3 RTC import-export APIs), framebuffer generation, and emulated audio sample stream generation.
   It must not contain SDL2 backends, `wasm-bindgen` exports, browser DOM/JS integration, or libretro bindings.
 - `runtime/`: frontend-shared host/runtime helpers that are not hardware semantics.
-  Current `runtime` owns host-time frame pacing (`FramePacer`), a shared frontend runtime session (`RuntimeSession`: `GameBoy + FramePacer + AudioMixer` wiring), frontend audio queue/adaptive buffering helpers, the frontend-facing t-cycle-to-PCM mixer bridge, and file-backed cartridge persistence adapters (`.sav` / `.rtc`).
+  Current `runtime` owns host-time frame pacing (`FramePacer`), a shared frontend runtime session (`RuntimeSession`: `GameBoy + FramePacer + AudioMixer` wiring), frontend audio queue/adaptive buffering helpers, frontend boot-ROM autoload helpers, the frontend-facing t-cycle-to-PCM mixer bridge, and file-backed cartridge persistence adapters (`.sav` / `.rtc`).
 - `frontends/*`: host adapters/UI entrypoints that depend on `systems/gb` and optionally `runtime`.
   - `frontends/cli`: CLI argument parsing, headless modes (`blargg`, `mooneye`, `cart-info`), CLI error formatting/wiring.
   - `frontends/sdl2`: SDL2 window/rendering, event loop, keyboard mapping, SDL2 audio queue/device integration.
@@ -204,6 +206,8 @@ cargo run -p frontend-cli --bin gb-emu -- --trace <path_to_rom.gb>
 cargo run -p frontend-cli --bin gb-emu -- --blargg --max-steps 120000000 <path_to_rom.gb>
 cargo run -p frontend-cli --bin gb-emu -- --mooneye --model dmg0 <path_to_rom.gb>
 cargo run -p frontend-cli --bin gb-emu -- --cart-info <path_to_rom.gb>
+cargo run -p frontend-cli --bin gb-emu -- --bootrom-dir roms/bootrom --model mgb <path_to_rom.gb>
+cargo run -p frontend-cli --bin gb-emu -- --no-bootrom <path_to_rom.gb>
 ```
 
 Supported models for `--model`:
@@ -238,6 +242,7 @@ Supported models for `--model`:
 ### CPU / Core Fidelity
 - CPU correctness and timing confidence are currently driven by the included Blargg + Gekkio suites and project integration tests; untested instruction/interrupt corner cases may still remain.
 - The emulator is currently DMG-family focused (`dmg0`, `dmg`, `mgb`, `sgb`, `sgb2`); CGB-specific CPU/platform behavior (for example double-speed mode and CGB-only hardware interactions) is out of scope.
+- Optional boot ROM startup currently supports DMG-family 256-byte boot ROM windows (`0x0000..=0x00FF`) only; CGB/AGB boot ROM mapping behavior is not implemented in current scope.
 - Cross-subsystem cycle accuracy (CPU vs PPU/APU/DMA/bus contention) is implemented incrementally and is only guaranteed for the timing cases explicitly covered by current tests and documented PPU/DMA behavior.
 - CPU timing plumbing is mostly policy-derived in current DMG scope, but some CPU timing work remains outside this migration (for example future CGB-specific timing behavior/policies and additional non-instruction edge cases not yet explicitly characterized).
 - The bus/memory segment helper layer is currently DMG single-bank only; future CGB VRAM/WRAM bank selection (`VBK`/`SVBK`) and CGB-specific bus access rules are not implemented yet.
@@ -318,7 +323,7 @@ cargo test --locked -p gb-runtime
 Optional web frontend unit test:
 
 ```bash
-node --test web/save-persistence.test.mjs web/input.test.mjs
+node --test web/save-persistence.test.mjs web/bootrom-persistence.test.mjs web/bootrom-normalizer.test.mjs web/input.test.mjs
 ```
 
 ROM test suites:
@@ -401,7 +406,7 @@ Notes:
 - Current web entrypoint is `WebEmulator` in `frontends/wasm/src/lib.rs`.
 - `web/` contains browser host assets only; the Rust/WASM adapter crate lives in `frontends/wasm/`.
 - Web builds inject host wall-clock epoch time (`Date.now()`) into the core RTC path for MBC3 RTC state, avoiding browser target traps from direct wall-clock queries inside the core.
-- Web demo groups controls into `ROM / Save` and `Audio` sections, exposes separate ROM/SAV/RTC controls (`Load ROM`, `Import/Export SAV`, `Import/Export RTC`), adds a `Close ROM` action for reset/swap workflows, shows a persistence capability/status line (`battery-save`, `rtc`) for manual testing/debugging, and disables SAV/RTC import/export controls until a compatible ROM is loaded.
+- Web demo uses explicit `ROM` and `Audio` sections with `Load` -> `Start` -> `Reset` -> `Close` ROM actions, does not auto-start after ROM load, and supports per-model boot ROM import/persistence in browser storage (dmg0/dmg/mgb/sgb/sgb2) alongside SAV/RTC persistence. `Load Boot` accepts one or many files, classifies each through the shared known-hash normalizer, stores only valid DMG-family matches by their canonical hardware slot, and shows a green validity check for the currently selected hardware when a valid boot ROM is present in browser storage.
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`B`, `X`=`A`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
 - SDL2/Web runtime wiring now uses `gb_runtime::session::RuntimeSession` (shared `GameBoy + FramePacer + AudioMixer` orchestration) to reduce frontend-specific timing/audio drift.
@@ -440,6 +445,15 @@ Workflows:
 ## Test ROMs and Licensing Notes
 
 `/roms` is intentionally ignored in `.gitignore` to avoid storing test ROM binaries in this repository.
+
+Boot ROM placement policy (local-only):
+- Store boot ROM binaries under `roms/bootrom/`.
+- Only `roms/bootrom/.gitkeep` is versioned; boot ROM binaries stay ignored.
+- Recommended model file names: `dmg0_boot.bin`, `dmg_boot.bin`, `mgb_boot.bin`, `sgb_boot.bin`, `sgb2_boot.bin`.
+- CLI/SDL2 frontends auto-load `<bootrom_dir>/<model>_boot.bin` when present and otherwise keep the existing post-boot default startup path.
+- On frontend boot ROM lookup, the directory is normalized by known SHA-256 hashes (first 256 bytes): recognized dumps are renamed to canonical file names, and unknown/invalid blobs are prefixed with `invalid_` so they are excluded from autoload.
+- CLI adds explicit per-run controls: `--no-bootrom` (force post-boot defaults) and `--bootrom-dir <path>` (override boot ROM lookup root).
+- CLI boot ROM directory resolution order: `--bootrom-dir <path>` (if provided) -> `GB_BOOTROM_DIR` (if set) -> `roms/bootrom`.
 
 CI and local setup use both:
 - `scripts/blargg/fetch_blargg_roms.sh`

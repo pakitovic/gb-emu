@@ -3,17 +3,22 @@ export const SCREEN_HEIGHT = 144;
 
 export function createUi(doc = document) {
   const romFileInput = doc.getElementById("rom-file");
+  const bootRomFileInput = doc.getElementById("bootrom-file");
+  const bootRomFileButton = doc.getElementById("bootrom-file-button");
   const savFileInput = doc.getElementById("sav-file");
   const savFileButton = doc.getElementById("sav-file-button");
   const savDownloadButton = doc.getElementById("sav-download");
   const rtcFileInput = doc.getElementById("rtc-file");
   const rtcFileButton = doc.getElementById("rtc-file-button");
   const rtcDownloadButton = doc.getElementById("rtc-download");
+  const romStartButton = doc.getElementById("rom-start");
   const romResetButton = doc.getElementById("rom-reset");
   const romCloseButton = doc.getElementById("rom-close");
   const modelSelect = doc.getElementById("model");
+  const bootRomModelCheck = doc.getElementById("bootrom-model-check");
   const statusLabel = doc.getElementById("status");
   const persistenceInfoLabel = doc.getElementById("persistence-info");
+  const bootRomInfoLabel = doc.getElementById("bootrom-info");
   const audioTelemetryLabel = doc.getElementById("audio-telemetry");
   const cartInfoPre = doc.getElementById("cart-info");
   const serialPre = doc.getElementById("serial");
@@ -48,6 +53,21 @@ export function createUi(doc = document) {
     }
   }
 
+  function setBootRomInfoText(message) {
+    if (bootRomInfoLabel) {
+      bootRomInfoLabel.textContent = message;
+    }
+  }
+
+  function setBootRomModelCheck(isValid) {
+    if (!bootRomModelCheck) {
+      return;
+    }
+
+    bootRomModelCheck.classList.toggle("is-valid", Boolean(isValid));
+    bootRomModelCheck.textContent = isValid ? "✓" : "✗";
+  }
+
   function setPersistenceControlsEnabled({
     hasRom = false,
     batterySave = false,
@@ -72,7 +92,12 @@ export function createUi(doc = document) {
     if (rtcDownloadButton) {
       rtcDownloadButton.disabled = !(hasRom && rtc);
     }
+  }
 
+  function setRomControlsEnabled({ hasRom = false, isRunning = false } = {}) {
+    if (romStartButton) {
+      romStartButton.disabled = !hasRom || isRunning;
+    }
     if (romCloseButton) {
       romCloseButton.disabled = !hasRom;
     }
@@ -159,17 +184,22 @@ export function createUi(doc = document) {
   return {
     refs: {
       romFileInput,
+      bootRomFileInput,
+      bootRomFileButton,
       savFileInput,
       savFileButton,
       savDownloadButton,
       rtcFileInput,
       rtcFileButton,
       rtcDownloadButton,
+      romStartButton,
       romResetButton,
       romCloseButton,
       modelSelect,
+      bootRomModelCheck,
       statusLabel,
       persistenceInfoLabel,
+      bootRomInfoLabel,
       audioTelemetryLabel,
       cartInfoPre,
       serialPre,
@@ -181,7 +211,10 @@ export function createUi(doc = document) {
     setStatus,
     setAudioTelemetryText,
     setPersistenceInfoText,
+    setBootRomInfoText,
+    setBootRomModelCheck,
     setPersistenceControlsEnabled,
+    setRomControlsEnabled,
     setPersistenceInfoFromEmulator,
     setCartridgeInfoFromEmulator,
     drawFrameFromEmulator,

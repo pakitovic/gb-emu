@@ -1,5 +1,6 @@
 use gb_emu::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
 use gb_runtime::audio::MixerSource;
+use gb_runtime::bootrom::load_boot_rom_for_model;
 use gb_runtime::cartridge_debug::format_cartridge_debug_report;
 use gb_runtime::cartridge_persistence::load_cartridge_from_file;
 use gb_runtime::session::RuntimeSession;
@@ -41,7 +42,8 @@ fn run() -> Result<(), Box<dyn Error>> {
     let (rom_path, model) = parse_args(env::args().skip(1))?;
 
     let (cartridge, persistence) = load_cartridge_from_file(&rom_path)?;
-    let gb = GameBoy::new_with_model(cartridge, model);
+    let boot_rom = load_boot_rom_for_model(model);
+    let gb = GameBoy::new_with_model_and_boot_rom(cartridge, model, boot_rom);
     let cartridge_metadata = gb.cartridge_metadata();
     let cartridge_debug_report = format_cartridge_debug_report(&cartridge_metadata);
     println!("{cartridge_debug_report}");

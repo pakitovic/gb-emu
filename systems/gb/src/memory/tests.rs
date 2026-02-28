@@ -126,6 +126,7 @@ fn tick_chunk_and_compare_timing_state(chunked: &mut Bus, single: &mut Bus, tcyc
 }
 
 mod boot_profiles;
+mod bootrom;
 mod bus_mapping;
 mod cartridge_api;
 mod cgb_scaffolds;
