@@ -1,5 +1,6 @@
 use super::audio::parse_audio_resampler_quality;
 use super::*;
+use gb_emu::gameboy::{SCREEN_HEIGHT, SCREEN_WIDTH};
 
 fn make_rom_32kb() -> Vec<u8> {
     let mut rom = vec![0; 32 * 1024];
@@ -55,6 +56,38 @@ fn constructor_accepts_optional_boot_rom_payload() {
     let web = WebEmulator::new_internal(&rom, Some("dmg"), Some(&boot_rom))
         .expect("valid optional boot ROM should initialize");
     assert_eq!(web.frame_counter(), 0);
+}
+
+#[test]
+fn video_palette_defaults_to_model_profile_and_produces_rgba_frame() {
+    let rom = make_rom_32kb();
+    let web =
+        WebEmulator::new_internal(&rom, Some("mgb"), None).expect("web emulator should initialize");
+    assert_eq!(web.video_palette(), "mgb");
+    assert_eq!(web.rgba_frame().len(), SCREEN_WIDTH * SCREEN_HEIGHT * 4);
+}
+
+#[test]
+fn set_video_palette_accepts_auto_and_named_profiles() {
+    let rom = make_rom_32kb();
+    let mut web =
+        WebEmulator::new_internal(&rom, Some("dmg"), None).expect("web emulator should initialize");
+
+    assert_eq!(web.video_palette(), "dmg");
+    web.set_video_palette("mgb")
+        .expect("mgb palette should be accepted");
+    assert_eq!(web.video_palette(), "mgb");
+
+    web.set_video_palette("auto")
+        .expect("auto should reset model default");
+    assert_eq!(web.video_palette(), "dmg");
+}
+
+#[test]
+fn parse_video_palette_selection_rejects_unknown_profile_names() {
+    let err = super::video::parse_video_palette_selection("sepia")
+        .expect_err("unsupported palette should fail");
+    assert!(err.contains("Unsupported palette"));
 }
 
 #[test]

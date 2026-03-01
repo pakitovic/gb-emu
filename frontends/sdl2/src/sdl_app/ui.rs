@@ -1,5 +1,6 @@
 use gb_emu::cartridge::CartridgeMetadata;
 use gb_emu::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
+use gb_emu::video::VideoPalette;
 use sdl2::messagebox::{MessageBoxFlag, show_simple_message_box};
 use sdl2::render::{Canvas, Texture};
 use sdl2::video::Window;
@@ -29,16 +30,18 @@ pub(super) fn render_grayscale_frame(
     texture: &mut Texture<'_>,
     canvas: &mut Canvas<Window>,
     frame: &[u8],
+    palette: VideoPalette,
 ) -> Result<(), io::Error> {
     texture
         .with_lock(None, |bytes, pitch| {
             for y in 0..SCREEN_HEIGHT {
                 for x in 0..SCREEN_WIDTH {
                     let shade = frame[y * SCREEN_WIDTH + x];
+                    let rgb = palette.rgb_for_canonical_luma(shade);
                     let offset = y * pitch + x * 3;
-                    bytes[offset] = shade;
-                    bytes[offset + 1] = shade;
-                    bytes[offset + 2] = shade;
+                    bytes[offset] = rgb[0];
+                    bytes[offset + 1] = rgb[1];
+                    bytes[offset + 2] = rgb[2];
                 }
             }
         })

@@ -9,3 +9,4 @@ pub mod hardware;
 pub mod input;
 pub mod memory;
 pub mod timing;
+pub mod video;

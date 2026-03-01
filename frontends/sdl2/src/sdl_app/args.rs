@@ -1,4 +1,5 @@
 use gb_emu::hardware::HardwareModel;
+use gb_emu::video::VideoPalette;
 use gb_runtime::audio::AudioResamplerQuality;
 use std::env;
 use std::io;
@@ -84,6 +85,29 @@ pub(super) fn parse_audio_resampler_quality_from_env() -> Result<AudioResamplerQ
     }
 }
 
+fn parse_video_palette(value: &str, model: HardwareModel) -> Result<VideoPalette, io::Error> {
+    if value.is_empty() || value.eq_ignore_ascii_case("auto") {
+        return Ok(VideoPalette::for_model(model));
+    }
+
+    value
+        .parse::<VideoPalette>()
+        .map_err(|message| io::Error::new(io::ErrorKind::InvalidInput, message))
+}
+
+pub(super) fn parse_video_palette_from_env(
+    model: HardwareModel,
+) -> Result<VideoPalette, io::Error> {
+    match env::var("GB_VIDEO_PALETTE") {
+        Ok(value) => parse_video_palette(value.trim(), model),
+        Err(env::VarError::NotPresent) => Ok(VideoPalette::for_model(model)),
+        Err(err) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Failed to read GB_VIDEO_PALETTE: {err}"),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,5 +184,36 @@ mod tests {
     fn parse_sdl_vsync_rejects_invalid_values() {
         let err = parse_sdl_vsync("maybe").expect_err("invalid value should fail");
         assert!(err.to_string().contains("GB_SDL2_VSYNC"));
+    }
+
+    #[test]
+    fn parse_video_palette_defaults_to_model_mapped_palette() {
+        assert_eq!(
+            parse_video_palette("auto", HardwareModel::Mgb).expect("auto should parse"),
+            VideoPalette::Mgb
+        );
+        assert_eq!(
+            parse_video_palette("", HardwareModel::Dmg).expect("empty should parse"),
+            VideoPalette::Dmg
+        );
+    }
+
+    #[test]
+    fn parse_video_palette_accepts_named_profiles() {
+        assert_eq!(
+            parse_video_palette("dmg", HardwareModel::Dmg).expect("dmg should parse"),
+            VideoPalette::Dmg
+        );
+        assert_eq!(
+            parse_video_palette("sgb", HardwareModel::Dmg).expect("sgb should parse"),
+            VideoPalette::Sgb
+        );
+    }
+
+    #[test]
+    fn parse_video_palette_rejects_invalid_values() {
+        let err = parse_video_palette("unknown", HardwareModel::Dmg)
+            .expect_err("invalid palette should fail");
+        assert!(err.to_string().contains("Unsupported palette"));
     }
 }

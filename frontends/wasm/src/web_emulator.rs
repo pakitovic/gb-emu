@@ -1,3 +1,4 @@
+use gb_emu::video::VideoPalette;
 use gb_runtime::audio_queue::AudioQueueController;
 use gb_runtime::session::RuntimeSession;
 use wasm_bindgen::prelude::*;
@@ -16,6 +17,8 @@ pub struct WebEmulator {
     session: RuntimeSession,
     audio_queue_controller: AudioQueueController,
     audio_queue_clock_ms: u64,
+    default_video_palette: VideoPalette,
+    active_video_palette: VideoPalette,
 }
 
 impl WebEmulator {

@@ -19,7 +19,7 @@ mod ui;
 
 use args::{
     audio_resampler_quality_name, parse_args, parse_audio_resampler_quality_from_env,
-    parse_sdl_vsync_from_env,
+    parse_sdl_vsync_from_env, parse_video_palette_from_env,
 };
 use audio_queue::{SdlAudioQueueState, refill_audio_queue};
 use input::{EventAction, process_event};
@@ -40,6 +40,7 @@ pub(crate) fn main_entry() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let (rom_path, model) = parse_args(env::args().skip(1))?;
+    let video_palette = parse_video_palette_from_env(model)?;
 
     let (cartridge, persistence) = load_cartridge_from_file(&rom_path)?;
     let boot_rom = load_boot_rom_for_model(model);
@@ -110,8 +111,10 @@ fn run() -> Result<(), Box<dyn Error>> {
         audio_resampler_quality_name(session.audio_resampler_quality())
     );
     println!(
-        "Video config: renderer=accelerated | vsync={}",
-        if sdl_vsync { "on" } else { "off" }
+        "Video config: renderer=accelerated | vsync={} | palette={} ({:?})",
+        if sdl_vsync { "on" } else { "off" },
+        video_palette.as_str(),
+        video_palette.pipeline()
     );
 
     let mut event_pump = sdl.event_pump().map_err(io::Error::other)?;
@@ -168,7 +171,12 @@ fn run() -> Result<(), Box<dyn Error>> {
             continue;
         }
 
-        render_grayscale_frame(&mut texture, &mut canvas, session.gameboy().framebuffer())?;
+        render_grayscale_frame(
+            &mut texture,
+            &mut canvas,
+            session.gameboy().framebuffer(),
+            video_palette,
+        )?;
     }
 
     flush_persistence(&persistence, session.gameboy_mut())?;
