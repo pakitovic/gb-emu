@@ -15,6 +15,7 @@ export function createUi(doc = document) {
   const romResetButton = doc.getElementById("rom-reset");
   const romCloseButton = doc.getElementById("rom-close");
   const modelSelect = doc.getElementById("model");
+  const paletteSelect = doc.getElementById("palette");
   const bootRomModelCheck = doc.getElementById("bootrom-model-check");
   const statusLabel = doc.getElementById("status");
   const persistenceInfoLabel = doc.getElementById("persistence-info");
@@ -146,15 +147,13 @@ export function createUi(doc = document) {
       return;
     }
 
-    const frame = emulator.grayscale_frame();
-    for (let i = 0; i < frame.length; i += 1) {
-      const shade = frame[i];
-      const rgbaIndex = i * 4;
-      frameRgba[rgbaIndex] = shade;
-      frameRgba[rgbaIndex + 1] = shade;
-      frameRgba[rgbaIndex + 2] = shade;
-      frameRgba[rgbaIndex + 3] = 255;
+    const frame = emulator.rgba_frame();
+    if (frame.length !== frameRgba.length) {
+      throw new Error(
+        `RGBA frame length mismatch (expected ${frameRgba.length}, got ${frame.length})`
+      );
     }
+    frameRgba.set(frame);
     ctx.putImageData(frameImage, 0, 0);
   }
 
@@ -196,6 +195,7 @@ export function createUi(doc = document) {
       romResetButton,
       romCloseButton,
       modelSelect,
+      paletteSelect,
       bootRomModelCheck,
       statusLabel,
       persistenceInfoLabel,

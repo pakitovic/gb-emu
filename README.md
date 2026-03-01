@@ -20,6 +20,7 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 
 ### PPU / Video (DMG)
 - DMG background layer rendering to a grayscale framebuffer.
+- Video output now supports palette profiles over canonical DMG shade levels (`dmg` green, `mgb` gray), plus explicit `cgb`/`sgb` scaffold profiles to keep frontend wiring stable before real CGB/SGB color semantics are implemented.
 - DMG window + sprite (OBJ) composition with priority/palette/flip handling.
 - Mode 3 background/window pixel FIFO stepping per dot with a 6-dot BG fetch cadence and window trigger/restart timing (WX/WY mid-line writes affect only valid trigger windows).
 - Mode 3 OBJ fetch stalls and sprite pixel mixing are stepped per dot with DMG priority/palette rules; OBJ fetch start now waits for BG fetch boundaries for more stable dot arbitration.
@@ -257,6 +258,7 @@ Supported models for `--model`:
 
 ### PPU / Rendering / Timing Fidelity
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
+- `cgb`/`sgb` palette selections are currently display-side scaffold profiles only; they do not implement hardware CGB palette RAM semantics or SGB command-driven border/palette behavior.
 - Dot-stepped OBJ fetch contention now extends Mode 3 at runtime and takeover boundaries include FIFO-stall arbitration; some DMG fetcher bus-phase details (for example full hardware sleep/push micro-ops) are still approximated.
 - The Mode 3 pixel pipeline now carries DMG-oriented intermediate metadata plus CGB attr/palette scaffolding fields, but CGB BG tile attributes / OBJ palette metadata are not yet used to change rendering rules or final color output (current behavior remains DMG-only, and runtime scaffold wiring is model-gated off for current DMG-family models).
 - Formal PPU mode-entry edge hooks now exist for future HBlank-DMA/HDMA wiring, but no HDMA/HBlank DMA behavior is implemented in current DMG scope.
@@ -407,6 +409,7 @@ Notes:
 - `web/` contains browser host assets only; the Rust/WASM adapter crate lives in `frontends/wasm/`.
 - Web builds inject host wall-clock epoch time (`Date.now()`) into the core RTC path for MBC3 RTC state, avoiding browser target traps from direct wall-clock queries inside the core.
 - Web demo uses explicit `ROM` and `Audio` sections with `Load` -> `Start` -> `Reset` -> `Close` ROM actions, does not auto-start after ROM load, and supports per-model boot ROM import/persistence in browser storage (dmg0/dmg/mgb/sgb/sgb2) alongside SAV/RTC persistence. `Load Boot` accepts one or many files, classifies each through the shared known-hash normalizer, stores only valid DMG-family matches by their canonical hardware slot, and shows a green validity check for the currently selected hardware when a valid boot ROM is present in browser storage.
+- Web demo video controls now include a palette selector (`auto|dmg|mgb|cgb|sgb`), where `auto` maps from the loaded hardware model and scaffold options (`cgb`/`sgb`) remain display-only placeholders for future hardware-accurate color paths.
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`B`, `X`=`A`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
 - SDL2/Web runtime wiring now uses `gb_runtime::session::RuntimeSession` (shared `GameBoy + FramePacer + AudioMixer` orchestration) to reduce frontend-specific timing/audio drift.
@@ -418,6 +421,7 @@ Notes:
 - Optional SDL2 debug tone: set `GB_AUDIO_TEST_TONE=1`.
 - Optional SDL2 core APU resampler quality override: set `GB_AUDIO_RESAMPLER=linear` or `GB_AUDIO_RESAMPLER=cubic` (default).
 - Optional SDL2 VSync override: set `GB_SDL2_VSYNC=1` (default) or `GB_SDL2_VSYNC=0`.
+- Optional SDL2 video palette override: set `GB_VIDEO_PALETTE=auto|dmg|mgb|cgb|sgb` (default: `auto`, model-based mapping).
 - Battery-backed cartridges loaded via `gb_runtime::cartridge_persistence` persist external RAM to a sibling `.sav` file; MBC3 timer carts also persist RTC metadata to `.rtc`. Save writes use atomic temp-file+rename replacement. Current CLI frontend flushes saves on graceful exit; SDL2 also performs dirty-flag autosave with a short debounce window plus a flush on window focus loss, while keeping the graceful-exit flush. The web demo mirrors this policy with browser-side autosave debounce and page visibility/navigation flush hooks using local storage (browser quota/security policies may still block persistence).
 - Web demo audio control uses a toggle button (`Enable audio` / `Disable audio`) so manual browser tests can enable and suspend WebAudio without reloading the page.
 - Core helper: `GameBoy::set_audio_analog_calibration(profile)` to apply measured per-device analog calibration profiles from host/frontends.

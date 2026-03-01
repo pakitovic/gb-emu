@@ -39,6 +39,17 @@ function selectedModel() {
   return ui.refs.modelSelect?.value || "dmg";
 }
 
+function selectedPalette() {
+  return ui.refs.paletteSelect?.value || "auto";
+}
+
+function applySelectedPaletteToEmulator() {
+  if (!emulator || typeof emulator.set_video_palette !== "function") {
+    return;
+  }
+  emulator.set_video_palette(selectedPalette());
+}
+
 function refreshAudioButtonLabel() {
   if (!ui.refs.audioEnableButton) {
     return;
@@ -489,6 +500,19 @@ function bindDomEvents() {
     refreshBootRomInfo();
   });
 
+  ui.refs.paletteSelect?.addEventListener("change", () => {
+    if (!emulator) {
+      return;
+    }
+    try {
+      applySelectedPaletteToEmulator();
+      ui.drawFrameFromEmulator(emulator);
+    } catch (error) {
+      console.error(error);
+      ui.setStatus(`Palette update error: ${error}`);
+    }
+  });
+
   ui.refs.testToneCheckbox?.addEventListener("change", () => {
     audioController.handleTestToneChanged();
   });
@@ -578,6 +602,7 @@ function finishRomActivation({
   emulator = nextEmulator;
   isRunning = false;
   lastFrameTimeMs = 0;
+  applySelectedPaletteToEmulator();
   emulator.set_host_rtc_epoch_secs(Math.floor(Date.now() / 1000));
   savePersistence.attachRom({
     romBytes,
