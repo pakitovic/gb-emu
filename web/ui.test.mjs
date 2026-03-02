@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  batteryPowerOnForState,
   canvasPromptForState,
   CONTROL_SECTIONS,
   nextControlPanelState,
@@ -120,4 +121,10 @@ test("shouldCloseSettingsPanelOnPointerDown closes only on outside click while o
     }),
     false
   );
+});
+
+test("batteryPowerOnForState turns on only when a ROM is loaded", () => {
+  assert.equal(batteryPowerOnForState({ hasRom: true }), true);
+  assert.equal(batteryPowerOnForState({ hasRom: false }), false);
+  assert.equal(batteryPowerOnForState({ hasRom: undefined }), false);
 });

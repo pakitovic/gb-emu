@@ -62,6 +62,7 @@ function refreshAudioButtonLabel() {
 function refreshRomControls() {
   ui.setRomControlsEnabled({ hasRom: Boolean(emulator), isRunning });
   ui.setScreenPromptForState({ hasRom: Boolean(emulator), isRunning });
+  ui.setBatteryPowerOn(Boolean(emulator));
 }
 
 function getBootRomValidationState(model, { removeInvalid } = { removeInvalid: true }) {
@@ -472,6 +473,9 @@ function bindDomEvents() {
 
   ui.refs.romFileInput?.addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
+    if (file) {
+      ui.setSettingsPanelOpen(false);
+    }
     try {
       await loadRom(file);
     } catch (error) {
@@ -558,6 +562,7 @@ function bindDomEvents() {
     refreshAudioButtonLabel();
   });
   ui.refs.romResetButton?.addEventListener("click", async () => {
+    ui.setSettingsPanelOpen(false);
     try {
       await resetRom();
     } catch (error) {

@@ -56,6 +56,10 @@ export function shouldCloseSettingsPanelOnPointerDown({
   return Boolean(isPanelOpen) && !isInsidePanel && !isInsideToggle;
 }
 
+export function batteryPowerOnForState({ hasRom = false } = {}) {
+  return Boolean(hasRom);
+}
+
 export function normalizeScreenScale({
   scale = DEFAULT_SCREEN_SCALE,
   minScale = MIN_SCREEN_SCALE,
@@ -71,6 +75,7 @@ export function createUi(doc = document) {
   const stage = doc.querySelector(".stage");
   const contextPanel = doc.querySelector(".context-panel");
   const settingsToggleButton = doc.getElementById("settings-toggle");
+  const batteryLed = doc.getElementById("battery-led");
   const romFileInput = doc.getElementById("rom-file");
   const bootRomFileInput = doc.getElementById("bootrom-file");
   const bootRomFileButton = doc.getElementById("bootrom-file-button");
@@ -117,6 +122,7 @@ export function createUi(doc = document) {
     const clampedScale = normalizeScreenScale({ scale });
     canvas.style.width = `${SCREEN_WIDTH * clampedScale}px`;
     canvas.style.height = `${SCREEN_HEIGHT * clampedScale}px`;
+    doc.documentElement?.style?.setProperty("--video-scale", `${clampedScale}`);
     return clampedScale;
   }
 
@@ -132,6 +138,13 @@ export function createUi(doc = document) {
     if (statusLabel) {
       statusLabel.textContent = message;
     }
+  }
+
+  function setBatteryPowerOn(hasRom = false) {
+    if (!batteryLed) {
+      return;
+    }
+    batteryLed.classList.toggle("is-on", batteryPowerOnForState({ hasRom }));
   }
 
   function setAudioTelemetryText(message) {
@@ -350,12 +363,14 @@ export function createUi(doc = document) {
 
   syncControlPanelVisibility();
   updateScreenScale({ scale: DEFAULT_SCREEN_SCALE });
+  setBatteryPowerOn(false);
 
   return {
     refs: {
       stage,
       contextPanel,
       settingsToggleButton,
+      batteryLed,
       romFileInput,
       bootRomFileInput,
       bootRomFileButton,
@@ -389,6 +404,7 @@ export function createUi(doc = document) {
       canvas,
     },
     setStatus,
+    setBatteryPowerOn,
     setAudioTelemetryText,
     setPersistenceInfoText,
     setBootRomInfoText,

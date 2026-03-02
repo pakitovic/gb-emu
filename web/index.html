@@ -8,13 +8,22 @@
     :root {
       --bg: #0a0f13;
       --panel: #131d25;
-      --panel-strong: #0f1820;
       --panel-soft: #0d151c;
       --text: #e9f3f9;
       --muted: #95adbd;
       --accent: #67dcae;
       --border: #2a3a45;
       --danger: #dd6b6b;
+      --shell: #BDBFC7;
+      --shell-deep: #c0c6cf;
+      --screen-frame: #828992;
+      --battery-off: #2f353c;
+      --battery-on: #dc4c59;
+      --dot-matrix: #6e7680;
+      --shell-label: #BDBFC7;
+      --logo-blue: #31459a;
+      --logo-violet: #5a4fa8;
+      --video-scale: 4;
     }
 
     * {
@@ -37,68 +46,142 @@
 
     .app {
       position: relative;
-      width: min(100%, 860px);
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 18px;
+      width: min(100%, calc(160px * var(--video-scale) + 170px));
       display: grid;
-      gap: 14px;
-      box-shadow: 0 28px 72px rgb(0 0 0 / 34%);
+      place-items: center;
     }
 
-    .top-bar {
-      display: flex;
+    .shell {
+      width: 100%;
+      background: #BDBFC7;
+      border-radius: 10px;
+      border: 1px solid #9ea4ac;
+      box-shadow:
+        0 30px 70px rgb(0 0 0 / 46%),
+        inset 0 1px 0 rgb(255 255 255 / 65%);
+      padding: 22px 18px 18px;
+      color: #2f3439;
+    }
+
+    .display-block {
+      --display-pad-top: 14px;
+      --display-gap: 10px;
+      --display-top-height: 22px;
+      position: relative;
+      background: #616979;
+      border-radius: 14px 14px 64px 14px;
+      padding:
+        var(--display-pad-top)
+        12px
+        calc(var(--display-pad-top) + var(--display-top-height) + var(--display-gap))
+        12px;
+      margin: 0 14px;
+      border: 1px solid #858b94;
+      box-shadow: inset 0 1px 0 rgb(255 255 255 / 24%);
+      display: grid;
+      gap: var(--display-gap);
+    }
+
+    .display-top {
+      display: grid;
+      grid-template-columns: 1fr auto;
       align-items: center;
-      justify-content: space-between;
-      gap: 10px;
+      gap: 8px;
+      min-height: var(--display-top-height);
     }
 
-    h1 {
-      margin: 0;
-      font-size: clamp(24px, 4vw, 30px);
-      letter-spacing: 0.08em;
-      font-weight: 700;
+    .dot-matrix-label {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 8px;
+      color: var(--shell-label);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 500;
+      min-width: 1px;
+    }
+
+    .dot-lines {
+      height: 2px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #7b2f89, #26478c 55%, #7b2f89);
+      opacity: 0.9;
     }
 
     .settings-toggle {
-      min-width: 44px;
-      height: 40px;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: var(--panel-soft);
-      color: var(--text);
-      font: inherit;
-      font-weight: 600;
+      width: 34px;
+      height: 24px;
+      border-radius: 6px;
+      border: 1px solid #767c85;
+      background: linear-gradient(180deg, #c0c6cf, #a4abb5);
       cursor: pointer;
-      transition: border-color 140ms ease, background-color 140ms ease;
+      display: grid;
+      gap: 4px;
+      align-content: center;
+      justify-items: center;
+      padding: 0;
+    }
+
+    .settings-toggle::before,
+    .settings-toggle::after {
+      content: "";
+      width: 11px;
+      height: 2px;
+      border-radius: 999px;
+      background: #454c55;
     }
 
     .settings-toggle:hover {
-      border-color: var(--accent);
-      background: #12212b;
+      border-color: #5a616a;
+      background: linear-gradient(180deg, #c8ced6, #acb4be);
     }
 
     .settings-toggle[aria-expanded="true"] {
-      border-color: var(--accent);
-      background: linear-gradient(180deg, #214236, #173027);
-      color: #e7fff5;
+      border-color: #3d8f75;
+      box-shadow: inset 0 0 0 1px rgb(103 220 174 / 55%);
     }
 
-    .stage-shell {
+    .display-main {
       display: grid;
-      place-items: center;
-      min-height: min(76vh, 700px);
-      padding: 8px;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: linear-gradient(180deg, #101922, #0d151d);
+      grid-template-columns: 58px max-content 58px;
+      gap: 12px;
+      align-items: stretch;
     }
 
-    .stage {
+    .battery-cluster {
       display: grid;
-      place-items: center;
-      padding: 4px;
+      gap: 6px;
+      align-content: center;
+      justify-items: center;
+      min-height: 100%;
+    }
+
+    .display-spacer {
+      min-height: 100%;
+    }
+
+    .battery-led {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--battery-off);
+      border: 1px solid #1c2026;
+      box-shadow: inset 0 1px 0 rgb(255 255 255 / 20%);
+      transition: background-color 140ms ease, box-shadow 180ms ease;
+    }
+
+    .battery-led.is-on {
+      background: var(--battery-on);
+      border-color: #8d313c;
+      box-shadow: 0 0 10px rgb(220 76 89 / 90%), inset 0 0 4px rgb(255 255 255 / 55%);
+    }
+
+    .battery-label {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      color: var(--shell-label);
     }
 
     #screen {
@@ -107,23 +190,58 @@
       image-rendering: pixelated;
       image-rendering: crisp-edges;
       background: #000;
-      border: 1px solid var(--border);
-      border-radius: 8px;
+      border: 1px solid #0d0f12;
+      border-radius: 2px;
       display: block;
       margin: 0;
-      box-shadow: 0 12px 36px rgb(0 0 0 / 35%);
+      box-shadow: none;
+    }
+
+    .logo-row {
+      margin: 11px 14px 0;
+      display: flex;
+      align-items: baseline;
+      gap: 2px;
+      padding-left: 0;
+      color: #23292f;
+      flex-wrap: wrap;
+    }
+
+    .brand-emu {
+      font-size: 20px;
+      letter-spacing: 0.01em;
+      font-weight: 700;
+      color: var(--logo-blue);
+      line-height: 0.9;
+    }
+
+    .brand-gameboy {
+      font-size: 49px;
+      letter-spacing: 0.025em;
+      font-weight: 500;
+      color: var(--logo-blue);
+      font-style: italic;
+      line-height: 0.86;
+    }
+
+    .tm {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: var(--logo-blue);
+      margin-left: -1px;
     }
 
     .context-panel {
       position: absolute;
-      top: 74px;
-      right: 18px;
+      top: 54px;
+      right: 22px;
       width: min(360px, calc(100vw - 56px));
       max-height: min(78vh, 760px);
       overflow: auto;
       border: 1px solid var(--border);
       border-radius: 12px;
-      background: rgb(15 24 32 / 96%);
+      background: rgb(15 24 32 / 97%);
       box-shadow: 0 26px 56px rgb(0 0 0 / 45%);
       backdrop-filter: blur(7px);
       padding: 12px;
@@ -132,6 +250,7 @@
       align-content: start;
       animation: panel-enter 180ms ease;
       z-index: 20;
+      color: var(--text);
     }
 
     .context-panel[hidden] {
@@ -363,20 +482,56 @@
         padding: 14px;
       }
 
-      .app {
-        padding: 14px;
+      .shell {
+        padding: 16px 12px 16px;
       }
 
-      .stage-shell {
-        min-height: min(70vh, 640px);
+      .display-block {
+        --display-pad-top: 12px;
+        --display-gap: 10px;
+        --display-top-height: 22px;
+        margin: 0 6px;
+        padding:
+          var(--display-pad-top)
+          10px
+          calc(var(--display-pad-top) + var(--display-top-height) + var(--display-gap))
+          10px;
+      }
+
+      .logo-row {
+        margin: 11px 6px 0;
+      }
+
+      .display-main {
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+
+      .display-spacer {
+        display: none;
+      }
+
+      .battery-cluster {
+        grid-auto-flow: column;
+        justify-content: start;
+        gap: 8px;
+        justify-items: start;
+      }
+
+      .brand-emu {
+        font-size: 16px;
+      }
+
+      .brand-gameboy {
+        font-size: 33px;
       }
 
       .context-panel {
-        top: 66px;
-        right: 14px;
-        left: 14px;
+        top: 32px;
+        right: 10px;
+        left: 10px;
         width: auto;
-        max-height: 72vh;
+        max-height: 74vh;
       }
 
       .control-nav,
@@ -388,23 +543,38 @@
 </head>
 <body>
   <main class="app">
-    <header class="top-bar">
-      <h1>GB-EMU</h1>
-      <button
-        id="settings-toggle"
-        class="settings-toggle"
-        type="button"
-        title="Setting"
-        aria-label="Setting"
-        aria-expanded="false"
-      >
-        &lt;&lt;
-      </button>
-    </header>
+    <section class="shell">
+      <section class="display-block">
+        <div class="display-top">
+          <div class="dot-matrix-label">
+            <div class="dot-lines"></div>
+            <span>DOT MATRIX WITH STEREO SOUND</span>
+            <div class="dot-lines"></div>
+          </div>
+          <button
+            id="settings-toggle"
+            class="settings-toggle"
+            type="button"
+            title="Setting"
+            aria-label="Setting"
+            aria-expanded="false"
+          ></button>
+        </div>
 
-    <section class="stage-shell">
-      <section class="stage" aria-label="Emulator stage">
-        <canvas id="screen" width="160" height="144" aria-label="Game Boy screen"></canvas>
+        <div class="display-main">
+          <div class="battery-cluster" aria-label="Battery status">
+            <span id="battery-led" class="battery-led" aria-hidden="true"></span>
+            <span class="battery-label">BATTERY</span>
+          </div>
+          <canvas id="screen" width="160" height="144" aria-label="Game Boy screen"></canvas>
+          <div class="display-spacer" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <section class="logo-row" aria-label="Branding">
+        <span class="brand-emu">Emulator</span>
+        <span class="brand-gameboy">GAME BOY</span>
+        <span class="tm">TM</span>
       </section>
     </section>
 
