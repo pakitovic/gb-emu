@@ -325,7 +325,7 @@ cargo test --locked -p gb-runtime
 Optional web frontend unit test:
 
 ```bash
-node --test web/save-persistence.test.mjs web/bootrom-persistence.test.mjs web/bootrom-normalizer.test.mjs web/input.test.mjs
+node --test web/*.test.mjs
 ```
 
 ROM test suites:
@@ -408,7 +408,7 @@ Notes:
 - Current web entrypoint is `WebEmulator` in `frontends/wasm/src/lib.rs`.
 - `web/` contains browser host assets only; the Rust/WASM adapter crate lives in `frontends/wasm/`.
 - Web builds inject host wall-clock epoch time (`Date.now()`) into the core RTC path for MBC3 RTC state, avoiding browser target traps from direct wall-clock queries inside the core.
-- Web demo uses explicit `ROM` and `Audio` sections with `Load` -> `Start` -> `Reset` -> `Close` ROM actions, does not auto-start after ROM load, and supports per-model boot ROM import/persistence in browser storage (dmg0/dmg/mgb/sgb/sgb2) alongside SAV/RTC persistence. `Load Boot` accepts one or many files, classifies each through the shared known-hash normalizer, stores only valid DMG-family matches by their canonical hardware slot, and shows a green validity check for the currently selected hardware when a valid boot ROM is present in browser storage.
+- Web demo now uses a retro DMG-inspired shell layout centered on the Game Boy screen, with a floating `Settings` panel hidden by default and toggled from a top-right two-line button near the `DOT MATRIX WITH STEREO SOUND` strip. Branding in the shell reads `Emulator GAME BOY TM`; runtime status text remains in `Debug` (below cartridge info). The left `BATTERY` indicator lights when a ROM is loaded and turns off when no ROM is active. `Settings` includes sections (`Save Data`, `System`, `Audio`, `Debug`) plus `Load ROM` without a persistent side column. Canvas scaling is manual via `System > Video Size` with integer steps (`x1` to `x4`) from the native DMG resolution (160x144), defaulting to `x4` and never changing automatically on responsive resize. The canvas shows a click target only while no cartridge is loaded (`Load ROM`), mapped to the same action as the settings control. `Reset ROM` lives in `Save Data` near SAV/RTC operations. The demo auto-starts emulation after `Load ROM` (and after `Reset ROM`) and keeps per-model boot ROM import/persistence in browser storage (dmg0/dmg/mgb/sgb/sgb2). `Load Boot ROM(s)` accepts one or many files, classifies each through the shared known-hash normalizer, stores only valid DMG-family matches by their canonical hardware slot, and shows a green validity check for the currently selected hardware when a valid boot ROM is present in browser storage.
 - Web demo video controls now include a palette selector (`auto|dmg|mgb|cgb|sgb`), where `auto` maps from the loaded hardware model and scaffold options (`cgb`/`sgb`) remain display-only placeholders for future hardware-accurate color paths.
 - SDL2 key mapping: arrows=`D-Pad`, `Z`=`B`, `X`=`A`, `Backspace`=`Select`, `Enter`=`Start`.
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
@@ -423,7 +423,7 @@ Notes:
 - Optional SDL2 VSync override: set `GB_SDL2_VSYNC=1` (default) or `GB_SDL2_VSYNC=0`.
 - Optional SDL2 video palette override: set `GB_VIDEO_PALETTE=auto|dmg|mgb|cgb|sgb` (default: `auto`, model-based mapping).
 - Battery-backed cartridges loaded via `gb_runtime::cartridge_persistence` persist external RAM to a sibling `.sav` file; MBC3 timer carts also persist RTC metadata to `.rtc`. Save writes use atomic temp-file+rename replacement. Current CLI frontend flushes saves on graceful exit; SDL2 also performs dirty-flag autosave with a short debounce window plus a flush on window focus loss, while keeping the graceful-exit flush. The web demo mirrors this policy with browser-side autosave debounce and page visibility/navigation flush hooks using local storage (browser quota/security policies may still block persistence).
-- Web demo audio control uses a toggle button (`Enable audio` / `Disable audio`) so manual browser tests can enable and suspend WebAudio without reloading the page.
+- Web demo audio control uses a toggle button (`Enable audio` / `Disable audio`); audio is auto-enabled when a ROM is loaded/reset (user gesture path) when possible and can still be manually disabled/re-enabled during a session.
 - Core helper: `GameBoy::set_audio_analog_calibration(profile)` to apply measured per-device analog calibration profiles from host/frontends.
 - Web helpers:
   - `run_for_elapsed_micros(elapsed_micros)` to step as many emulated frames as host time allows.
