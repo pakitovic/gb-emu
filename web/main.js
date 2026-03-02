@@ -12,7 +12,7 @@ import {
   createWebEmulatorFromRomFile,
 } from "./rom-loading.mjs";
 import { createWebSavePersistence } from "./save-persistence.mjs";
-import { createUi } from "./ui.mjs";
+import { createUi, shouldCloseSettingsPanelOnPointerDown } from "./ui.mjs";
 
 const ui = createUi();
 const WebEmulator = wasmBindings.WebEmulator;
@@ -61,6 +61,7 @@ function refreshAudioButtonLabel() {
 
 function refreshRomControls() {
   ui.setRomControlsEnabled({ hasRom: Boolean(emulator), isRunning });
+  ui.setScreenPromptForState({ hasRom: Boolean(emulator), isRunning });
 }
 
 function getBootRomValidationState(model, { removeInvalid } = { removeInvalid: true }) {
@@ -203,7 +204,7 @@ async function loadRom(file) {
   if (!loaded) {
     return;
   }
-  finishRomActivation({
+  await finishRomActivation({
     nextEmulator: loaded.emulator,
     romBytes: loaded.romBytes,
     fileName: file.name,
@@ -211,6 +212,7 @@ async function loadRom(file) {
     bootRomBytes,
     resetSerialOutput: true,
     statusMessage: null,
+    autoStart: true,
   });
 }
 
@@ -234,23 +236,8 @@ async function closeRom({ keepStatus = false, keepAudio = false } = {}) {
   refreshRomControls();
 
   if (!keepStatus) {
-    ui.setStatus("ROM closed. Load a ROM, then press Start.");
+    ui.setStatus("ROM closed. Load a ROM.");
   }
-}
-
-function startRom() {
-  if (!emulator) {
-    ui.setStatus("Load a ROM before starting.");
-    return;
-  }
-  if (isRunning) {
-    return;
-  }
-
-  isRunning = true;
-  lastFrameTimeMs = 0;
-  refreshRomControls();
-  ui.setStatus(`Running ${loadedRomState?.fileName ?? "ROM"}.`);
 }
 
 async function resetRom() {
@@ -267,14 +254,15 @@ async function resetRom() {
     model,
     bootRomBytes,
   });
-  finishRomActivation({
+  await finishRomActivation({
     nextEmulator,
     romBytes,
     fileName,
     model,
     bootRomBytes,
     resetSerialOutput: true,
-    statusMessage: `Reset loaded: ${fileName}. Press Start when ready.`,
+    statusMessage: `Reset loaded: ${fileName}.`,
+    autoStart: true,
   });
 }
 
@@ -448,6 +436,40 @@ function handlePagePersistenceFlush() {
 }
 
 function bindDomEvents() {
+  ui.refs.settingsToggleButton?.addEventListener("click", () => {
+    ui.toggleSettingsPanel();
+  });
+
+  document.addEventListener("pointerdown", (event) => {
+    const panel = ui.refs.contextPanel;
+    if (!panel) {
+      return;
+    }
+
+    const target = event.target;
+    const isNodeTarget = typeof Node !== "undefined" && target instanceof Node;
+    const isInsidePanel = isNodeTarget ? panel.contains(target) : false;
+    const isInsideToggle = isNodeTarget
+      ? Boolean(ui.refs.settingsToggleButton?.contains(target))
+      : false;
+
+    if (
+      shouldCloseSettingsPanelOnPointerDown({
+        isPanelOpen: !panel.hidden,
+        isInsidePanel,
+        isInsideToggle,
+      })
+    ) {
+      ui.setSettingsPanelOpen(false);
+    }
+  });
+
+  for (const button of ui.refs.controlNavButtons ?? []) {
+    button.addEventListener("click", () => {
+      ui.toggleControlSection(button.dataset.controlSection);
+    });
+  }
+
   ui.refs.romFileInput?.addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
     try {
@@ -457,6 +479,12 @@ function bindDomEvents() {
       ui.setStatus(`ROM load error: ${error}`);
     } finally {
       event.target.value = "";
+    }
+  });
+
+  ui.refs.canvas?.addEventListener("click", () => {
+    if (!emulator) {
+      ui.refs.romFileInput?.click();
     }
   });
 
@@ -513,6 +541,10 @@ function bindDomEvents() {
     }
   });
 
+  ui.refs.videoSizeSelect?.addEventListener("change", () => {
+    ui.updateScreenScale({ scale: ui.refs.videoSizeSelect?.value });
+  });
+
   ui.refs.testToneCheckbox?.addEventListener("change", () => {
     audioController.handleTestToneChanged();
   });
@@ -525,7 +557,6 @@ function bindDomEvents() {
     await audioController.toggle();
     refreshAudioButtonLabel();
   });
-  ui.refs.romStartButton?.addEventListener("click", startRom);
   ui.refs.romResetButton?.addEventListener("click", async () => {
     try {
       await resetRom();
@@ -533,9 +564,6 @@ function bindDomEvents() {
       console.error(error);
       ui.setStatus(`ROM reset error: ${error}`);
     }
-  });
-  ui.refs.romCloseButton?.addEventListener("click", async () => {
-    await closeRom();
   });
   ui.refs.savDownloadButton?.addEventListener("click", exportSav);
   ui.refs.rtcDownloadButton?.addEventListener("click", exportRtc);
@@ -568,8 +596,7 @@ async function bootstrap() {
   refreshAudioButtonLabel();
   refreshBootRomInfo();
   refreshRomControls();
-  ui.setStatus("WASM ready. Load a ROM, then press Start.");
-  ui.clearScreen();
+  ui.setStatus("WASM ready. Load a ROM.");
   ui.setCartridgeInfoFromEmulator(emulator);
   ui.setPersistenceInfoFromEmulator(emulator);
   audioController.updateTelemetry();
@@ -584,7 +611,7 @@ bootstrap().catch((error) => {
   ui.setStatus(`Bootstrap error: ${error}`);
 });
 
-function finishRomActivation({
+async function finishRomActivation({
   nextEmulator,
   romBytes,
   fileName,
@@ -592,6 +619,7 @@ function finishRomActivation({
   bootRomBytes,
   resetSerialOutput,
   statusMessage,
+  autoStart = false,
 }) {
   loadedRomState = {
     fileName,
@@ -615,7 +643,6 @@ function finishRomActivation({
   audioController.onEmulatorLoaded();
 
   const warningCount = emulator.cartridge_warning_count();
-  ui.drawFrameFromEmulator(emulator);
   ui.setCartridgeInfoFromEmulator(emulator);
   if (resetSerialOutput) {
     ui.clearSerialOutput();
@@ -626,6 +653,17 @@ function finishRomActivation({
     romTitle: emulator.rom_title(),
     model,
     warningCount,
-  })} ${bootRomBytes ? "Boot ROM active." : "No boot ROM configured for this hardware."} Press Start.`;
-  ui.setStatus(statusMessage ?? defaultMessage);
+  })} ${bootRomBytes ? "Boot ROM active." : "No boot ROM configured for this hardware."}`;
+
+  if (autoStart) {
+    if (!audioController.isEnabled()) {
+      await audioController.enable();
+      refreshAudioButtonLabel();
+    }
+    isRunning = true;
+    lastFrameTimeMs = 0;
+    refreshRomControls();
+  }
+
+  ui.setStatus(statusMessage ?? `${defaultMessage} Running.`);
 }

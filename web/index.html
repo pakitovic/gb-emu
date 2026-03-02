@@ -3,15 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>gb-emu web demo</title>
+  <title>GB-EMU</title>
   <style>
     :root {
-      --bg: #0e1316;
-      --panel: #171f24;
-      --text: #e6f2f7;
-      --muted: #9bb0be;
-      --accent: #57d5a8;
-      --border: #2a363e;
+      --bg: #0a0f13;
+      --panel: #131d25;
+      --panel-strong: #0f1820;
+      --panel-soft: #0d151c;
+      --text: #e9f3f9;
+      --muted: #95adbd;
+      --accent: #67dcae;
+      --border: #2a3a45;
+      --danger: #dd6b6b;
     }
 
     * {
@@ -22,7 +25,10 @@
       margin: 0;
       font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
       color: var(--text);
-      background: radial-gradient(circle at top right, #1b252c, var(--bg));
+      background:
+        radial-gradient(circle at 10% 0%, #1f2a33 0%, transparent 45%),
+        radial-gradient(circle at 95% 10%, #1a242d 0%, transparent 38%),
+        linear-gradient(140deg, #0b1116, var(--bg));
       min-height: 100vh;
       display: grid;
       place-items: center;
@@ -30,97 +36,190 @@
     }
 
     .app {
-      width: min(980px, 100%);
+      position: relative;
+      width: min(100%, 860px);
       background: var(--panel);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
+      border-radius: 16px;
+      padding: 18px;
       display: grid;
-      gap: 12px;
+      gap: 14px;
+      box-shadow: 0 28px 72px rgb(0 0 0 / 34%);
     }
 
-    .controls {
-      display: grid;
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       gap: 10px;
     }
 
-    .control-section {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-      padding: 10px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: #10181d;
-    }
-
-    .control-section-title {
-      color: var(--muted);
-      font-size: 12px;
+    h1 {
+      margin: 0;
+      font-size: clamp(24px, 4vw, 30px);
       letter-spacing: 0.08em;
-      text-transform: uppercase;
-      margin-right: 2px;
-      padding-right: 6px;
-      border-right: 1px solid var(--border);
+      font-weight: 700;
     }
 
-    #persistence-info,
-    #bootrom-info {
-      color: var(--muted);
-      font-size: 13px;
-      background: #0f171c;
+    .settings-toggle {
+      min-width: 44px;
+      height: 40px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel-soft);
+      color: var(--text);
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 140ms ease, background-color 140ms ease;
+    }
+
+    .settings-toggle:hover {
+      border-color: var(--accent);
+      background: #12212b;
+    }
+
+    .settings-toggle[aria-expanded="true"] {
+      border-color: var(--accent);
+      background: linear-gradient(180deg, #214236, #173027);
+      color: #e7fff5;
+    }
+
+    .stage-shell {
+      display: grid;
+      place-items: center;
+      min-height: min(76vh, 700px);
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: linear-gradient(180deg, #101922, #0d151d);
+    }
+
+    .stage {
+      display: grid;
+      place-items: center;
+      padding: 4px;
+    }
+
+    #screen {
+      width: 160px;
+      height: 144px;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      background: #000;
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 8px 10px;
+      display: block;
+      margin: 0;
+      box-shadow: 0 12px 36px rgb(0 0 0 / 35%);
     }
 
-    .persistence-row {
-      display: flex;
-      flex-wrap: wrap;
+    .context-panel {
+      position: absolute;
+      top: 74px;
+      right: 18px;
+      width: min(360px, calc(100vw - 56px));
+      max-height: min(78vh, 760px);
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgb(15 24 32 / 96%);
+      box-shadow: 0 26px 56px rgb(0 0 0 / 45%);
+      backdrop-filter: blur(7px);
+      padding: 12px;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+      animation: panel-enter 180ms ease;
+      z-index: 20;
+    }
+
+    .context-panel[hidden] {
+      display: none;
+    }
+
+    .settings-nav {
+      display: grid;
       gap: 8px;
-      align-items: center;
     }
 
-    button,
-    select,
-    input[type="file"],
+    .control-nav {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .control-nav button,
+    .context-panel button,
+    .context-panel select,
     .file-button {
-      background: #0f171c;
+      width: 100%;
+      text-align: left;
+      background: var(--panel-soft);
       color: var(--text);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 8px 10px;
+      padding: 9px 10px;
       font: inherit;
+      transition:
+        border-color 140ms ease,
+        background-color 140ms ease,
+        transform 140ms ease;
     }
 
-    button,
+    .context-panel button,
+    .control-nav button,
     .file-button {
       cursor: pointer;
     }
 
-    button:hover,
+    .context-panel select {
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .context-panel button:hover,
+    .control-nav button:hover,
     .file-button:hover {
       border-color: var(--accent);
+      background: #12212b;
     }
 
-    button:disabled {
-      cursor: not-allowed;
-      opacity: 0.5;
-      border-color: var(--border);
+    .control-nav button.is-active {
+      border-color: var(--accent);
+      background: linear-gradient(180deg, #214236, #173027);
+      color: #e7fff5;
+      box-shadow: inset 2px 0 0 var(--accent);
     }
 
+    button:disabled,
     .file-button.is-disabled {
       cursor: not-allowed;
       opacity: 0.5;
       border-color: var(--border);
-      pointer-events: none;
+    }
+
+    button:disabled:hover,
+    .file-button.is-disabled:hover {
+      border-color: var(--border);
+      background: var(--panel-soft);
+    }
+
+    .danger-button {
+      border-color: #633a3a;
+      color: #f5dede;
+      background: #271b1b;
+    }
+
+    .danger-button:hover {
+      border-color: #ad6262;
+      background: #322020;
     }
 
     .file-picker {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
+      display: grid;
+      gap: 6px;
+      width: 100%;
     }
 
     .file-picker input[type="file"] {
@@ -131,23 +230,101 @@
       pointer-events: none;
     }
 
-    .control-label {
+    .panel-section {
+      display: grid;
+      gap: 10px;
+      align-content: start;
+      animation: panel-enter 180ms ease;
+    }
+
+    .panel-section[hidden] {
+      display: none;
+    }
+
+    .panel-label {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+      font-weight: 600;
+    }
+
+    .inline {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field label,
+    .field span {
       color: var(--muted);
       font-size: 13px;
+    }
+
+    .status-card {
+      color: var(--muted);
+      font-size: 13px;
+      background: var(--panel-soft);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      box-shadow: inset 0 1px 0 rgb(255 255 255 / 2%);
+    }
+
+    #audio-telemetry {
+      color: #8fd7bd;
+      font-size: 13px;
+      font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+    }
+
+    #debug-run-state {
+      font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+      color: #8fd7bd;
+      border-color: #38586a;
+      background: #10202b;
+    }
+
+    #cart-info,
+    #serial {
+      white-space: pre-wrap;
+      margin: 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      color: #cde0eb;
+      font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+      font-size: 12px;
+      background: var(--panel-soft);
+    }
+
+    #serial {
+      min-height: 100px;
+      max-height: 220px;
+      overflow: auto;
     }
 
     .bootrom-check {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 22px;
-      height: 22px;
+      width: 24px;
+      height: 24px;
       border-radius: 50%;
       border: 1px solid var(--border);
       color: #8d9da8;
-      background: #0f171c;
+      background: var(--panel-soft);
       font-size: 14px;
       font-weight: 700;
+      flex-shrink: 0;
     }
 
     .bootrom-check.is-valid {
@@ -156,139 +333,181 @@
       background: #10261d;
     }
 
-    label {
+    .bootrom-status {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
+    }
+
+    .checkbox-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       color: var(--muted);
       font-size: 14px;
     }
 
-    #screen {
-      width: min(100%, 640px);
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-      background: #000;
-      border: 1px solid var(--border);
-      border-radius: 8px;
+    @keyframes panel-enter {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
-    #status {
-      color: var(--muted);
-      font-size: 14px;
-    }
+    @media (max-width: 900px) {
+      body {
+        padding: 14px;
+      }
 
-    #audio-telemetry {
-      color: #8fd7bd;
-      font-size: 13px;
-      background: #0f171c;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 10px;
-      font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
-    }
+      .app {
+        padding: 14px;
+      }
 
-    #cart-info {
-      white-space: pre-wrap;
-      margin: 0;
-      background: #0f171c;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px;
-      color: #cde0eb;
-      font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
-      font-size: 12px;
-    }
+      .stage-shell {
+        min-height: min(70vh, 640px);
+      }
 
-    #serial {
-      white-space: pre-wrap;
-      margin: 0;
-      background: #10181d;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px;
-      color: #cde0eb;
-      min-height: 64px;
+      .context-panel {
+        top: 66px;
+        right: 14px;
+        left: 14px;
+        width: auto;
+        max-height: 72vh;
+      }
+
+      .control-nav,
+      .inline {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
 <body>
   <main class="app">
-    <h1>gb-emu web demo</h1>
-    <section class="controls">
-      <div class="control-section" aria-label="ROM and persistence controls">
-        <span class="control-section-title">ROM</span>
+    <header class="top-bar">
+      <h1>GB-EMU</h1>
+      <button
+        id="settings-toggle"
+        class="settings-toggle"
+        type="button"
+        title="Setting"
+        aria-label="Setting"
+        aria-expanded="false"
+      >
+        &lt;&lt;
+      </button>
+    </header>
+
+    <section class="stage-shell">
+      <section class="stage" aria-label="Emulator stage">
+        <canvas id="screen" width="160" height="144" aria-label="Game Boy screen"></canvas>
+      </section>
+    </section>
+
+    <aside class="context-panel" aria-label="Settings panel" hidden>
+      <div class="settings-nav">
         <div class="file-picker">
-          <label class="file-button" for="rom-file">Load</label>
+          <label class="file-button" for="rom-file">Load ROM</label>
           <input id="rom-file" type="file" accept=".gb,.gbc,.bin" />
         </div>
-        <button id="rom-start" type="button">Start</button>
-        <button id="rom-reset" type="button">Reset</button>
-        <button id="rom-close" type="button">Close</button>
-        <span class="control-label">Hardware</span>
-        <select id="model" aria-label="Hardware model">
-          <option value="dmg" selected>dmg</option>
-          <option value="dmg0">dmg0</option>
-          <option value="mgb">mgb</option>
-          <option value="sgb">sgb</option>
-          <option value="sgb2">sgb2</option>
-        </select>
-        <span class="control-label">Palette</span>
-        <select id="palette" aria-label="Video palette">
-          <option value="auto" selected>auto</option>
-          <option value="dmg">dmg green</option>
-          <option value="mgb">mgb gray</option>
-          <option value="cgb">cgb (scaffold)</option>
-          <option value="sgb">sgb (scaffold)</option>
-        </select>
-        <span id="bootrom-model-check" class="bootrom-check" aria-label="Boot ROM validity for selected hardware">✗</span>
+        <div class="control-nav">
+          <button id="control-nav-data" type="button" data-control-section="data">Save Data</button>
+          <button id="control-nav-system" type="button" data-control-section="system">System</button>
+          <button id="control-nav-audio" type="button" data-control-section="audio">Audio</button>
+          <button id="control-nav-debug" type="button" data-control-section="debug">Debug</button>
+        </div>
+      </div>
+
+      <section id="panel-data" class="panel-section" data-control-panel="data" hidden>
+        <span class="panel-label">Save Data</span>
+        <div class="inline">
+          <div class="file-picker">
+            <label id="sav-file-button" class="file-button" for="sav-file">Import SAV</label>
+            <input id="sav-file" type="file" accept=".sav" />
+          </div>
+          <button id="sav-download" type="button">Export SAV</button>
+        </div>
+        <div class="inline">
+          <div class="file-picker">
+            <label id="rtc-file-button" class="file-button" for="rtc-file">Import RTC</label>
+            <input id="rtc-file" type="file" accept=".rtc" />
+          </div>
+          <button id="rtc-download" type="button">Export RTC</button>
+        </div>
+        <div id="persistence-info" class="status-card" aria-live="polite">Info: no ROM loaded.</div>
+        <button id="rom-reset" type="button">Reset ROM</button>
+      </section>
+
+      <section id="panel-system" class="panel-section" data-control-panel="system" hidden>
+        <span class="panel-label">System</span>
+        <div class="field">
+          <label for="model">Hardware model</label>
+          <select id="model" aria-label="Hardware model">
+            <option value="dmg" selected>dmg</option>
+            <option value="dmg0">dmg0</option>
+            <option value="mgb">mgb</option>
+            <option value="sgb">sgb</option>
+            <option value="sgb2">sgb2</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="palette">Video palette</label>
+          <select id="palette" aria-label="Video palette">
+            <option value="auto" selected>auto</option>
+            <option value="dmg">dmg green</option>
+            <option value="mgb">mgb gray</option>
+            <option value="cgb">cgb (scaffold)</option>
+            <option value="sgb">sgb (scaffold)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="video-size">Video Size</label>
+          <select id="video-size" aria-label="Video size">
+            <option value="1">1x</option>
+            <option value="2">2x</option>
+            <option value="3">3x</option>
+            <option value="4" selected>4x</option>
+          </select>
+        </div>
         <div class="file-picker">
-          <span class="control-label">Boot</span>
-          <label id="bootrom-file-button" class="file-button" for="bootrom-file">Load Boot</label>
+          <label id="bootrom-file-button" class="file-button" for="bootrom-file">Load Boot ROM(s)</label>
           <input id="bootrom-file" type="file" accept=".bin,.rom,.gb,.gbc" multiple />
         </div>
-        <div class="file-picker">
-          <span class="control-label">Save</span>
-          <label id="sav-file-button" class="file-button" for="sav-file">Import SAV</label>
-          <input id="sav-file" type="file" accept=".sav" />
+        <div class="bootrom-status">
+          <span id="bootrom-model-check" class="bootrom-check" aria-label="Boot ROM validity for selected hardware">✗</span>
+          <div id="bootrom-info" class="status-card" aria-live="polite">Boot ROM: model dmg not configured.</div>
         </div>
-        <button id="sav-download" type="button">Export SAV</button>
-        <div class="file-picker">
-          <span class="control-label">RTC</span>
-          <label id="rtc-file-button" class="file-button" for="rtc-file">Import RTC</label>
-          <input id="rtc-file" type="file" accept=".rtc" />
-        </div>
-        <button id="rtc-download" type="button">Export RTC</button>
-      </div>
-      <div class="persistence-row">
-        <div id="persistence-info" aria-live="polite">
-          Persistence: no ROM loaded.
-        </div>
-        <div id="bootrom-info" aria-live="polite">
-          Boot ROM: model dmg not configured.
-        </div>
-      </div>
-      <div class="control-section" aria-label="Audio controls">
-        <span class="control-section-title">Audio</span>
-        <button id="audio-enable">Enable audio</button>
-        <label>
-          Resampler
+      </section>
+
+      <section id="panel-audio" class="panel-section" data-control-panel="audio" hidden>
+        <span class="panel-label">Audio</span>
+        <button id="audio-enable" type="button">Enable audio</button>
+        <div class="field">
+          <label for="audio-resampler">Resampler</label>
           <select id="audio-resampler">
             <option value="cubic" selected>cubic</option>
             <option value="linear">linear</option>
           </select>
-        </label>
-        <label>
+        </div>
+        <label class="checkbox-line">
           <input id="test-tone" type="checkbox" />
           Test tone
         </label>
-      </div>
-    </section>
-    <canvas id="screen" width="160" height="144" aria-label="Game Boy screen"></canvas>
-    <div id="status">Load a ROM, then press Start.</div>
-    <div id="audio-telemetry">Audio: disabled</div>
-    <pre id="cart-info" aria-label="Cartridge metadata">Cartridge: not loaded.</pre>
-    <pre id="serial" aria-label="Serial output"></pre>
+        <div id="audio-telemetry" class="status-card">Audio: disabled</div>
+      </section>
+
+      <section id="panel-debug" class="panel-section" data-control-panel="debug" hidden>
+        <span class="panel-label">Debug</span>
+        <div id="debug-run-state" class="status-card">State: idle</div>
+        <pre id="cart-info" aria-label="Cartridge metadata">Cartridge: not loaded.</pre>
+        <div id="status">Load a ROM.</div>
+        <pre id="serial" aria-label="Serial output"></pre>
+      </section>
+    </aside>
   </main>
   <script type="module" src="./main.js"></script>
 </body>
