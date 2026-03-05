@@ -21,6 +21,8 @@
       --battery-on: #dc4c59;
       --dot-matrix: #6e7680;
       --shell-label: #BDBFC7;
+      --stripe-magenta: #7e3d93;
+      --stripe-blue: #3a4f96;
       --logo-blue: #31459a;
       --logo-violet: #5a4fa8;
       --video-scale: 4;
@@ -84,7 +86,7 @@
 
     .display-top {
       display: grid;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: 1fr;
       align-items: center;
       gap: 8px;
       min-height: var(--display-top-height);
@@ -92,11 +94,13 @@
 
     .dot-matrix-label {
       display: grid;
-      grid-template-columns: auto 1fr auto;
+      grid-template-columns: auto auto auto;
       align-items: center;
-      gap: 8px;
+      justify-content: end;
+      justify-self: end;
+      gap: 10px;
       color: var(--shell-label);
-      font-size: 11px;
+      font-size: 12px;
       letter-spacing: 0.1em;
       text-transform: uppercase;
       font-weight: 500;
@@ -104,10 +108,25 @@
     }
 
     .dot-lines {
-      height: 2px;
+      width: 420px;
+      height: 10px;
       border-radius: 999px;
-      background: linear-gradient(90deg, #7b2f89, #26478c 55%, #7b2f89);
-      opacity: 0.9;
+      background:
+        linear-gradient(
+          90deg,
+          var(--stripe-magenta) 0%,
+          var(--stripe-magenta) 100%
+        ) top / 100% 3px no-repeat,
+        linear-gradient(
+          90deg,
+          var(--stripe-blue) 0%,
+          var(--stripe-blue) 100%
+        ) bottom / 100% 3px no-repeat;
+      opacity: 0.95;
+    }
+
+    .dot-lines.short {
+      width: 52px;
     }
 
     .settings-toggle {
@@ -128,9 +147,19 @@
     .settings-toggle::after {
       content: "";
       width: 11px;
-      height: 2px;
+      height: 3px;
       border-radius: 999px;
-      background: #454c55;
+      background:
+        linear-gradient(
+          90deg,
+          var(--stripe-magenta) 0%,
+          var(--stripe-magenta) 100%
+        ) top / 100% 1px no-repeat,
+        linear-gradient(
+          90deg,
+          var(--stripe-blue) 0%,
+          var(--stripe-blue) 100%
+        ) bottom / 100% 1px no-repeat;
     }
 
     .settings-toggle:hover {
@@ -150,12 +179,24 @@
       align-items: stretch;
     }
 
+    .screen-wrap {
+      position: relative;
+      width: max-content;
+    }
+
+    .screen-wrap .settings-toggle {
+      position: absolute;
+      top: 4px;
+      left: calc(100% + 10px);
+    }
+
     .battery-cluster {
       display: grid;
       gap: 6px;
-      align-content: center;
+      align-content: start;
       justify-items: center;
       min-height: 100%;
+      padding-top: 210px;
     }
 
     .display-spacer {
@@ -163,8 +204,8 @@
     }
 
     .battery-led {
-      width: 8px;
-      height: 8px;
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
       background: var(--battery-off);
       border: 1px solid #1c2026;
@@ -179,7 +220,7 @@
     }
 
     .battery-label {
-      font-size: 11px;
+      font-size: 12px;
       letter-spacing: 0.1em;
       color: var(--shell-label);
     }
@@ -549,16 +590,8 @@
           <div class="dot-matrix-label">
             <div class="dot-lines"></div>
             <span>DOT MATRIX WITH STEREO SOUND</span>
-            <div class="dot-lines"></div>
+            <div class="dot-lines short"></div>
           </div>
-          <button
-            id="settings-toggle"
-            class="settings-toggle"
-            type="button"
-            title="Setting"
-            aria-label="Setting"
-            aria-expanded="false"
-          ></button>
         </div>
 
         <div class="display-main">
@@ -566,7 +599,17 @@
             <span id="battery-led" class="battery-led" aria-hidden="true"></span>
             <span class="battery-label">BATTERY</span>
           </div>
-          <canvas id="screen" width="160" height="144" aria-label="Game Boy screen"></canvas>
+          <div class="screen-wrap">
+            <canvas id="screen" width="160" height="144" aria-label="Game Boy screen"></canvas>
+            <button
+              id="settings-toggle"
+              class="settings-toggle"
+              type="button"
+              title="Setting"
+              aria-label="Setting"
+              aria-expanded="false"
+            ></button>
+          </div>
           <div class="display-spacer" aria-hidden="true"></div>
         </div>
       </section>
