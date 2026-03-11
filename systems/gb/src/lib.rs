@@ -8,5 +8,8 @@ pub mod gameboy;
 pub mod hardware;
 pub mod input;
 pub mod memory;
+mod palette_db;
+pub mod palette_override;
+pub mod sgb;
 pub mod timing;
 pub mod video;

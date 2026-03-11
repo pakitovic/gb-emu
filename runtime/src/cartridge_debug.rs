@@ -9,6 +9,7 @@ pub fn format_cartridge_debug_report(metadata: &CartridgeMetadata) -> String {
     };
     lines.push("Cartridge Metadata".to_string());
     lines.push(format!("Title: {title}"));
+    lines.push(format!("Header CRC32: 0x{:08X}", metadata.header_crc32));
     lines.push(format!(
         "Type: 0x{:02X} ({})",
         metadata.cart_type_code, metadata.mapper
@@ -63,6 +64,7 @@ mod tests {
     fn cartridge_debug_report_formats_core_fields_and_warnings() {
         let metadata = CartridgeMetadata {
             title: "TESTROM".to_string(),
+            header_crc32: 0x1234ABCD,
             cart_type_code: 0x03,
             mapper: CartridgeMapper::Mbc1,
             rom_size_code: 0x01,
@@ -90,6 +92,7 @@ mod tests {
         let report = format_cartridge_debug_report(&metadata);
         assert!(report.contains("Cartridge Metadata"));
         assert!(report.contains("Title: TESTROM"));
+        assert!(report.contains("Header CRC32: 0x1234ABCD"));
         assert!(report.contains("Type: 0x03 (MBC1)"));
         assert!(report.contains("Header warnings (2):"));
         assert!(report.contains("- Nintendo logo mismatch"));
@@ -100,6 +103,7 @@ mod tests {
     fn cartridge_debug_report_marks_empty_warning_list() {
         let metadata = CartridgeMetadata {
             title: String::new(),
+            header_crc32: 0,
             cart_type_code: 0x00,
             mapper: CartridgeMapper::RomOnly,
             rom_size_code: 0x00,

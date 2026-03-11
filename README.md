@@ -14,13 +14,19 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - FFxx IO routing now uses a centralized declarative register-route decoder (including explicit reserved/unmapped DMG-family ranges and CGB scaffold register precedence) so adding future CGB MMIO cases stays localized to the IO router table instead of spreading FFxx side-effects across the bus.
 - DMA is now modeled as a scheduler-style state machine with incremental `tick(tcycles)` advancement, formal mode/edge state, centralized DMA CPU access-block policy hooks (currently only DMG OAM DMA behavior is active), and DMG-noop scaffolding for future CGB DMA control registers (`HDMA1..HDMA5`) plus model-gated `GDMA/HDMA` scheduler paths (transfer-state/request wiring and HBlank-edge hook integration, inactive for current DMG-family models) to reduce future HDMA/GDMA integration refactor scope.
 - Joypad input API in core with P1 register behavior and joypad interrupt edges.
+- Core now exposes a bounded key-MMIO write event stream (`FF00`/`FF40` with emulated t-cycle stamps) plus a portable SGB scaffold split into `sgb::SgbLink` (JOYP packet decode), `sgb::SgbState` (palette/mask/attribute-map state with `PALxx`, `PAL_TRN`, `PAL_SET`, `ATRC_EN`, `TEST_EN`, `ICON_EN`, `DATA_SND`, `DATA_TRN`, `JUMP`, `PAL_PRI`, `MASK_EN`, `ATTR_BLK`, `ATTR_LIN`, `ATTR_DIV`, `ATTR_CHR`, `ATTR_TRN`, `ATTR_SET`, `MLT_REQ`, `CHR_TRN`, `PCT_TRN`, `OBJ_TRN` command state), `sgb::SgbColorizer` (DMG framebuffer + SGB state -> RGB output), and `sgb::SgbBorderRenderer` (SGB border/object composition) without coupling SGB behavior into DMG CPU/PPU execution paths.
+- SGB JOYP packet decoding now uses the documented pulse polarity from Pan Docs (`P14 low` = bit `0`, `P15 low` = bit `1`) and also treats the boot-ROM header packets (`F1/F3/F5/F7/F9/FB`) with their documented single-packet framing instead of the generic low-bits packet count. That fixes cart-driven SGB command detection on commercial ROMs that previously stayed silent or lost stream sync after the boot ROM header exchange on `sgb`/`sgb2`.
+- `GameBoy::run_frame_with_limit` now also returns after one DMG frame-budget worth of emulated cycles while LCD is disabled, preventing host frame-step timeouts during LCD-off phases (for example early SGB setup loops).
+- SGB mask handling now supports freeze/black/color0 viewport masking in the colorizer, including automatic viewport freeze while the GB LCD is disabled and resume when it is re-enabled.
+- `GameBoy`/`Bus` now expose a hardware-path VRAM block copy helper used by runtime SGB transfer handling, so SGB palette/attribute/border/object transfers do not depend on CPU-visible VRAM blocking.
+- SGB joypad handling now includes `MLT_REQ` multiplayer routing inside the core joypad device for `sgb`/`sgb2`, with `GameBoy`/`Bus` APIs to drive per-player button state while keeping the existing player-1 API stable.
 - Core API bootstrap for portable frontends (frame stepping + framebuffer access).
 - Optional boot ROM startup path in core (`PC=0x0000` + `0x0000..=0x00FF` boot-ROM mapping + `FF50` disable handling) with automatic fallback to existing post-boot defaults when no boot ROM is provided.
 - Public API now exposes a `gb_emu::bus` alias module (`Bus`, `LCD_WIDTH`, `LCD_HEIGHT`, `LCD_FRAME_PIXELS`) while keeping existing `gb_emu::memory::*` paths stable.
 
 ### PPU / Video (DMG)
 - DMG background layer rendering to a grayscale framebuffer.
-- Video output now supports palette profiles over canonical DMG shade levels (`dmg` green, `mgb` gray), plus explicit `cgb`/`sgb` scaffold profiles to keep frontend wiring stable before real CGB/SGB color semantics are implemented.
+- Video output now supports palette profiles over canonical DMG shade levels (`dmg` green, `mgb` gray), display-side mGBA-style GB/CGB manual presets (`grayscale`, `gb-pocket`, `gb-light`, `cgb-*`), curated per-game `cgb` header-CRC palette overrides derived from mGBA `overrides.c`, runtime/manual SGB palette paths (`sgb`, `sgb-1a..sgb-4h`), and optional external mGBA-style override INI files keyed by `gb.override.<HEADERCRC32>` with `pal[0]..pal[11]` RGB888 entries. Those external overrides now feed both the display-side `cgb` triplet path and the SGB BIOS-style boot palette HLE path (`pal[0]..pal[3]`) for monochrome carts on real `sgb`/`sgb2` sessions before any cart-driven SGB commands take over. The DMG core also now exports per-pixel DMG palette-selector metadata (`BG`, `OBJ0`, `OBJ1`) so display-side colorizers can apply BG/OBJ palette triplets without coupling those policies into the PPU core.
 - DMG window + sprite (OBJ) composition with priority/palette/flip handling.
 - Mode 3 background/window pixel FIFO stepping per dot with a 6-dot BG fetch cadence and window trigger/restart timing (WX/WY mid-line writes affect only valid trigger windows).
 - Mode 3 OBJ fetch stalls and sprite pixel mixing are stepped per dot with DMG priority/palette rules; OBJ fetch start now waits for BG fetch boundaries for more stable dot arbitration.
@@ -60,6 +66,8 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 ### Audio Output Pipeline / Frontend Audio Integration
 - Shared `runtime/` host utilities for frontend frame pacing, realtime audio queueing, adaptive buffering, t-cycle-to-PCM mixer bridging (SDL2/Web), and file-backed cartridge persistence adapters.
 - Shared `gb_runtime::session::RuntimeSession` now centralizes frontend wiring of `GameBoy + FramePacer + AudioMixer` (used by SDL2 and wasm adapters) so core-clock/audio capture plumbing does not need to be reimplemented per frontend.
+- `RuntimeSession` now also wires optional SGB transport/state/colorization/composition (`SgbLink` + `SgbState` + `SgbColorizer` + `SgbBorderRenderer`) by consuming core key-MMIO event streams. Transfer commands (`ATTR_TRN`/`PAL_TRN`/`DATA_TRN`/`CHR_TRN`/`PCT_TRN`/`OBJ_TRN`) now follow the documented SGB transfer window semantics more closely: runtime waits for the next rendered GB frame, tracks the 5-frame transfer window, prefers an exact `0x8000..0x8FFF` snapshot when the frame is in the documented transfer-screen configuration, falls back to the decoded live DMG transfer signal for palette/attribute transfers when no exact transfer frame is detected, keeps the richest non-exact transfer candidate seen across that delayed window instead of overwriting it with later weaker frames, and only uses the raw-VRAM heuristic for the remaining transfer families. `PAL_SET` now also mirrors the documented shared color-0 behavior across all four effective GB palettes, `PCT_TRN` now updates the global SGB backdrop color so border palette color 0 and GB palette color 0 stay aligned like real hardware, and real SGB runtime rendering uses an SGB-specific 5-bit color expansion curve instead of linear RGB555 expansion to better match mature SGB emulators on commercial borders/palette screens. `OBJ_TRN` now follows the documented 24-entry SNES OAM tail layout (`0x8F90..`) with separate extension bits for 9-bit X and large-size flags, derives OBJ palettes from selected SGB system palettes instead of raw transfer bytes, supports a conservative `16x16` large-object composition path, and runtime refreshes the live OBJ overlay OAM from VRAM while the overlay is enabled. On real `sgb`/`sgb2` models, runtime now HLE-applies the BIOS built-in boot palette for monochrome carts before any cart-driven SGB commands arrive, preferring an exact mGBA-style header-CRC override table and then falling back to the SameBoy/bsnes known-title table (`ZELDA`, `SUPER MARIOLAND`, `MARIOLAND2`, `SUPERMARIOLAND3`, `KIRBY DREAM LAND`, `HOSHINOKA-BI`, `KIRBY'S PINBALL`, `YOSSY NO TAMAGO`, `MARIO & YOSHI`, `YOSSY NO COOKIE`, `YOSHI'S COOKIE`, `DR.MARIO`, `TETRIS`, `YAKUMAN`, `METROID2`, `KAERUNOTAMENI`, `GOLF`, `ALLEY WAY`, `BASEBALL`, `TENNIS`, `F1RACE`, `KID ICARUS`, `QIX`, `SOLARSTRIKER`, `X`, and `GBWARS`). Cart-driven SGB activation still ignores unsupported/boot-header packet IDs and remains gated by the cartridge SGB header.
+- The headless CLI frontend now also exposes `--sgb-report`, which runs a ROM for `--max-steps` and prints the decoded SGB command IDs/names observed through JOYP packet traffic, making it easier to profile which commercial ROMs actually exercise `OBJ_TRN`, transfer commands, mask behavior, and other SGB families.
 - Shared `gb_runtime::audio_queue::AudioQueueController` now centralizes adaptive queue-targeting and underrun-estimation policy used by SDL2 and the wasm/web queue refill path.
 - Shared runtime audio mixer bridge from emulated APU t-cycle samples to frontend PCM rates (SDL2/Web).
 - Realtime audio block API for fixed-size callback backends, with silence padding when emulated audio budget is short.
@@ -68,6 +76,8 @@ Personal/hobby Game Boy emulator project written in Rust, focused on learning an
 - SDL2 now uses runtime queue defaults directly (no frontend-specific queue constants), keeps a conservative host audio buffer request (`AudioSpecDesired.samples = 1024`), and the web demo uses an `8ms` queue-refill cadence.
 - Browser demo (`web/`) with AudioWorklet-based WebAudio hook using realtime mixer blocks.
 - Minimal browser demo audio telemetry plus adaptive queue targeting for underrun recovery and latency tuning.
+- SDL2 and wasm frontends now consume runtime-provided SGB presented RGB frames when the active video palette pipeline is `sgb` (`SgbRuntime`), including automatic promotion from the DMG viewport (`160x144`) to the composed SGB frame (`256x224`) when border data or `OBJ_TRN` overlay data is active, with fallback to existing DMG palette mapping when no SGB command stream is active. In `auto` palette mode, real `sgb`/`sgb2` sessions now start from the BIOS-style SGB boot palette immediately (including CRC/title-based built-in overrides for known monochrome carts) and then keep following cart-driven SGB commands when present; non-SGB models still remain on their DMG/MGB base palette. Manual palette selection also now exposes the 32 built-in SGB BIOS four-shade presets as `sgb-1a..sgb-4h`, the curated per-ROM `cgb` override mode, and mGBA-style GB/CGB display presets without forcing SGB border composition.
+- SDL2 and wasm/web keyboard input now expose per-player SGB input routing on top of the core `MLT_REQ` API: player 1 keeps the existing DMG mapping, while fixed host keyboard clusters can also drive players 2-4 without coupling multiplayer behavior back into the core.
 
 ### Validation / CI
 - Blargg + Gekkio ROM test integration in local scripts and CI.
@@ -207,6 +217,7 @@ cargo run -p frontend-cli --bin gb-emu -- --trace <path_to_rom.gb>
 cargo run -p frontend-cli --bin gb-emu -- --blargg --max-steps 120000000 <path_to_rom.gb>
 cargo run -p frontend-cli --bin gb-emu -- --mooneye --model dmg0 <path_to_rom.gb>
 cargo run -p frontend-cli --bin gb-emu -- --cart-info <path_to_rom.gb>
+cargo run -p frontend-cli --bin gb-emu -- --sgb-report --model sgb --max-steps 4000000 <path_to_rom.gb>
 cargo run -p frontend-cli --bin gb-emu -- --bootrom-dir roms/bootrom --model mgb <path_to_rom.gb>
 cargo run -p frontend-cli --bin gb-emu -- --no-bootrom <path_to_rom.gb>
 ```
@@ -235,7 +246,7 @@ Supported models for `--model`:
 - MBC3 RTC persistence currently uses a sidecar `.rtc` file; this is emulator-specific metadata and not a hardware cartridge dump format.
 - RTC clock source currently remains a core-local convenience (`SystemRtcClock`) for native hosts, while host/frontends can inject RTC epoch time for portability-sensitive targets (web) and future deterministic/libretro integrations.
 - Web demo battery persistence currently uses browser local storage (base64-encoded SRAM/RTC sidecar blobs keyed per ROM file/hash); browser quota/privacy/security settings can disable or evict stored data.
-- Cartridge capabilities/compatibility policy now normalize the CGB (`0x0143`) and SGB (`0x0146`) header flags and combine them with the selected hardware model, but the result is currently advisory metadata only: current DMG-family scope does not enforce/reject by CGB header requirements, does not switch to CGB execution, and does not enable SGB-specific features from the header flags.
+- Cartridge capabilities/compatibility policy now normalize the CGB (`0x0143`) and SGB (`0x0146`) header flags and combine them with the selected hardware model. Core execution still treats the result as advisory metadata only (current DMG-family scope does not enforce/reject by CGB header requirements and does not switch to CGB execution), but runtime/frontends now use the SGB header flag as the gate for cart-driven SGB command transport/display scaffolding.
 
 ### Cartridge Header Diagnostics
 - Header logo/checksum mismatches are reported as metadata warnings but do not block ROM loading.
@@ -250,15 +261,21 @@ Supported models for `--model`:
 - `KEY1`/`VBK`/`SVBK` and CGB palette MMIO (`BGPI/BGPD`, `OBPI/OBPD`) scaffolding remain DMG-noop in current scope: reads behave as unmapped (`0xFF`), writes do not alter emulation behavior, and while internal placeholder shadows/state (including palette index/data shadow capture and auto-increment scaffold behavior) are recorded for future CGB wiring, no CGB-visible palette semantics or color output behavior is enabled.
 - FFxx IO routing is now centralized/declarative, but the CGB-oriented portion remains scaffold-level only in current DMG scope: many CGB FFxx registers are intentionally documented as reserved/unmapped placeholders and still decode to DMG no-op behavior until real CGB features are implemented.
 - DMA scheduling remains DMG-only in public behavior and implements only OAM DMA transfer rules for current models; `HDMA1..HDMA5` writes are DMG-visible no-ops, and while model-gated `GDMA/HDMA` transfer-state/HBlank-hook scaffolding now exists internally for future CGB wiring, CGB DMA enablement, timing accuracy, and CGB-specific DMA bus restrictions are not implemented yet.
+- SGB scaffolding now decodes and applies a larger subset of commands (`PALxx`, `PAL_TRN`, `PAL_SET`, `ATRC_EN`, `TEST_EN`, `ICON_EN`, `DATA_SND`, `DATA_TRN`, `JUMP`, `PAL_PRI`, `MASK_EN`, `ATTR_BLK`, `ATTR_LIN`, `ATTR_DIV`, `ATTR_CHR`, `ATTR_TRN`, `ATTR_SET`, `MLT_REQ`, `CHR_TRN`, `PCT_TRN`, `OBJ_TRN`) and supports border data composition, basic SNES-object overlay composition, core-side multiplayer joypad routing, plus mask freeze/black/color0 viewport behavior, but full SGB command/data coverage is not implemented yet (audio/command families outside the current control/display subset and deeper SNES-side `OBJ_TRN` quirks are still pending).
 - `GameBoy`/`Bus` currently expose a small set of persistence-byte bridge helpers for `gb_runtime::cartridge_persistence`; tightening or reshaping that host-facing boundary is deferred unless the core API surface grows significantly.
 
 ### Runtime / Host Utility Maintainability
 - `runtime/src/audio.rs` is intentionally kept as a single module for now, but if runtime audio helpers continue to grow it should be split into `runtime/src/audio.rs` + `runtime/src/audio/*` submodules (for example `mixer`, `adaptive_queue`, `resampler`) as a maintenance refactor without behavioral changes.
 - Queue-targeting policy is now runtime-owned via `gb_runtime::audio_queue`; browser host code should treat it as the source of truth to avoid SDL2/web drift.
+- SGB multiplayer joypad routing is now reachable from SDL2/wasm/web through fixed keyboard bindings, but host-side gamepad support, input remapping UI, and richer multi-controller UX are still future work.
+- Traffic-driven SGB auto-detection is intentionally conservative: runtime only accepts cart-driven SGB packets for cartridges with the SGB header flag set and ignores unsupported boot/header packet IDs, so plain DMG carts cannot false-positive from arbitrary JOYP polling noise. Frontend `auto` palette promotion remains limited to real `sgb`/`sgb2` sessions; on `dmg`/`mgb`, manual `sgb`, `sgb-1a..sgb-4h`, `cgb`, or `cgb-*` selection is still required if you want a display-only colorizer.
 
 ### PPU / Rendering / Timing Fidelity
 - Framebuffer is DMG grayscale and currently focused on correctness over rendering performance optimizations.
-- `cgb`/`sgb` palette selections are currently display-side scaffold profiles only; they do not implement hardware CGB palette RAM semantics or SGB command-driven border/palette behavior.
+- `cgb` palette selection is still display-side only: it now uses curated mGBA-style header-CRC overrides plus BG/OBJ0/OBJ1 triplets from the DMG framebuffer metadata, but no hardware CGB palette RAM semantics, CGB VRAM/WRAM banking, or true CGB rendering rules are implemented yet.
+- External override INI support currently affects the display-side `cgb` palette path plus the BIOS-style SGB boot palette HLE fallback for monochrome carts on real `sgb`/`sgb2` sessions before any cart-driven SGB command is applied. It still does not override real SGB runtime command processing/border composition after cart traffic starts, nor true CGB hardware palette semantics.
+- Non-SGB-enhanced monochrome cartridges now use the SGB BIOS-style default boot palette path with exact header-CRC overrides first and title-based overrides as fallback, but the broader SNES-side BIOS behavior is still incomplete: the full menu/palette UX, built-in border/menu interactions, and titles not covered by the current built-in HLE tables still fall back to the generic default SGB palette. Manual `sgb-1a..sgb-4h` palette selection remains display-only and does not emulate SNES-side SGB command flow or borders by itself.
+- `OBJ_TRN` is no longer limited to the earlier 28x4-byte approximation and now uses the documented 24-entry OAM tail plus X-MSB/size extension bits and system-palette-derived OBJ colors, with a conservative `16x16` large-object render path and a less binary viewport-priority heuristic. It still remains an HLE approximation of SNES OBJ behavior: full SNES object-size selection, exact base-name/page semantics, and finer priority/composition quirks are still pending.
 - Dot-stepped OBJ fetch contention now extends Mode 3 at runtime and takeover boundaries include FIFO-stall arbitration; some DMG fetcher bus-phase details (for example full hardware sleep/push micro-ops) are still approximated.
 - The Mode 3 pixel pipeline now carries DMG-oriented intermediate metadata plus CGB attr/palette scaffolding fields, but CGB BG tile attributes / OBJ palette metadata are not yet used to change rendering rules or final color output (current behavior remains DMG-only, and runtime scaffold wiring is model-gated off for current DMG-family models).
 - Formal PPU mode-entry edge hooks now exist for future HBlank-DMA/HDMA wiring, but no HDMA/HBlank DMA behavior is implemented in current DMG scope.
@@ -370,6 +387,12 @@ SDL2 desktop frontend (macOS / Windows / Linux):
 
 ```bash
 cargo run -p frontend-sdl2 --bin frontend-sdl2 -- <path_to_rom.gb> [dmg0|dmg|mgb|sgb|sgb2]
+
+# Skip boot ROM startup for frontend/manual diagnostics
+cargo run -p frontend-sdl2 --bin frontend-sdl2 -- --no-bootrom <path_to_rom.gb> [dmg0|dmg|mgb|sgb|sgb2]
+
+# Override the boot ROM search directory for SDL2
+cargo run -p frontend-sdl2 --bin frontend-sdl2 -- --bootrom-dir roms/bootrom <path_to_rom.gb> [dmg0|dmg|mgb|sgb|sgb2]
 ```
 
 SDL2 build/run helper (locks deps, prepares Homebrew SDL2 env on macOS, and clean-rebuilds by default):
@@ -386,6 +409,9 @@ scripts/dev/run_sdl2_frontend.sh -- <path_to_rom.gb> [dmg0|dmg|mgb|sgb|sgb2]
 
 # Faster iteration without clean
 scripts/dev/run_sdl2_frontend.sh --no-clean -- <path_to_rom.gb>
+
+# Pass SDL2 frontend flags through the helper after `--`
+scripts/dev/run_sdl2_frontend.sh --release --no-clean -- --no-bootrom <path_to_rom.gb> [dmg0|dmg|mgb|sgb|sgb2]
 ```
 
 Web frontend bindings (wasm):
@@ -409,8 +435,12 @@ Notes:
 - `web/` contains browser host assets only; the Rust/WASM adapter crate lives in `frontends/wasm/`.
 - Web builds inject host wall-clock epoch time (`Date.now()`) into the core RTC path for MBC3 RTC state, avoiding browser target traps from direct wall-clock queries inside the core.
 - Web demo now uses a retro DMG-inspired shell layout centered on the Game Boy screen, with a floating `Settings` panel hidden by default and toggled from a top-right two-line button near the `DOT MATRIX WITH STEREO SOUND` strip. Branding in the shell reads `Emulator GAME BOY TM`; runtime status text remains in `Debug` (below cartridge info). The left `BATTERY` indicator lights when a ROM is loaded and turns off when no ROM is active. `Settings` includes sections (`Save Data`, `System`, `Audio`, `Debug`) plus `Load ROM` without a persistent side column. Canvas scaling is manual via `System > Video Size` with integer steps (`x1` to `x4`) from the native DMG resolution (160x144), defaulting to `x4` and never changing automatically on responsive resize. The canvas shows a click target only while no cartridge is loaded (`Load ROM`), mapped to the same action as the settings control. `Reset ROM` lives in `Save Data` near SAV/RTC operations. The demo auto-starts emulation after `Load ROM` (and after `Reset ROM`) and keeps per-model boot ROM import/persistence in browser storage (dmg0/dmg/mgb/sgb/sgb2). `Load Boot ROM(s)` accepts one or many files, classifies each through the shared known-hash normalizer, stores only valid DMG-family matches by their canonical hardware slot, and shows a green validity check for the currently selected hardware when a valid boot ROM is present in browser storage.
-- Web demo video controls now include a palette selector (`auto|dmg|mgb|cgb|sgb`), where `auto` maps from the loaded hardware model and scaffold options (`cgb`/`sgb`) remain display-only placeholders for future hardware-accurate color paths.
-- SDL2 key mapping: arrows=`D-Pad`, `Z`=`B`, `X`=`A`, `Backspace`=`Select`, `Enter`=`Start`.
+- Web demo video controls now include a palette selector (`auto|dmg|mgb|cgb|sgb|grayscale|gb-pocket|gb-light|cgb-brown|cgb-red-a|cgb-dark-brown-b|cgb-pale-yellow|cgb-orange-a|cgb-yellow-b|cgb-blue|cgb-dark-blue-a|cgb-gray-b|cgb-green|cgb-dark-green-a|cgb-reverse-b|sgb-1a..sgb-4h`) plus a palette-override file importer. `auto` keeps a DMG/MGB base palette on non-SGB models but uses the BIOS-style SGB boot palette immediately on active `sgb`/`sgb2` sessions, `cgb` applies the curated mGBA-style per-ROM override table with a brown fallback, optional imported override INI files can replace those `cgb` colors by exact `header_crc32`, and on real `sgb`/`sgb2` sessions the same imported INI also overrides the BIOS-style monochrome boot palette HLE via `pal[0]..pal[3]` until real cart-driven SGB commands take over. The imported override file is persisted in browser storage and re-applied on later page loads / ROM activations until you clear it. Manual `sgb-1a..sgb-4h` entries still expose the 32 built-in SGB BIOS four-shade presets without promoting the session to composed SGB border rendering.
+- SDL2/web keyboard mapping:
+  - Player 1: arrows=`D-Pad`, `Z`=`B`, `X`=`A`, `Backspace`=`Select`, `Enter`=`Start`
+  - Player 2: `WASD`=`D-Pad`, `F`=`B`, `G`=`A`, `R`=`Select`, `T`=`Start`
+  - Player 3: `IJKL`=`D-Pad`, `U`=`B`, `O`=`A`, `Y`=`Select`, `P`=`Start`
+  - Player 4: numpad `8/4/5/6`=`D-Pad`, `1`=`B`, `2`=`A`, `7`=`Select`, `9`=`Start`
 - SDL2 debug panel: press `F1` to open a cartridge metadata/warnings popup.
 - SDL2/Web runtime wiring now uses `gb_runtime::session::RuntimeSession` (shared `GameBoy + FramePacer + AudioMixer` orchestration) to reduce frontend-specific timing/audio drift.
 - SDL2 audio uses the core mixer clock bridge and queues stereo interleaved PCM in real time (now from the `frontends/sdl2` workspace package).
@@ -421,7 +451,20 @@ Notes:
 - Optional SDL2 debug tone: set `GB_AUDIO_TEST_TONE=1`.
 - Optional SDL2 core APU resampler quality override: set `GB_AUDIO_RESAMPLER=linear` or `GB_AUDIO_RESAMPLER=cubic` (default).
 - Optional SDL2 VSync override: set `GB_SDL2_VSYNC=1` (default) or `GB_SDL2_VSYNC=0`.
-- Optional SDL2 video palette override: set `GB_VIDEO_PALETTE=auto|dmg|mgb|cgb|sgb` (default: `auto`, model-based mapping).
+- Optional SDL2 video palette override: set `GB_VIDEO_PALETTE=auto|dmg|mgb|cgb|sgb|grayscale|gb-pocket|gb-light|cgb-brown|cgb-red-a|cgb-dark-brown-b|cgb-pale-yellow|cgb-orange-a|cgb-yellow-b|cgb-blue|cgb-dark-blue-a|cgb-gray-b|cgb-green|cgb-dark-green-a|cgb-reverse-b|sgb-1a..sgb-4h` (default: `auto`, DMG/MGB base palette on non-SGB models and BIOS-style SGB boot palette on active `sgb`/`sgb2` sessions, with cart-driven SGB commands still layered on top when the cartridge declares SGB support; `cgb` uses the curated mGBA-style per-ROM override table, and manual `sgb-1a..sgb-4h` entries stay on the `160x144` DMG-style presentation path).
+- Optional SDL2 palette override INI: set `GB_VIDEO_PALETTE_OVERRIDES=/absolute/path/to/overrides.ini` to load mGBA-style sections such as `[gb.override.302017CC]` with `pal[0]..pal[11]` RGB888 values. These entries override the display-side `cgb` triplet for matching cartridge header CRC32 values and also replace the BIOS-style SGB boot palette HLE (`pal[0]..pal[3]`) for monochrome carts on real `sgb`/`sgb2` sessions before cart-driven SGB commands arrive.
+
+Example override file:
+
+```ini
+[gb.override.302017CC]
+pal[0]=0xFFC6FF
+pal[1]=0xFF8CD6
+pal[2]=0x944A7B
+pal[3]=0x4A2952
+```
+- In `cgb` mode, `pal[0]..pal[11]` map to the BG/OBJ0/OBJ1 triplet exactly as in mGBA-style overrides.
+- On real `sgb`/`sgb2` sessions, `pal[0]..pal[3]` also override the BIOS-style monochrome boot palette HLE for that cartridge header CRC32 until a cart-driven SGB command updates palette state.
 - Battery-backed cartridges loaded via `gb_runtime::cartridge_persistence` persist external RAM to a sibling `.sav` file; MBC3 timer carts also persist RTC metadata to `.rtc`. Save writes use atomic temp-file+rename replacement. Current CLI frontend flushes saves on graceful exit; SDL2 also performs dirty-flag autosave with a short debounce window plus a flush on window focus loss, while keeping the graceful-exit flush. The web demo mirrors this policy with browser-side autosave debounce and page visibility/navigation flush hooks using local storage (browser quota/security policies may still block persistence).
 - Web demo audio control uses a toggle button (`Enable audio` / `Disable audio`); audio is auto-enabled when a ROM is loaded/reset (user gesture path) when possible and can still be manually disabled/re-enabled during a session.
 - Core helper: `GameBoy::set_audio_analog_calibration(profile)` to apply measured per-device analog calibration profiles from host/frontends.
@@ -456,8 +499,8 @@ Boot ROM placement policy (local-only):
 - Recommended model file names: `dmg0_boot.bin`, `dmg_boot.bin`, `mgb_boot.bin`, `sgb_boot.bin`, `sgb2_boot.bin`.
 - CLI/SDL2 frontends auto-load `<bootrom_dir>/<model>_boot.bin` when present and otherwise keep the existing post-boot default startup path.
 - On frontend boot ROM lookup, the directory is normalized by known SHA-256 hashes (first 256 bytes): recognized dumps are renamed to canonical file names, and unknown/invalid blobs are prefixed with `invalid_` so they are excluded from autoload.
-- CLI adds explicit per-run controls: `--no-bootrom` (force post-boot defaults) and `--bootrom-dir <path>` (override boot ROM lookup root).
-- CLI boot ROM directory resolution order: `--bootrom-dir <path>` (if provided) -> `GB_BOOTROM_DIR` (if set) -> `roms/bootrom`.
+- CLI and SDL2 add explicit per-run controls: `--no-bootrom` (force post-boot defaults) and `--bootrom-dir <path>` (override boot ROM lookup root).
+- CLI/SDL2 boot ROM directory resolution order: `--bootrom-dir <path>` (if provided) -> `GB_BOOTROM_DIR` (if set) -> `roms/bootrom`.
 
 CI and local setup use both:
 - `scripts/blargg/fetch_blargg_roms.sh`

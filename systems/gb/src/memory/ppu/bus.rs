@@ -105,9 +105,17 @@ impl Bus {
     pub(super) fn ppu_clear_framebuffer_line(&mut self, ly: u8, luma: u8) {
         let row_start = (ly as usize) * LCD_WIDTH;
         self.framebuffer[row_start..row_start + LCD_WIDTH].fill(luma);
+        self.framebuffer_palette_selectors[row_start..row_start + LCD_WIDTH].fill(1);
     }
 
-    pub(super) fn ppu_write_framebuffer_pixel(&mut self, y: usize, x: usize, luma: u8) {
+    pub(super) fn ppu_write_framebuffer_pixel(
+        &mut self,
+        y: usize,
+        x: usize,
+        luma: u8,
+        palette_selector_code: u8,
+    ) {
         self.framebuffer[y * LCD_WIDTH + x] = luma;
+        self.framebuffer_palette_selectors[y * LCD_WIDTH + x] = palette_selector_code;
     }
 }

@@ -27,6 +27,7 @@ impl Display for CartridgeMapper {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CartridgeMetadata {
     pub title: String,
+    pub header_crc32: u32,
     pub cart_type_code: u8,
     pub mapper: CartridgeMapper,
     pub rom_size_code: u8,

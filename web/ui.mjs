@@ -5,6 +5,20 @@ export const MAX_SCREEN_SCALE = 4;
 export const DEFAULT_SCREEN_SCALE = 4;
 export const CONTROL_SECTIONS = ["data", "system", "audio", "debug"];
 
+export function frameDimensionsForEmulator(emulator) {
+  const width =
+    emulator && typeof emulator.screen_width === "function" ? Number(emulator.screen_width()) : NaN;
+  const height =
+    emulator && typeof emulator.screen_height === "function"
+      ? Number(emulator.screen_height())
+      : NaN;
+
+  return {
+    width: Number.isFinite(width) && width > 0 ? Math.trunc(width) : SCREEN_WIDTH,
+    height: Number.isFinite(height) && height > 0 ? Math.trunc(height) : SCREEN_HEIGHT,
+  };
+}
+
 export function canvasPromptForState({ hasRom = false } = {}) {
   if (!hasRom) {
     return {
@@ -88,6 +102,10 @@ export function createUi(doc = document) {
   const romResetButton = doc.getElementById("rom-reset");
   const modelSelect = doc.getElementById("model");
   const paletteSelect = doc.getElementById("palette");
+  const paletteOverrideFileInput = doc.getElementById("palette-override-file");
+  const paletteOverrideFileButton = doc.getElementById("palette-override-file-button");
+  const paletteOverrideInfoLabel = doc.getElementById("palette-override-info");
+  const paletteOverrideClearButton = doc.getElementById("palette-override-clear");
   const videoSizeSelect = doc.getElementById("video-size");
   const bootRomModelCheck = doc.getElementById("bootrom-model-check");
   const statusLabel = doc.getElementById("status");
@@ -113,15 +131,26 @@ export function createUi(doc = document) {
     throw new Error("Web demo UI is missing the screen canvas or 2D context");
   }
 
-  const frameRgba = new Uint8ClampedArray(SCREEN_WIDTH * SCREEN_HEIGHT * 4);
-  const frameImage = new ImageData(frameRgba, SCREEN_WIDTH, SCREEN_HEIGHT);
+  let screenWidth = SCREEN_WIDTH;
+  let screenHeight = SCREEN_HEIGHT;
+  let frameRgba = new Uint8ClampedArray(screenWidth * screenHeight * 4);
+  let frameImage = new ImageData(frameRgba, screenWidth, screenHeight);
   let activeControlSection = "data";
   let isContextPanelOpen = false;
 
+  function setScreenDimensions(width, height) {
+    screenWidth = width;
+    screenHeight = height;
+    canvas.width = screenWidth;
+    canvas.height = screenHeight;
+    frameRgba = new Uint8ClampedArray(screenWidth * screenHeight * 4);
+    frameImage = new ImageData(frameRgba, screenWidth, screenHeight);
+  }
+
   function applyScreenScale(scale) {
     const clampedScale = normalizeScreenScale({ scale });
-    canvas.style.width = `${SCREEN_WIDTH * clampedScale}px`;
-    canvas.style.height = `${SCREEN_HEIGHT * clampedScale}px`;
+    canvas.style.width = `${screenWidth * clampedScale}px`;
+    canvas.style.height = `${screenHeight * clampedScale}px`;
     doc.documentElement?.style?.setProperty("--video-scale", `${clampedScale}`);
     return clampedScale;
   }
@@ -162,6 +191,12 @@ export function createUi(doc = document) {
   function setBootRomInfoText(message) {
     if (bootRomInfoLabel) {
       bootRomInfoLabel.textContent = message;
+    }
+  }
+
+  function setPaletteOverrideInfoText(message) {
+    if (paletteOverrideInfoLabel) {
+      paletteOverrideInfoLabel.textContent = message;
     }
   }
 
@@ -312,6 +347,12 @@ export function createUi(doc = document) {
       return;
     }
 
+    const { width, height } = frameDimensionsForEmulator(emulator);
+    if (width !== screenWidth || height !== screenHeight) {
+      setScreenDimensions(width, height);
+      updateScreenScale({ scale: videoSizeSelect?.value ?? DEFAULT_SCREEN_SCALE });
+    }
+
     const frame = emulator.rgba_frame();
     if (frame.length !== frameRgba.length) {
       throw new Error(
@@ -325,12 +366,12 @@ export function createUi(doc = document) {
 
   function drawScreenPrompt(promptText) {
     ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    ctx.fillRect(0, 0, screenWidth, screenHeight);
     ctx.fillStyle = "#b8c8d2";
     ctx.font = "11px IBM Plex Mono, monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(promptText, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
+    ctx.fillText(promptText, screenWidth / 2, screenHeight / 2);
   }
 
   function setScreenPromptForState({ hasRom = false, isRunning = false } = {}) {
@@ -345,6 +386,8 @@ export function createUi(doc = document) {
   }
 
   function clearScreen() {
+    setScreenDimensions(SCREEN_WIDTH, SCREEN_HEIGHT);
+    updateScreenScale({ scale: videoSizeSelect?.value ?? DEFAULT_SCREEN_SCALE });
     setScreenPromptForState({ hasRom: false, isRunning: false });
   }
 
@@ -362,6 +405,7 @@ export function createUi(doc = document) {
   }
 
   syncControlPanelVisibility();
+  setScreenDimensions(SCREEN_WIDTH, SCREEN_HEIGHT);
   updateScreenScale({ scale: DEFAULT_SCREEN_SCALE });
   setBatteryPowerOn(false);
 
@@ -383,6 +427,10 @@ export function createUi(doc = document) {
       romResetButton,
       modelSelect,
       paletteSelect,
+      paletteOverrideFileInput,
+      paletteOverrideFileButton,
+      paletteOverrideInfoLabel,
+      paletteOverrideClearButton,
       videoSizeSelect,
       bootRomModelCheck,
       statusLabel,
@@ -408,6 +456,7 @@ export function createUi(doc = document) {
     setAudioTelemetryText,
     setPersistenceInfoText,
     setBootRomInfoText,
+    setPaletteOverrideInfoText,
     setDebugRunStateText,
     setBootRomModelCheck,
     setPersistenceControlsEnabled,

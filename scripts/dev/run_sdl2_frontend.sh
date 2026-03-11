@@ -3,7 +3,7 @@ set -eu
 
 show_help() {
   cat <<'EOF'
-Usage: scripts/dev/run_sdl2_frontend.sh [options] [-- <rom_path> [model]]
+Usage: scripts/dev/run_sdl2_frontend.sh [options] [-- <frontend args...>]
 
 Builds the SDL2 frontend with --locked and optional clean rebuild.
 On macOS, when Homebrew SDL2 is detected, it exports linker/include/pkg-config
@@ -23,6 +23,7 @@ Examples:
   scripts/dev/run_sdl2_frontend.sh -- path/to/game.gb
   scripts/dev/run_sdl2_frontend.sh --release -- path/to/game.gb
   scripts/dev/run_sdl2_frontend.sh -- path/to/game.gb mgb
+  scripts/dev/run_sdl2_frontend.sh --release -- --no-bootrom path/to/game.gb sgb
 EOF
 }
 
@@ -63,14 +64,6 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
-
-rom_path="${1:-}"
-model="${2:-}"
-if [ "$#" -gt 2 ]; then
-  printf "Expected optional ROM path and optional model only\n\n" >&2
-  show_help >&2
-  exit 1
-fi
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
@@ -141,20 +134,12 @@ if [ "$run_after_build" -eq 0 ]; then
   exit 0
 fi
 
-if [ -z "$rom_path" ]; then
+if [ "$#" -eq 0 ]; then
   printf "Build completed. Pass a ROM to run:\n"
   printf "  scripts/dev/run_sdl2_frontend.sh -- <path_to_rom.gb> [dmg0|dmg|mgb|sgb|sgb2]\n"
   exit 0
 fi
 
-if [ ! -f "$rom_path" ]; then
-  printf "ROM file not found: %s\n" "$rom_path" >&2
-  exit 1
-fi
-
 printf "Launching SDL2 frontend...\n"
 target_bin="$ROOT_DIR/target/$cargo_profile/frontend-sdl2"
-if [ -n "$model" ]; then
-  exec "$target_bin" "$rom_path" "$model"
-fi
-exec "$target_bin" "$rom_path"
+exec "$target_bin" "$@"

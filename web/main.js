@@ -11,6 +11,7 @@ import {
   createWebEmulatorFromRomBytes,
   createWebEmulatorFromRomFile,
 } from "./rom-loading.mjs";
+import { createWebPaletteOverridePersistence } from "./palette-override-persistence.mjs";
 import { createWebSavePersistence } from "./save-persistence.mjs";
 import { createUi, shouldCloseSettingsPanelOnPointerDown } from "./ui.mjs";
 
@@ -23,6 +24,7 @@ let emulator = null;
 let rafId = 0;
 let lastFrameTimeMs = 0;
 let loadedRomState = null;
+let loadedPaletteOverridesState = null;
 let isRunning = false;
 
 const audioController = createWebAudioController({
@@ -34,6 +36,7 @@ const audioController = createWebAudioController({
 });
 const savePersistence = createWebSavePersistence({ debounceMs: 2000 });
 const bootRomPersistence = createWebBootRomPersistence();
+const paletteOverridePersistence = createWebPaletteOverridePersistence();
 
 function selectedModel() {
   return ui.refs.modelSelect?.value || "dmg";
@@ -48,6 +51,67 @@ function applySelectedPaletteToEmulator() {
     return;
   }
   emulator.set_video_palette(selectedPalette());
+}
+
+function applyLoadedPaletteOverridesToEmulator() {
+  if (!emulator) {
+    return;
+  }
+  if (!loadedPaletteOverridesState) {
+    if (typeof emulator.clearPaletteOverrides === "function") {
+      emulator.clearPaletteOverrides();
+    }
+    return;
+  }
+  if (typeof emulator.setPaletteOverridesIni === "function") {
+    emulator.setPaletteOverridesIni(loadedPaletteOverridesState.text);
+    loadedPaletteOverridesState = {
+      ...loadedPaletteOverridesState,
+      entryCount: emulator.paletteOverrideCount(),
+    };
+  }
+}
+
+function refreshPaletteOverrideInfo() {
+  if (!loadedPaletteOverridesState) {
+    ui.setPaletteOverrideInfoText("Palette overrides: none loaded.");
+    if (ui.refs.paletteOverrideClearButton) {
+      ui.refs.paletteOverrideClearButton.disabled = true;
+    }
+    return;
+  }
+
+  const countLabel =
+    typeof loadedPaletteOverridesState.entryCount === "number"
+      ? `${loadedPaletteOverridesState.entryCount} entry(s)`
+      : "pending apply";
+  ui.setPaletteOverrideInfoText(
+    `Palette overrides: ${loadedPaletteOverridesState.name} (${countLabel}).`
+  );
+  if (ui.refs.paletteOverrideClearButton) {
+    ui.refs.paletteOverrideClearButton.disabled = false;
+  }
+}
+
+function loadStoredPaletteOverrides() {
+  const stored = paletteOverridePersistence.loadPaletteOverrideState();
+  if (!stored) {
+    loadedPaletteOverridesState = null;
+    return false;
+  }
+
+  try {
+    const parsedEntryCount = wasmBindings.parsePaletteOverridesIniEntryCount(stored.text);
+    loadedPaletteOverridesState = {
+      ...stored,
+      entryCount: parsedEntryCount,
+    };
+    return false;
+  } catch {
+    paletteOverridePersistence.removePaletteOverrideState();
+    loadedPaletteOverridesState = null;
+    return true;
+  }
 }
 
 function refreshAudioButtonLabel() {
@@ -346,6 +410,63 @@ async function importBootRoms(files) {
   ui.setStatus(message);
 }
 
+async function importPaletteOverrides(file) {
+  if (!wasmReady) {
+    ui.setStatus("WASM is still loading.");
+    return;
+  }
+  if (!file) {
+    return;
+  }
+
+  const ini = await file.text();
+  const parsedEntryCount = wasmBindings.parsePaletteOverridesIniEntryCount(ini);
+  if (emulator && typeof emulator.setPaletteOverridesIni === "function") {
+    emulator.setPaletteOverridesIni(ini);
+  }
+
+  loadedPaletteOverridesState = {
+    name: file.name,
+    text: ini,
+    entryCount:
+      emulator && typeof emulator.paletteOverrideCount === "function"
+        ? emulator.paletteOverrideCount()
+        : parsedEntryCount,
+  };
+  const persisted = paletteOverridePersistence.storePaletteOverrideState({
+    name: file.name,
+    text: ini,
+  });
+  refreshPaletteOverrideInfo();
+
+  if (emulator) {
+    ui.drawFrameFromEmulator(emulator);
+  }
+
+  ui.setStatus(
+    persisted.ok
+      ? `Palette overrides loaded from ${file.name} (${parsedEntryCount} entry(s)).`
+      : `Palette overrides loaded from ${file.name} (${parsedEntryCount} entry(s)), but browser storage persistence failed.`
+  );
+}
+
+function clearPaletteOverrides() {
+  loadedPaletteOverridesState = null;
+  const removedFromStorage = paletteOverridePersistence.removePaletteOverrideState();
+  if (emulator && typeof emulator.clearPaletteOverrides === "function") {
+    emulator.clearPaletteOverrides();
+  }
+  refreshPaletteOverrideInfo();
+  if (emulator) {
+    ui.drawFrameFromEmulator(emulator);
+  }
+  ui.setStatus(
+    removedFromStorage
+      ? "Palette overrides cleared."
+      : "Palette overrides cleared for the current session, but browser storage removal failed."
+  );
+}
+
 async function importSav(file) {
   if (!emulator) {
     ui.setStatus("Load a ROM before importing a SAV file.");
@@ -504,6 +625,18 @@ function bindDomEvents() {
     }
   });
 
+  ui.refs.paletteOverrideFileInput?.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    try {
+      await importPaletteOverrides(file);
+    } catch (error) {
+      console.error(error);
+      ui.setStatus(`Palette override import error: ${error}`);
+    } finally {
+      event.target.value = "";
+    }
+  });
+
   ui.refs.savFileInput?.addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
     try {
@@ -544,6 +677,7 @@ function bindDomEvents() {
       ui.setStatus(`Palette update error: ${error}`);
     }
   });
+  ui.refs.paletteOverrideClearButton?.addEventListener("click", clearPaletteOverrides);
 
   ui.refs.videoSizeSelect?.addEventListener("change", () => {
     ui.updateScreenScale({ scale: ui.refs.videoSizeSelect?.value });
@@ -598,10 +732,16 @@ async function bootstrap() {
   bindDomEvents();
   await initWasm();
   wasmReady = true;
+  const removedInvalidStoredPaletteOverrides = loadStoredPaletteOverrides();
   refreshAudioButtonLabel();
   refreshBootRomInfo();
+  refreshPaletteOverrideInfo();
   refreshRomControls();
-  ui.setStatus("WASM ready. Load a ROM.");
+  ui.setStatus(
+    removedInvalidStoredPaletteOverrides
+      ? "WASM ready. Invalid stored palette overrides were removed."
+      : "WASM ready. Load a ROM."
+  );
   ui.setCartridgeInfoFromEmulator(emulator);
   ui.setPersistenceInfoFromEmulator(emulator);
   audioController.updateTelemetry();
@@ -636,6 +776,7 @@ async function finishRomActivation({
   isRunning = false;
   lastFrameTimeMs = 0;
   applySelectedPaletteToEmulator();
+  applyLoadedPaletteOverridesToEmulator();
   emulator.set_host_rtc_epoch_secs(Math.floor(Date.now() / 1000));
   savePersistence.attachRom({
     romBytes,

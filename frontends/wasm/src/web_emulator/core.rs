@@ -1,4 +1,5 @@
 use super::WebEmulator;
+use super::video::VideoPaletteSelection;
 use gb_emu::bootrom::parse_boot_rom_prefix;
 use gb_emu::cartridge::Cartridge;
 use gb_emu::hardware::HardwareModel;
@@ -38,7 +39,7 @@ impl WebEmulator {
             gb_emu::gameboy::GameBoy::new_with_model_and_boot_rom(cartridge, model, boot_rom);
         gb.set_cartridge_host_rtc_epoch_secs(Some(initial_rtc_epoch_secs));
         let session = RuntimeSession::new(gb, 48_000);
-        let default_video_palette = VideoPalette::for_model(model);
+        let default_video_palette = VideoPalette::auto_base_for_model(model);
         let audio_queue_controller = gb_runtime::audio_queue::AudioQueueController::new(
             48_000,
             0,
@@ -50,7 +51,8 @@ impl WebEmulator {
             audio_queue_controller,
             audio_queue_clock_ms: 0,
             default_video_palette,
-            active_video_palette: default_video_palette,
+            video_palette_selection: VideoPaletteSelection::Auto,
+            palette_overrides: None,
         })
     }
 }

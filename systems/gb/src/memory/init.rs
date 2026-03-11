@@ -42,11 +42,17 @@ impl Bus {
             serial: Default::default(),
             joypad: Default::default(),
             framebuffer: [0xFF; super::LCD_FRAME_PIXELS],
+            framebuffer_palette_selectors: [1; super::LCD_FRAME_PIXELS],
             clock_ratios: ClockRatios::dmg(),
             hardware_model: model,
             cgb_mmio: Default::default(),
             boot_rom,
             boot_rom_active,
+            recent_key_mmio_writes: [(0, 0); super::RECENT_KEY_MMIO_WRITES_LEN],
+            recent_key_mmio_writes_head: 0,
+            recent_key_mmio_writes_len: 0,
+            key_mmio_write_events: Default::default(),
+            emulated_tcycles: 0,
         };
         bus.configure_dma_model_gates(model);
         bus.configure_ppu_model_gates(model);

@@ -1,5 +1,5 @@
 use super::CliOptions;
-use super::runners::{run_blargg, run_forever, run_mooneye};
+use super::runners::{run_blargg, run_forever, run_mooneye, run_sgb_report};
 use gb_emu::gameboy::GameBoy;
 use std::io;
 
@@ -34,6 +34,9 @@ pub(super) fn execute_cli_mode(gb: &mut GameBoy, options: &CliOptions) -> Result
                 "Mooneye test did not finish within max steps",
             )),
         }
+    } else if options.sgb_report {
+        run_sgb_report(gb, options.max_steps, options.trace);
+        Ok(())
     } else {
         run_forever(gb, options.trace)
     }

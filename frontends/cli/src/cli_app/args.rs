@@ -11,6 +11,7 @@ where
     let mut trace = false;
     let mut blargg = false;
     let mut mooneye = false;
+    let mut sgb_report = false;
     let mut cart_info = false;
     let mut model = HardwareModel::default();
     let mut max_steps: usize = 20_000_000;
@@ -23,6 +24,7 @@ where
             "--trace" => trace = true,
             "--blargg" => blargg = true,
             "--mooneye" => mooneye = true,
+            "--sgb-report" => sgb_report = true,
             "--cart-info" => cart_info = true,
             "--no-bootrom" => no_bootrom = true,
             "--bootrom-dir" => {
@@ -88,11 +90,19 @@ where
         ));
     }
 
+    if sgb_report && (blargg || mooneye) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Use --sgb-report by itself or with --trace, not with --blargg/--mooneye",
+        ));
+    }
+
     Ok(CliOptions {
         rom_path,
         trace,
         blargg,
         mooneye,
+        sgb_report,
         cart_info,
         model,
         max_steps,
@@ -129,6 +139,7 @@ mod tests {
                 trace: true,
                 blargg: true,
                 mooneye: false,
+                sgb_report: false,
                 cart_info: false,
                 model: HardwareModel::Mgb,
                 max_steps: 123,
@@ -148,6 +159,7 @@ mod tests {
                 trace: false,
                 blargg: false,
                 mooneye: false,
+                sgb_report: false,
                 cart_info: true,
                 model: HardwareModel::default(),
                 max_steps: 20_000_000,
@@ -168,6 +180,7 @@ mod tests {
                 trace: false,
                 blargg: false,
                 mooneye: false,
+                sgb_report: false,
                 cart_info: false,
                 model: HardwareModel::default(),
                 max_steps: 20_000_000,
@@ -189,5 +202,23 @@ mod tests {
         let error = parse(&["first.gb", "second.gb"]).expect_err("multiple ROM paths should fail");
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert_eq!(error.to_string(), "Only one ROM file can be provided");
+    }
+
+    #[test]
+    fn parses_sgb_report_mode() {
+        let options =
+            parse(&["--sgb-report", "--model", "sgb", "test.gb"]).expect("args should parse");
+        assert!(options.sgb_report);
+        assert_eq!(options.model, HardwareModel::Sgb);
+    }
+
+    #[test]
+    fn rejects_sgb_report_with_blargg_or_mooneye() {
+        let error = parse(&["--sgb-report", "--blargg", "test.gb"]).expect_err("args should fail");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(
+            error.to_string(),
+            "Use --sgb-report by itself or with --trace, not with --blargg/--mooneye"
+        );
     }
 }

@@ -1,11 +1,11 @@
 use gb_emu::gameboy::{GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH};
+use gb_emu::video::VideoPalettePipeline;
 use gb_runtime::audio::MixerSource;
-use gb_runtime::bootrom::load_boot_rom_for_model;
+use gb_runtime::bootrom::{load_boot_rom_for_model, load_boot_rom_for_model_from_dir};
 use gb_runtime::cartridge_debug::format_cartridge_debug_report;
 use gb_runtime::cartridge_persistence::load_cartridge_from_file;
 use gb_runtime::session::RuntimeSession;
 use sdl2::audio::AudioSpecDesired;
-use sdl2::pixels::PixelFormatEnum;
 use std::env;
 use std::error::Error;
 use std::io;
@@ -19,12 +19,15 @@ mod ui;
 
 use args::{
     audio_resampler_quality_name, parse_args, parse_audio_resampler_quality_from_env,
-    parse_sdl_vsync_from_env, parse_video_palette_from_env,
+    parse_palette_overrides_from_env, parse_sdl_vsync_from_env, parse_video_palette_from_env,
 };
 use audio_queue::{SdlAudioQueueState, refill_audio_queue};
 use input::{EventAction, process_event};
 use save_flush::SaveAutosaveDebouncer;
-use ui::{build_window_title, render_grayscale_frame, show_cartridge_info_dialog};
+use ui::{
+    build_window_title, create_rgb24_texture, render_grayscale_frame, render_rgb24_frame,
+    show_cartridge_info_dialog,
+};
 
 const SCALE: u32 = 4;
 const FRAME_STEP_LIMIT: usize = 250_000;
@@ -39,11 +42,20 @@ pub(crate) fn main_entry() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let (rom_path, model) = parse_args(env::args().skip(1))?;
-    let video_palette = parse_video_palette_from_env(model)?;
+    let options = parse_args(env::args().skip(1))?;
+    let rom_path = options.rom_path;
+    let model = options.model;
+    let video_palette_selection = parse_video_palette_from_env()?;
+    let palette_overrides = parse_palette_overrides_from_env()?;
 
     let (cartridge, persistence) = load_cartridge_from_file(&rom_path)?;
-    let boot_rom = load_boot_rom_for_model(model);
+    let boot_rom = if options.no_bootrom {
+        None
+    } else if let Some(directory) = options.bootrom_dir.as_ref() {
+        load_boot_rom_for_model_from_dir(model, directory)
+    } else {
+        load_boot_rom_for_model(model)
+    };
     let gb = GameBoy::new_with_model_and_boot_rom(cartridge, model, boot_rom);
     let cartridge_metadata = gb.cartridge_metadata();
     let cartridge_debug_report = format_cartridge_debug_report(&cartridge_metadata);
@@ -74,13 +86,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     .map_err(io::Error::other)?;
 
     let texture_creator = canvas.texture_creator();
-    let mut texture = texture_creator
-        .create_texture_streaming(
-            PixelFormatEnum::RGB24,
-            SCREEN_WIDTH as u32,
-            SCREEN_HEIGHT as u32,
-        )
-        .map_err(io::Error::other)?;
+    let mut output_width = SCREEN_WIDTH as u32;
+    let mut output_height = SCREEN_HEIGHT as u32;
+    let mut texture = create_rgb24_texture(&texture_creator, output_width, output_height)?;
 
     let desired_audio = AudioSpecDesired {
         freq: Some(48_000),
@@ -92,6 +100,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         .map_err(io::Error::other)?;
     audio_queue.resume();
     let mut session = RuntimeSession::new(gb, audio_queue.spec().freq.max(1) as u32);
+    session.apply_palette_overrides(palette_overrides.as_ref());
     let resampler_quality = parse_audio_resampler_quality_from_env()?;
     session.set_audio_resampler_quality(resampler_quality);
     if env::var("GB_AUDIO_TEST_TONE")
@@ -113,9 +122,17 @@ fn run() -> Result<(), Box<dyn Error>> {
     println!(
         "Video config: renderer=accelerated | vsync={} | palette={} ({:?})",
         if sdl_vsync { "on" } else { "off" },
-        video_palette.as_str(),
-        video_palette.pipeline()
+        video_palette_selection.as_str(),
+        video_palette_selection
+            .resolve(model, session.sgb_active())
+            .pipeline()
     );
+    if let Some(overrides) = &palette_overrides {
+        println!(
+            "Video overrides: {} entry(s) loaded from GB_VIDEO_PALETTE_OVERRIDES",
+            overrides.entry_count()
+        );
+    }
 
     let mut event_pump = sdl.event_pump().map_err(io::Error::other)?;
     let mut last_host_tick = Instant::now();
@@ -145,9 +162,12 @@ fn run() -> Result<(), Box<dyn Error>> {
         let mut produced_frame = false;
         while session.has_frame_budget() {
             let Some(_cycles) = session.run_frame_with_limit(FRAME_STEP_LIMIT) else {
+                let diagnostics = session.frame_step_timeout_diagnostics();
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
-                    "PPU frame was not produced within the SDL frame step budget",
+                    format!(
+                        "PPU frame was not produced within the SDL frame step budget; {diagnostics}"
+                    ),
                 )
                 .into());
             };
@@ -171,11 +191,47 @@ fn run() -> Result<(), Box<dyn Error>> {
             continue;
         }
 
+        let video_palette = video_palette_selection.resolve(model, session.sgb_active());
+        if video_palette.pipeline() == VideoPalettePipeline::SgbRuntime {
+            let (target_width, target_height) = session
+                .sgb_presented_frame_size()
+                .unwrap_or((SCREEN_WIDTH, SCREEN_HEIGHT));
+            let target_width = target_width as u32;
+            let target_height = target_height as u32;
+            if target_width != output_width || target_height != output_height {
+                output_width = target_width;
+                output_height = target_height;
+                texture = create_rgb24_texture(&texture_creator, output_width, output_height)?;
+                canvas
+                    .window_mut()
+                    .set_size(output_width * SCALE, output_height * SCALE)
+                    .map_err(io::Error::other)?;
+            }
+
+            if let Some(frame) = session.sgb_presented_rgb_frame() {
+                render_rgb24_frame(&mut texture, &mut canvas, frame)?;
+                continue;
+            }
+        }
+
+        if output_width != SCREEN_WIDTH as u32 || output_height != SCREEN_HEIGHT as u32 {
+            output_width = SCREEN_WIDTH as u32;
+            output_height = SCREEN_HEIGHT as u32;
+            texture = create_rgb24_texture(&texture_creator, output_width, output_height)?;
+            canvas
+                .window_mut()
+                .set_size(output_width * SCALE, output_height * SCALE)
+                .map_err(io::Error::other)?;
+        }
+
         render_grayscale_frame(
             &mut texture,
             &mut canvas,
             session.gameboy().framebuffer(),
+            session.gameboy().framebuffer_palette_selectors(),
             video_palette,
+            session.gameboy().rom_header_crc32(),
+            palette_overrides.as_ref(),
         )?;
     }
 

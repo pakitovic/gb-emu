@@ -1,8 +1,8 @@
 use super::{
     Cartridge, CartridgeError, FixedRtcClock, HEADER_MIN_LEN, MBC2_RAM_BYTES, MapperType, Mbc3Rtc,
     RAM_BANK_BYTES, ROM_BANK_BYTES, ROM_ONLY_ROM_BANK_COUNT, RtcClock, SystemRtcClock,
-    cartridge_spec, diagnose_header, is_mbc5_rumble_type, mapper_uses_ram_gate, parse_title,
-    ram_size_bytes_from_code, rom_size_bytes_from_code,
+    cartridge_spec, compute_header_crc32, diagnose_header, is_mbc5_rumble_type,
+    mapper_uses_ram_gate, parse_title, ram_size_bytes_from_code, rom_size_bytes_from_code,
 };
 
 impl Cartridge {
@@ -69,6 +69,7 @@ impl Cartridge {
         }
 
         let title = parse_title(&rom);
+        let header_crc32 = compute_header_crc32(&rom);
         let header_warnings = diagnose_header(&rom);
         // Keep a transient 8KB RAM window for ROM-only homebrew/test ROM protocols
         // that write pass/fail signatures into A000-BFFF without declaring cartridge RAM.
@@ -104,6 +105,7 @@ impl Cartridge {
         Ok(Self {
             rom,
             title,
+            header_crc32,
             cart_type_code: cart_type,
             rom_size_code,
             ram_size_code,

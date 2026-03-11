@@ -13,6 +13,7 @@ impl Cartridge {
         let capabilities = self.capabilities();
         CartridgeMetadata {
             title: self.title.clone(),
+            header_crc32: self.header_crc32,
             cart_type_code: self.cart_type_code,
             mapper: capabilities.mapper,
             rom_size_code: self.rom_size_code,
@@ -46,5 +47,9 @@ impl Cartridge {
 
     pub fn title(&self) -> &str {
         &self.title
+    }
+
+    pub fn header_crc32(&self) -> u32 {
+        self.header_crc32
     }
 }

@@ -2,6 +2,8 @@ use gb_emu::audio::AnalogCalibrationProfile;
 use gb_emu::cartridge::{Cartridge, CartridgeError, CartridgeMapper};
 use gb_emu::gameboy::GameBoy;
 use gb_emu::hardware::HardwareModel;
+use gb_emu::input::Button;
+use gb_emu::sgb::CMD_MLT_REQ;
 
 fn make_rom_32kb() -> Vec<u8> {
     let mut rom = vec![0; 32 * 1024];
@@ -69,6 +71,30 @@ fn tick_n_tcycles(gb: &mut GameBoy, mut tcycles: usize) {
         gb.bus.tick(chunk);
         tcycles -= chunk as usize;
     }
+}
+
+fn feed_sgb_packet_via_p1(gb: &mut GameBoy, packet: &[u8; 16]) {
+    gb.bus.write_byte(0xFF00, 0x00);
+    for byte in packet {
+        for bit in 0..8 {
+            let bit_value = (byte >> bit) & 0x01;
+            let p1_write = if bit_value == 0 { 0x20 } else { 0x10 };
+            gb.bus.write_byte(0xFF00, p1_write);
+        }
+    }
+    gb.bus.write_byte(0xFF00, 0x20);
+}
+
+fn make_single_packet_command(command_id: u8, payload: &[u8]) -> [u8; 16] {
+    let mut packet = [0u8; 16];
+    packet[0] = (command_id << 3) | 0x01;
+    for (index, value) in payload.iter().copied().enumerate() {
+        if index + 1 >= packet.len() {
+            break;
+        }
+        packet[index + 1] = value;
+    }
+    packet
 }
 
 fn left_channel_rms(samples: &[f32], skip_frames: usize) -> f32 {
@@ -142,6 +168,24 @@ fn gameboy_run_frame_with_limit_produces_frame() {
 
     assert!(cycles > 0);
     assert!(gb.frame_counter() > start);
+}
+
+#[test]
+fn sgb_multiplayer_request_changes_public_gameboy_joypad_routing() {
+    let cartridge = Cartridge::from_bytes(make_rom_32kb()).expect("valid ROM should load");
+    let mut gb = GameBoy::new_with_model(cartridge, HardwareModel::Sgb);
+    let mlt_req = make_single_packet_command(CMD_MLT_REQ, &[0x01]); // 2 players
+    feed_sgb_packet_via_p1(&mut gb, &mlt_req);
+
+    assert_eq!(gb.joypad_player_count(), 2);
+    assert!(gb.set_player_button_pressed(1, Button::A, true));
+
+    gb.bus.write_byte(0xFF00, 0x10);
+    gb.bus.write_byte(0xFF00, 0x30);
+    gb.bus.write_byte(0xFF00, 0x10);
+
+    assert_eq!(gb.current_joypad_player_index(), 1);
+    assert_eq!(gb.bus.read_byte(0xFF00) & 0x0F, 0x0E);
 }
 
 #[test]

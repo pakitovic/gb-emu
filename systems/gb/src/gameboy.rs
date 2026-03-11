@@ -11,10 +11,14 @@ mod tests;
 
 pub const SCREEN_WIDTH: usize = crate::memory::LCD_WIDTH;
 pub const SCREEN_HEIGHT: usize = crate::memory::LCD_HEIGHT;
+const RECENT_PC_TRACE_LEN: usize = 16;
 
 pub struct GameBoy {
     cpu: Cpu,
     pub bus: Bus,
+    recent_pc_trace: [u16; RECENT_PC_TRACE_LEN],
+    recent_pc_trace_head: usize,
+    recent_pc_trace_len: usize,
 }
 
 impl GameBoy {
@@ -35,6 +39,9 @@ impl GameBoy {
         Self {
             cpu: Cpu::new_with_model_and_boot_rom(model, boot_rom_active),
             bus: Bus::new_with_model_and_boot_rom(cartridge, model, boot_rom),
+            recent_pc_trace: [0; RECENT_PC_TRACE_LEN],
+            recent_pc_trace_head: 0,
+            recent_pc_trace_len: 0,
         }
     }
 }
