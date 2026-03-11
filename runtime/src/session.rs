@@ -578,6 +578,7 @@ mod tests {
     use super::*;
     use gb_emu::cartridge::Cartridge;
     use gb_emu::hardware::HardwareModel;
+    use gb_emu::sgb::sgb_boot_palette_for_cartridge;
     use gb_emu::sgb::{
         CMD_CHR_TRN, CMD_DATA_TRN, CMD_MASK_EN, CMD_OBJ_TRN, CMD_PAL_SET, CMD_PAL_TRN, CMD_PAL01,
         CMD_PCT_TRN,
@@ -603,6 +604,36 @@ mod tests {
         let mut rom = make_rom_32kb();
         rom[0x0146] = 0x03;
         rom
+    }
+
+    fn expand_5bit_to_8bit_sgb_for_test(value: u8) -> u8 {
+        const SGB_COLOR_CURVE: [u8; 32] = [
+            0, 2, 5, 9, 15, 20, 27, 34, 42, 50, 58, 67, 76, 85, 94, 104, 114, 123, 133, 143, 153,
+            163, 173, 182, 192, 202, 211, 220, 229, 238, 247, 255,
+        ];
+        SGB_COLOR_CURVE[value as usize]
+    }
+
+    fn bgr555_to_rgb888_sgb_for_test(color: u16) -> [u8; 3] {
+        let red_5 = (color & 0x1F) as u8;
+        let green_5 = ((color >> 5) & 0x1F) as u8;
+        let blue_5 = ((color >> 10) & 0x1F) as u8;
+        [
+            expand_5bit_to_8bit_sgb_for_test(red_5),
+            expand_5bit_to_8bit_sgb_for_test(green_5),
+            expand_5bit_to_8bit_sgb_for_test(blue_5),
+        ]
+    }
+
+    fn compress_8bit_to_5bit_for_test(value: u8) -> u16 {
+        ((value as u16 * 31) + 127) / 255
+    }
+
+    fn rgb888_to_sgb_runtime_rgb_for_test(color: [u8; 3]) -> [u8; 3] {
+        let bgr555 = compress_8bit_to_5bit_for_test(color[0])
+            | (compress_8bit_to_5bit_for_test(color[1]) << 5)
+            | (compress_8bit_to_5bit_for_test(color[2]) << 10);
+        bgr555_to_rgb888_sgb_for_test(bgr555)
     }
 
     #[test]
@@ -853,7 +884,14 @@ mod tests {
         let rgb = rgb.to_vec();
 
         assert!(session.sgb_active());
-        assert_eq!(&rgb[0..3], &[0xFF, 0xC6, 0xFF]);
+        let expected = bgr555_to_rgb888_sgb_for_test(
+            sgb_boot_palette_for_cartridge(
+                "KIRBY DREAM LAND",
+                session.gameboy().rom_header_crc32(),
+            )
+            .colors[0],
+        );
+        assert_eq!(&rgb[0..3], &expected);
         assert_eq!(session.sgb_presented_frame_size(), Some((160, 144)));
     }
 
@@ -879,7 +917,8 @@ mod tests {
             .sgb_rgb_frame()
             .expect("override boot palette frame should remain available")
             .to_vec();
-        assert_eq!(&overridden[0..3], &[0x10, 0x21, 0x31]);
+        let expected = rgb888_to_sgb_runtime_rgb_for_test([0x11, 0x22, 0x33]);
+        assert_eq!(&overridden[0..3], &expected);
 
         assert!(session.apply_palette_overrides(None));
         let restored = session
