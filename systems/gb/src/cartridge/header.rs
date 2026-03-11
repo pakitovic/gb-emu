@@ -142,6 +142,22 @@ pub(super) fn compute_global_checksum(rom: &[u8]) -> u16 {
     })
 }
 
+pub(super) fn compute_header_crc32(rom: &[u8]) -> u32 {
+    let Some(header) = rom.get(0x0100..0x0150) else {
+        return 0;
+    };
+
+    let mut crc = !0u32;
+    for byte in header {
+        crc ^= *byte as u32;
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg() & 0xEDB88320;
+            crc = (crc >> 1) ^ mask;
+        }
+    }
+    !crc
+}
+
 pub(super) fn parse_title(rom: &[u8]) -> String {
     let title_bytes = &rom[0x0134..=0x0143];
     let end = title_bytes
@@ -154,4 +170,19 @@ pub(super) fn parse_title(rom: &[u8]) -> String {
         .collect::<String>()
         .trim()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_header_crc32;
+
+    #[test]
+    fn header_crc32_matches_standard_crc32_over_0x100_0x14f() {
+        let mut rom = vec![0u8; 0x150];
+        for (index, byte) in rom[0x0100..0x0150].iter_mut().enumerate() {
+            *byte = index as u8;
+        }
+
+        assert_eq!(compute_header_crc32(&rom), 0xCA26_C3E1);
+    }
 }

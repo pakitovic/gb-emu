@@ -31,8 +31,8 @@ pub(super) fn process_event(gb: &mut GameBoy, event: Event) -> EventAction {
             repeat: false,
             ..
         } => {
-            if let Some(button) = map_key_to_button(code) {
-                gb.set_button_pressed(button, true);
+            if let Some((player_index, button)) = map_key_to_player_button(code) {
+                gb.set_player_button_pressed(player_index, button, true);
             }
             EventAction::Continue
         }
@@ -41,8 +41,8 @@ pub(super) fn process_event(gb: &mut GameBoy, event: Event) -> EventAction {
             repeat: false,
             ..
         } => {
-            if let Some(button) = map_key_to_button(code) {
-                gb.set_button_pressed(button, false);
+            if let Some((player_index, button)) = map_key_to_player_button(code) {
+                gb.set_player_button_pressed(player_index, button, false);
             }
             EventAction::Continue
         }
@@ -50,16 +50,40 @@ pub(super) fn process_event(gb: &mut GameBoy, event: Event) -> EventAction {
     }
 }
 
-fn map_key_to_button(code: Keycode) -> Option<Button> {
+fn map_key_to_player_button(code: Keycode) -> Option<(usize, Button)> {
     match code {
-        Keycode::Right => Some(Button::Right),
-        Keycode::Left => Some(Button::Left),
-        Keycode::Up => Some(Button::Up),
-        Keycode::Down => Some(Button::Down),
-        Keycode::Z => Some(Button::B),
-        Keycode::X => Some(Button::A),
-        Keycode::Backspace => Some(Button::Select),
-        Keycode::Return => Some(Button::Start),
+        Keycode::Right => Some((0, Button::Right)),
+        Keycode::Left => Some((0, Button::Left)),
+        Keycode::Up => Some((0, Button::Up)),
+        Keycode::Down => Some((0, Button::Down)),
+        Keycode::Z => Some((0, Button::B)),
+        Keycode::X => Some((0, Button::A)),
+        Keycode::Backspace => Some((0, Button::Select)),
+        Keycode::Return => Some((0, Button::Start)),
+        Keycode::D => Some((1, Button::Right)),
+        Keycode::A => Some((1, Button::Left)),
+        Keycode::W => Some((1, Button::Up)),
+        Keycode::S => Some((1, Button::Down)),
+        Keycode::F => Some((1, Button::B)),
+        Keycode::G => Some((1, Button::A)),
+        Keycode::R => Some((1, Button::Select)),
+        Keycode::T => Some((1, Button::Start)),
+        Keycode::L => Some((2, Button::Right)),
+        Keycode::J => Some((2, Button::Left)),
+        Keycode::I => Some((2, Button::Up)),
+        Keycode::K => Some((2, Button::Down)),
+        Keycode::U => Some((2, Button::B)),
+        Keycode::O => Some((2, Button::A)),
+        Keycode::Y => Some((2, Button::Select)),
+        Keycode::P => Some((2, Button::Start)),
+        Keycode::Kp6 => Some((3, Button::Right)),
+        Keycode::Kp4 => Some((3, Button::Left)),
+        Keycode::Kp8 => Some((3, Button::Up)),
+        Keycode::Kp5 => Some((3, Button::Down)),
+        Keycode::Kp1 => Some((3, Button::B)),
+        Keycode::Kp2 => Some((3, Button::A)),
+        Keycode::Kp7 => Some((3, Button::Select)),
+        Keycode::Kp9 => Some((3, Button::Start)),
         _ => None,
     }
 }
@@ -78,12 +102,28 @@ mod tests {
     }
 
     #[test]
-    fn map_key_to_button_maps_expected_keys() {
-        assert_eq!(map_key_to_button(Keycode::Right), Some(Button::Right));
-        assert_eq!(map_key_to_button(Keycode::Z), Some(Button::B));
-        assert_eq!(map_key_to_button(Keycode::X), Some(Button::A));
-        assert_eq!(map_key_to_button(Keycode::Return), Some(Button::Start));
-        assert_eq!(map_key_to_button(Keycode::Space), None);
+    fn map_key_to_player_button_maps_expected_keys_for_all_players() {
+        assert_eq!(
+            map_key_to_player_button(Keycode::Right),
+            Some((0, Button::Right))
+        );
+        assert_eq!(map_key_to_player_button(Keycode::Z), Some((0, Button::B)));
+        assert_eq!(
+            map_key_to_player_button(Keycode::D),
+            Some((1, Button::Right))
+        );
+        assert_eq!(map_key_to_player_button(Keycode::G), Some((1, Button::A)));
+        assert_eq!(
+            map_key_to_player_button(Keycode::L),
+            Some((2, Button::Right))
+        );
+        assert_eq!(map_key_to_player_button(Keycode::O), Some((2, Button::A)));
+        assert_eq!(
+            map_key_to_player_button(Keycode::Kp6),
+            Some((3, Button::Right))
+        );
+        assert_eq!(map_key_to_player_button(Keycode::Kp2), Some((3, Button::A)));
+        assert_eq!(map_key_to_player_button(Keycode::Space), None);
     }
 
     #[test]

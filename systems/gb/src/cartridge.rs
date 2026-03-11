@@ -20,7 +20,7 @@ use self::clock::{FixedRtcClock, RtcClock, SystemRtcClock};
 use self::constants::*;
 #[cfg(test)]
 use self::header::{compute_global_checksum, compute_header_checksum};
-use self::header::{diagnose_header, parse_title};
+use self::header::{compute_header_crc32, diagnose_header, parse_title};
 use self::rtc::Mbc3Rtc;
 use self::spec::{
     cartridge_spec, is_mbc5_rumble_type, mapper_uses_ram_gate, public_mapper,
@@ -31,6 +31,7 @@ use self::types::{CartridgeSpec, MapperType};
 pub struct Cartridge {
     rom: Vec<u8>,
     title: String,
+    header_crc32: u32,
     cart_type_code: u8,
     rom_size_code: u8,
     ram_size_code: u8,

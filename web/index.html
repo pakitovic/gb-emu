@@ -670,12 +670,81 @@
         <div class="field">
           <label for="palette">Video palette</label>
           <select id="palette" aria-label="Video palette">
-            <option value="auto" selected>auto</option>
-            <option value="dmg">dmg green</option>
-            <option value="mgb">mgb gray</option>
-            <option value="cgb">cgb (scaffold)</option>
-            <option value="sgb">sgb (scaffold)</option>
+            <optgroup label="Automatic / Model">
+              <option value="auto" selected>auto</option>
+              <option value="dmg">dmg green</option>
+              <option value="mgb">mgb gray</option>
+              <option value="cgb">cgb auto</option>
+              <option value="sgb">sgb runtime</option>
+            </optgroup>
+            <optgroup label="GB / CGB Presets">
+              <option value="grayscale">grayscale</option>
+              <option value="gb-pocket">gb pocket</option>
+              <option value="gb-light">gb light</option>
+              <option value="cgb-brown">cgb brown</option>
+              <option value="cgb-red-a">cgb red A</option>
+              <option value="cgb-dark-brown-b">cgb dark brown B</option>
+              <option value="cgb-pale-yellow">cgb pale yellow</option>
+              <option value="cgb-orange-a">cgb orange A</option>
+              <option value="cgb-yellow-b">cgb yellow B</option>
+              <option value="cgb-blue">cgb blue</option>
+              <option value="cgb-dark-blue-a">cgb dark blue A</option>
+              <option value="cgb-gray-b">cgb gray B</option>
+              <option value="cgb-green">cgb green</option>
+              <option value="cgb-dark-green-a">cgb dark green A</option>
+              <option value="cgb-reverse-b">cgb reverse B</option>
+            </optgroup>
+            <optgroup label="SGB Built-in">
+              <option value="sgb-1a">sgb 1-A</option>
+              <option value="sgb-1b">sgb 1-B</option>
+              <option value="sgb-1c">sgb 1-C</option>
+              <option value="sgb-1d">sgb 1-D</option>
+              <option value="sgb-1e">sgb 1-E</option>
+              <option value="sgb-1f">sgb 1-F</option>
+              <option value="sgb-1g">sgb 1-G</option>
+              <option value="sgb-1h">sgb 1-H</option>
+              <option value="sgb-2a">sgb 2-A</option>
+              <option value="sgb-2b">sgb 2-B</option>
+              <option value="sgb-2c">sgb 2-C</option>
+              <option value="sgb-2d">sgb 2-D</option>
+              <option value="sgb-2e">sgb 2-E</option>
+              <option value="sgb-2f">sgb 2-F</option>
+              <option value="sgb-2g">sgb 2-G</option>
+              <option value="sgb-2h">sgb 2-H</option>
+              <option value="sgb-3a">sgb 3-A</option>
+              <option value="sgb-3b">sgb 3-B</option>
+              <option value="sgb-3c">sgb 3-C</option>
+              <option value="sgb-3d">sgb 3-D</option>
+              <option value="sgb-3e">sgb 3-E</option>
+              <option value="sgb-3f">sgb 3-F</option>
+              <option value="sgb-3g">sgb 3-G</option>
+              <option value="sgb-3h">sgb 3-H</option>
+              <option value="sgb-4a">sgb 4-A</option>
+              <option value="sgb-4b">sgb 4-B</option>
+              <option value="sgb-4c">sgb 4-C</option>
+              <option value="sgb-4d">sgb 4-D</option>
+              <option value="sgb-4e">sgb 4-E</option>
+              <option value="sgb-4f">sgb 4-F</option>
+              <option value="sgb-4g">sgb 4-G</option>
+              <option value="sgb-4h">sgb 4-H</option>
+            </optgroup>
           </select>
+        </div>
+        <div class="file-picker">
+          <label id="palette-override-file-button" class="file-button" for="palette-override-file"
+            >Load Palette Overrides</label
+          >
+          <input
+            id="palette-override-file"
+            type="file"
+            accept=".ini,.cfg,.txt"
+          />
+        </div>
+        <div class="inline">
+          <div id="palette-override-info" class="status-card" aria-live="polite">
+            Palette overrides: none loaded.
+          </div>
+          <button id="palette-override-clear" type="button">Clear overrides</button>
         </div>
         <div class="field">
           <label for="video-size">Video Size</label>

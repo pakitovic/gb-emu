@@ -84,8 +84,19 @@ impl PpuState {
             let obj_pixel = Self::mode3_pop_obj_pixel(bus);
             let pixel_meta = Self::compose_mode3_pixel_meta(lcdc, bg_pixel, obj_pixel);
             let shade_id = Self::map_mode3_dmg_shade_id(bus, pixel_meta);
+            let palette_selector_code = match pixel_meta.dmg_palette {
+                DmgPaletteSelector::ForcedWhite => 1,
+                DmgPaletteSelector::Bg => 1,
+                DmgPaletteSelector::Obj0 => 2,
+                DmgPaletteSelector::Obj1 => 3,
+            };
             bus.ppu_state_mut().bg_color_ids_line[x] = bg_pixel.color_id;
-            bus.ppu_write_framebuffer_pixel(y, x, DMG_SHADE_TO_LUMA[shade_id as usize]);
+            bus.ppu_write_framebuffer_pixel(
+                y,
+                x,
+                DMG_SHADE_TO_LUMA[shade_id as usize],
+                palette_selector_code,
+            );
         }
     }
 

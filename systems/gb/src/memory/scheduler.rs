@@ -34,5 +34,6 @@ impl Bus {
     // Advance all hardware by DMG base t-cycles (4_194_304 Hz domain).
     pub fn tick(&mut self, tcycles: u8) {
         HardwareScheduler::tick(self, tcycles);
+        self.emulated_tcycles = self.emulated_tcycles.wrapping_add(tcycles as u64);
     }
 }

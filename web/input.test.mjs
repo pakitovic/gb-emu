@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { bindKeyboardInput } from "./input.mjs";
 
-test("keyboard mapping uses z=B and x=A", () => {
+test("keyboard mapping uses player 1 keys when only set_button is available", () => {
   const target = createMockTarget();
   const calls = [];
   const emulator = {
@@ -36,6 +36,52 @@ test("keyboard mapping uses z=B and x=A", () => {
   assert.equal(zKeyUpEvent.defaultPrevented, true);
   assert.equal(xKeyDownEvent.defaultPrevented, true);
   assert.equal(xKeyUpEvent.defaultPrevented, true);
+});
+
+test("keyboard mapping routes player 2 keys through set_player_button", () => {
+  const target = createMockTarget();
+  const calls = [];
+  const emulator = {
+    set_player_button(player, index, pressed) {
+      calls.push({ player, index, pressed });
+    },
+  };
+  bindKeyboardInput({
+    target,
+    getEmulator: () => emulator,
+  });
+
+  const rightDownEvent = keyEvent("KeyD");
+  const aDownEvent = keyEvent("KeyG");
+  target.dispatch("keydown", rightDownEvent);
+  target.dispatch("keydown", aDownEvent);
+
+  assert.deepEqual(calls, [
+    { player: 1, index: 0, pressed: true },
+    { player: 1, index: 4, pressed: true },
+  ]);
+  assert.equal(rightDownEvent.defaultPrevented, true);
+  assert.equal(aDownEvent.defaultPrevented, true);
+});
+
+test("legacy web bindings ignore non-player-1 keys when set_player_button is unavailable", () => {
+  const target = createMockTarget();
+  const calls = [];
+  const emulator = {
+    set_button(index, pressed) {
+      calls.push({ index, pressed });
+    },
+  };
+  bindKeyboardInput({
+    target,
+    getEmulator: () => emulator,
+  });
+
+  const playerTwoEvent = keyEvent("KeyD");
+  target.dispatch("keydown", playerTwoEvent);
+
+  assert.deepEqual(calls, []);
+  assert.equal(playerTwoEvent.defaultPrevented, true);
 });
 
 test("keyboard handler ignores unmapped keys", () => {

@@ -5,6 +5,7 @@ import {
   batteryPowerOnForState,
   canvasPromptForState,
   CONTROL_SECTIONS,
+  frameDimensionsForEmulator,
   nextControlPanelState,
   normalizeControlSection,
   normalizeScreenScale,
@@ -86,6 +87,38 @@ test("normalizeScreenScale defaults to x4 for invalid values", () => {
   assert.equal(normalizeScreenScale({ scale: undefined }), 4);
   assert.equal(normalizeScreenScale({ scale: null }), 4);
   assert.equal(normalizeScreenScale({ scale: "foo" }), 4);
+});
+
+test("frameDimensionsForEmulator uses emulator-reported dimensions when available", () => {
+  const emulator = {
+    screen_width() {
+      return 256;
+    },
+    screen_height() {
+      return 224;
+    },
+  };
+
+  assert.deepEqual(frameDimensionsForEmulator(emulator), {
+    width: 256,
+    height: 224,
+  });
+});
+
+test("frameDimensionsForEmulator falls back to DMG defaults for invalid values", () => {
+  const emulator = {
+    screen_width() {
+      return 0;
+    },
+    screen_height() {
+      return Number.NaN;
+    },
+  };
+
+  assert.deepEqual(frameDimensionsForEmulator(emulator), {
+    width: 160,
+    height: 144,
+  });
 });
 
 test("shouldCloseSettingsPanelOnPointerDown closes only on outside click while open", () => {

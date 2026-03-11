@@ -7,6 +7,10 @@ use self::decode::{IoRegisterRoute, decode_io_register};
 
 impl Bus {
     pub(in crate::memory) fn write_io_register(&mut self, addr: u16, value: u8) {
+        if matches!(addr, 0xFF00 | 0xFF40) {
+            self.record_key_mmio_write(addr, value);
+        }
+
         match decode_io_register(addr) {
             IoRegisterRoute::CgbDmaScaffold => {
                 debug_assert!(self.write_cgb_dma_mmio_scaffold(addr, value));
