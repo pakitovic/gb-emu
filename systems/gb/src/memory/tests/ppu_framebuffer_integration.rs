@@ -245,6 +245,99 @@ fn framebuffer_obp_write_during_mode3_affects_later_obj_pixels_only() {
 }
 
 #[test]
+fn framebuffer_oam_dma_started_mid_mode3_can_change_later_obj_tile_fetch() {
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+    bus.write_byte(0xFF48, 0xE4); // identity OBP0
+
+    // White BG tile and white tile 0 for the DMA-glitch fallback path.
+    bus.write_byte(0x9800, 0x00);
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+    bus.write_byte(0x8004, 0x00);
+    bus.write_byte(0x8005, 0x00);
+
+    // Sprite tile 1 is solid black on the row used by LY=2.
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+    bus.write_byte(0x8014, 0xFF);
+    bus.write_byte(0x8015, 0xFF);
+
+    // Sprite later on the line so its OBJ fetch has not started yet when DMA begins.
+    bus.write_byte(0xFE00, 18); // Y => top at LY=2
+    bus.write_byte(0xFE01, 72); // X => left edge at x=64
+    bus.write_byte(0xFE02, 0x01); // tile 1 (black)
+    bus.write_byte(0xFE03, 0x00); // attrs
+
+    bus.write_byte(0xFF40, 0x93); // LCD on + BG + OBJ
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    // Start DMA from VRAM page 0x8000 after mode3 has already prepared the line.
+    // The source page is all zeroes around the active word, so a later OBJ fetch
+    // should no longer use the pre-latched black tile data.
+    bus.write_byte(0xFF46, 0x80);
+    wait_for_next_frame(&mut bus);
+
+    let frame = bus.framebuffer();
+    let line2 = 2 * 160;
+    assert_eq!(
+        frame[line2 + 64],
+        0xFF,
+        "expected mid-mode3 OAM DMA to affect the later sprite fetch instead of keeping the pre-latched black tile"
+    );
+}
+
+#[test]
+fn framebuffer_oam_dma_mode3_obj_fetch_can_use_active_dma_word_before_sprite_entry_is_overwritten()
+{
+    let mut bus = make_test_bus();
+
+    bus.write_byte(0xFF40, 0x00); // LCD off for deterministic setup
+    bus.write_byte(0xFF42, 0x00); // SCY
+    bus.write_byte(0xFF43, 0x00); // SCX
+    bus.write_byte(0xFF47, 0xE4); // identity BGP
+    bus.write_byte(0xFF48, 0xE4); // identity OBP0
+
+    // White BG tile and white tile 0 for the DMA-sourced fallback tile/attr pair.
+    bus.write_byte(0x9800, 0x00);
+    bus.write_byte(0x8000, 0x00);
+    bus.write_byte(0x8001, 0x00);
+    bus.write_byte(0x8004, 0x00);
+    bus.write_byte(0x8005, 0x00);
+
+    // Sprite tile 1 is solid black on the row used by LY=2.
+    bus.write_byte(0x8010, 0xFF);
+    bus.write_byte(0x8011, 0xFF);
+    bus.write_byte(0x8014, 0xFF);
+    bus.write_byte(0x8015, 0xFF);
+
+    // Place the sprite in the final OAM slot so DMA has not yet copied its tile/attr
+    // bytes by the time the later mode3 OBJ fetch happens.
+    bus.write_byte(0xFE9C, 18); // Y => top at LY=2
+    bus.write_byte(0xFE9D, 72); // X => left edge at x=64
+    bus.write_byte(0xFE9E, 0x01); // tile 1 (black)
+    bus.write_byte(0xFE9F, 0x00); // attrs
+
+    bus.write_byte(0xFF40, 0x93); // LCD on + BG + OBJ
+    wait_for_ly_mode(&mut bus, 2, 3);
+
+    bus.write_byte(0xFF46, 0x80); // source page around 0x8000 is all zeroes
+    wait_for_next_frame(&mut bus);
+
+    let frame = bus.framebuffer();
+    let line2 = 2 * 160;
+    assert_eq!(
+        frame[line2 + 64],
+        0xFF,
+        "expected mode3 OBJ fetch to follow the active DMA word even before the sprite's own OAM tile/attr bytes are overwritten"
+    );
+}
+
+#[test]
 fn framebuffer_bg_disabled_forces_white_backdrop_ignoring_bgp() {
     let mut bus = make_test_bus();
 

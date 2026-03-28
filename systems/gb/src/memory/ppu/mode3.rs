@@ -513,9 +513,6 @@ impl PpuState {
             let base = (oam_index as usize) * 4;
             let y_raw = bus.read_oam_index_internal(base);
             let x_raw = bus.read_oam_index_internal(base + 1);
-            let tile = bus.read_oam_index_internal(base + 2);
-            let attr = bus.read_oam_index_internal(base + 3);
-
             if x_raw >= 168 {
                 continue;
             }
@@ -528,8 +525,6 @@ impl PpuState {
             candidates[candidate_count] = ObjCandidate {
                 x_raw,
                 y_raw,
-                tile,
-                attr,
                 oam_index,
             };
             candidate_count += 1;
@@ -573,25 +568,14 @@ impl PpuState {
         let mut sprites = [Mode3ObjSprite::EMPTY; MAX_SPRITES_PER_LINE];
         for (i, candidate) in candidates[..candidate_count].iter().enumerate() {
             let y_top = candidate.y_raw as i16 - 16;
-            let mut y_in_sprite = (y_i - y_top) as usize;
-            if (candidate.attr & 0x40) != 0 {
-                y_in_sprite = sprite_height - 1 - y_in_sprite;
-            }
-
-            let tile_line = if sprite_height == 16 {
-                let base_tile = candidate.tile & 0xFE;
-                base_tile.wrapping_add((y_in_sprite / 8) as u8)
-            } else {
-                candidate.tile
-            };
-            let line_in_tile = y_in_sprite & 0x07;
-            let line_addr = (tile_line as usize) * 16 + line_in_tile * 2;
-
             sprites[i] = Mode3ObjSprite {
                 x_left: candidate.x_raw as i16 - 8,
-                low: bus.read_vram_index_internal(line_addr),
-                high: bus.read_vram_index_internal(line_addr + 1),
-                attr: candidate.attr,
+                oam_index: candidate.oam_index,
+                line_in_sprite: (y_i - y_top) as u8,
+                sprite_height: sprite_height as u8,
+                low: 0,
+                high: 0,
+                attr: 0,
                 fetch_dots: fetch_dots[i],
                 post_fetch_dots: post_fetch_dots[i],
             };
@@ -631,7 +615,10 @@ impl PpuState {
         if bus.ppu_state().mode3_fifo.obj_next_sprite < bus.ppu_state().mode3_fifo.obj_sprite_count
         {
             let sprite_index = bus.ppu_state().mode3_fifo.obj_next_sprite;
-            let sprite = bus.ppu_state().mode3_fifo.obj_sprites[sprite_index];
+            let sprite = Self::mode3_resolve_obj_fetch_sprite(
+                bus,
+                bus.ppu_state().mode3_fifo.obj_sprites[sprite_index],
+            );
             let obj_fetch_lookahead = sprite.fetch_dots as i16;
             if sprite.x_left <= screen_x + obj_fetch_lookahead {
                 bus.ppu_state_mut().mode3_fifo.obj_next_sprite += 1;
@@ -649,6 +636,40 @@ impl PpuState {
         }
 
         false
+    }
+
+    fn mode3_resolve_obj_fetch_sprite(bus: &Bus, sprite: Mode3ObjSprite) -> Mode3ObjSprite {
+        let base = (sprite.oam_index as usize) * 4;
+        // Pan Docs notes that OAM DMA overlapping mode 3 can feed the currently
+        // active DMA word into OBJ tile/attr fetches instead of the pre-line OAM bytes.
+        let (tile, attr) = bus.active_oam_dma_word().unwrap_or_else(|| {
+            (
+                bus.read_oam_index_internal(base + 2),
+                bus.read_oam_index_internal(base + 3),
+            )
+        });
+
+        let mut y_in_sprite = sprite.line_in_sprite as usize;
+        let sprite_height = sprite.sprite_height as usize;
+        if (attr & 0x40) != 0 {
+            y_in_sprite = sprite_height - 1 - y_in_sprite;
+        }
+
+        let tile_line = if sprite_height == 16 {
+            let base_tile = tile & 0xFE;
+            base_tile.wrapping_add((y_in_sprite / 8) as u8)
+        } else {
+            tile
+        };
+        let line_in_tile = y_in_sprite & 0x07;
+        let line_addr = (tile_line as usize) * 16 + line_in_tile * 2;
+
+        Mode3ObjSprite {
+            low: bus.read_vram_index_internal(line_addr),
+            high: bus.read_vram_index_internal(line_addr + 1),
+            attr,
+            ..sprite
+        }
     }
 
     pub(super) fn mode3_pop_obj_pixel(bus: &mut Bus) -> ObjFifoPixel {

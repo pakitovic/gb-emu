@@ -23,8 +23,6 @@ pub(super) enum BgPushSubstate {
 pub(super) struct ObjCandidate {
     pub(super) x_raw: u8,
     pub(super) y_raw: u8,
-    pub(super) tile: u8,
-    pub(super) attr: u8,
     pub(super) oam_index: u8,
 }
 
@@ -32,8 +30,6 @@ impl ObjCandidate {
     pub(super) const EMPTY: Self = Self {
         x_raw: 0,
         y_raw: 0,
-        tile: 0,
-        attr: 0,
         oam_index: 0,
     };
 }
@@ -115,6 +111,9 @@ pub(super) struct Mode3PixelMeta {
 #[derive(Clone, Copy, Default)]
 pub(super) struct Mode3ObjSprite {
     pub(super) x_left: i16,
+    pub(super) oam_index: u8,
+    pub(super) line_in_sprite: u8,
+    pub(super) sprite_height: u8,
     pub(super) low: u8,
     pub(super) high: u8,
     pub(super) attr: u8,
@@ -125,6 +124,9 @@ pub(super) struct Mode3ObjSprite {
 impl Mode3ObjSprite {
     pub(super) const EMPTY: Self = Self {
         x_left: 0,
+        oam_index: 0,
+        line_in_sprite: 0,
+        sprite_height: 8,
         low: 0,
         high: 0,
         attr: 0,
