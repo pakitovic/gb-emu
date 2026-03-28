@@ -61,6 +61,20 @@ impl DmaState {
             DmaSchedulerMode::Hdma => Self::step_hdma_transfer_scaffold(bus),
         }
     }
+
+    fn active_oam_dma_word(bus: &Bus) -> Option<(u8, u8)> {
+        if !matches!(bus.dma.mode, DmaSchedulerMode::Oam) || bus.dma.oam.index >= OAM_DMA_BYTES {
+            return None;
+        }
+
+        let word_index = bus.dma.oam.index & !0x01;
+        let source = bus.dma.oam.source.wrapping_add(word_index as u16);
+        Some((
+            bus.read_byte_raw(source),
+            bus.read_byte_raw(source.wrapping_add(1)),
+        ))
+    }
+
     fn reset_mode_edge_events(bus: &mut Bus) {
         bus.dma.mode_edge_events = DmaSchedulerEdgeEvents::default();
     }
@@ -114,6 +128,10 @@ impl Bus {
 
     pub(super) fn dma_blocks_oam_cpu_write(&self) -> bool {
         DmaState::cpu_blocks_oam_write(self)
+    }
+
+    pub(in crate::memory) fn active_oam_dma_word(&self) -> Option<(u8, u8)> {
+        DmaState::active_oam_dma_word(self)
     }
 
     #[cfg(test)]
