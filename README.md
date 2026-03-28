@@ -352,8 +352,6 @@ ROM test suites:
 ```bash
 # Blargg
 scripts/blargg/fetch_blargg_roms.sh
-# Targeted performance guard used by CI to catch regressions earlier:
-scripts/blargg/run_cpu_instrs_guard.sh
 # Targeted audio/realtime mixer guard (local/dev, timeout-based):
 scripts/dev/run_audio_guard.sh
 # Targeted DMA scheduler debug guard (local/dev and CI, timeout-based):
